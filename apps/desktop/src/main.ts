@@ -239,7 +239,14 @@ ipcMain.handle("gateway:save-provider-settings", async (_event, payload: unknown
 
 ipcMain.handle("gateway:get-sessions", async () => {
   await gatewayManager.ensureRunning();
-  return callAdmin("/admin/sessions");
+  const payload = (await callAdmin("/admin/sessions")) as {
+    activeSessionId?: string;
+  };
+
+  return {
+    activeSessionId: payload.activeSessionId,
+    data: desktopSessionSource.listSessions(),
+  };
 });
 
 ipcMain.handle("gateway:set-active-session", async (_event, sessionId: string) => {

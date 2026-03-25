@@ -174,6 +174,7 @@ const state: {
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
   oauthInFlight?: boolean;
+  lastUsageRefresh?: SessionUsageRefreshResponse;
 } = {};
 
 function getGatewayApi() {
@@ -597,13 +598,33 @@ function renderErrors(): void {
     return;
   }
 
+  const refreshErrors = state.lastUsageRefresh?.errors ?? [];
   const errors = state.health?.recentErrors ?? [];
-  if (!errors.length) {
+  if (!errors.length && !refreshErrors.length) {
     container.innerHTML = "<div class='empty-card'>最近没有新的错误记录</div>";
     return;
   }
 
   container.innerHTML = "";
+  for (const item of refreshErrors.slice(0, 6)) {
+    const card = document.createElement("article");
+    card.className = "diagnostic-card";
+    card.innerHTML = `
+      <div class="provider-card-head">
+        <div>
+          <strong>额度刷新失败</strong>
+          <small>${escapeHtml(item.sessionId)}</small>
+        </div>
+        <span class="pill incomplete">需处理</span>
+      </div>
+      <div class="diagnostic-inline">
+        <small>原因</small>
+        <strong>${escapeHtml(item.message)}</strong>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
   for (const item of errors.slice(0, 6)) {
     const card = document.createElement("article");
     card.className = "diagnostic-card";
@@ -1030,6 +1051,7 @@ async function refresh(): Promise<void> {
 async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRefreshResponse | undefined> {
   const api = getGatewayApi();
   if (typeof api.refreshSessionUsage !== "function") {
+    state.lastUsageRefresh = undefined;
     await refresh();
     return undefined;
   }
@@ -1043,6 +1065,7 @@ async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRef
     }
   }
 
+  state.lastUsageRefresh = summary;
   await refresh();
   return summary;
 }
