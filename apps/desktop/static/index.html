@@ -148,10 +148,16 @@
         border: 1px solid var(--line);
       }
 
+      button.ghost.danger {
+        color: #dc2626;
+        border-color: rgba(220, 38, 38, 0.16);
+        background: rgba(220, 38, 38, 0.04);
+      }
+
       button.mini {
-        padding: 10px 12px;
-        border-radius: 14px;
-        font-size: 0.92rem;
+        padding: 8px 10px;
+        border-radius: 12px;
+        font-size: 0.84rem;
       }
 
       .banner {
@@ -253,8 +259,8 @@
 
       .account-subgrid {
         display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .config-grid {
@@ -310,7 +316,9 @@
       .account-head strong,
       .provider-card-head strong {
         display: block;
-        font-size: 1.18rem;
+        font-size: 1.02rem;
+        line-height: 1.35;
+        word-break: break-word;
       }
 
       .account-head small,
@@ -323,16 +331,21 @@
       .account-meta,
       .provider-card-meta {
         margin-top: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 12px;
+      }
+
+      .account-meta span,
+      .provider-card-meta span {
+        word-break: break-word;
       }
 
       .account-usage {
-        margin-top: 14px;
+        margin-top: 12px;
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        gap: 10px;
       }
 
       .quota-meter {
@@ -351,16 +364,20 @@
       }
 
       .subtle-date {
-        margin-top: 8px;
-        font-size: 0.88rem;
+        margin-top: 6px;
+        font-size: 0.8rem;
       }
 
       .account-actions,
       .toolbar {
-        margin-top: 16px;
+        margin-top: 12px;
         display: flex;
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
+      }
+
+      .account-card {
+        padding: 16px;
       }
 
       .toolbar {
@@ -590,14 +607,22 @@
         .guide-grid,
         .account-grid,
         .provider-grid,
-        .config-grid,
-        .account-subgrid {
+        .config-grid {
           grid-template-columns: 1fr;
+        }
+
+        .account-subgrid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .field-grid,
         .diagnostic-grid,
         .account-usage {
+          grid-template-columns: 1fr;
+        }
+
+        .account-meta,
+        .provider-card-meta {
           grid-template-columns: 1fr;
         }
       }
@@ -623,6 +648,10 @@
 
         .hero-actions {
           justify-content: flex-start;
+        }
+
+        .account-subgrid {
+          grid-template-columns: 1fr;
         }
       }
     </style>

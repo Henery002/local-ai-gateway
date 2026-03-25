@@ -8,6 +8,7 @@ const api = {
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId) => ipcRenderer.invoke("gateway:set-active-session", sessionId),
   refreshSessionUsage: (sessionId) => ipcRenderer.invoke("gateway:refresh-session-usage", sessionId),
+  deleteCodexAccount: (sessionId) => ipcRenderer.invoke("gateway:delete-codex-account", sessionId),
   restartGateway: () => ipcRenderer.invoke("gateway:restart"),
   copyOpenClawSnippet: () => ipcRenderer.invoke("gateway:copy-openclaw-snippet"),
   openLogs: () => ipcRenderer.invoke("gateway:open-logs"),

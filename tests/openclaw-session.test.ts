@@ -14,6 +14,43 @@ afterEach(() => {
 });
 
 describe("openclaw session source", () => {
+  it("derives email and plan type from access token claims", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-token-claims-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const payload = Buffer.from(
+      JSON.stringify({
+        "https://api.openai.com/profile": {
+          email: "token-user@example.com",
+        },
+        "https://api.openai.com/auth": {
+          chatgpt_plan_type: "plus",
+        },
+      }),
+    ).toString("base64url");
+    const accessToken = `header.${payload}.signature`;
+
+    const saved = store.upsertOAuthCredentials({
+      access: accessToken,
+      refresh: "local-refresh-token",
+      expires: 4_102_444_800_000,
+      accountId: "acct_token_claims",
+    });
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+    );
+
+    const derived = source.listSessions().find((session) => session.id === `local-import:${saved.profileId}`);
+
+    expect(derived).toMatchObject({
+      email: "token-user@example.com",
+      displayName: "token-user@example.com",
+      planType: "plus",
+    });
+  });
+
   it("discovers codex sessions from auth profile files", async () => {
     const source = new OpenClawSessionSource(
       new URL("./fixtures/openclaw", import.meta.url).pathname,
@@ -227,5 +264,30 @@ describe("openclaw session source", () => {
         windowMinutes: 300,
       },
     });
+  });
+
+  it("deletes imported codex accounts from the local desktop store", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-delete-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const saved = store.upsertOAuthCredentials({
+      access: "local-access-token",
+      refresh: "local-refresh-token",
+      expires: 4_102_444_800_000,
+      accountId: "acct_to_delete",
+    });
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+    );
+
+    const removed = source.deleteImportedSession(`local-import:${saved.profileId}`);
+    const sessions = source.listSessions();
+
+    expect(removed).toMatchObject({
+      removed: true,
+      profileId: saved.profileId,
+    });
+    expect(sessions.find((session) => session.id === `local-import:${saved.profileId}`)).toBeUndefined();
   });
 });

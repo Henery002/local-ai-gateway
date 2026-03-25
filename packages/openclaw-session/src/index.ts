@@ -60,6 +60,11 @@ interface CodexUsagePayload {
   };
 }
 
+interface DecodedAccessTokenClaims {
+  email?: string;
+  planType?: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -197,6 +202,45 @@ function sanitizeProfile(value: RawProfile): RawProfile {
     importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
   };
+}
+
+function decodeAccessTokenClaims(accessToken?: string): DecodedAccessTokenClaims {
+  if (!accessToken) {
+    return {};
+  }
+
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length !== 3) {
+      return {};
+    }
+
+    const payload = JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    const authClaim = isRecord(payload["https://api.openai.com/auth"])
+      ? payload["https://api.openai.com/auth"]
+      : undefined;
+    const profileClaim = isRecord(payload["https://api.openai.com/profile"])
+      ? payload["https://api.openai.com/profile"]
+      : undefined;
+
+    return {
+      email:
+        typeof profileClaim?.email === "string"
+          ? profileClaim.email
+          : typeof payload.email === "string"
+            ? payload.email
+            : undefined,
+      planType:
+        typeof authClaim?.chatgpt_plan_type === "string"
+          ? authClaim.chatgpt_plan_type
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function createNowIso(): string {
@@ -473,6 +517,23 @@ export class ImportedCodexAccountStore {
     };
   }
 
+  deleteProfile(profileId: string): { removed: boolean; filePath: string } {
+    const current = this.listProfiles();
+    if (!current[profileId]) {
+      return {
+        removed: false,
+        filePath: this.profilesPath,
+      };
+    }
+
+    delete current[profileId];
+    this.saveProfiles(current);
+    return {
+      removed: true,
+      filePath: this.profilesPath,
+    };
+  }
+
   private saveProfiles(profiles: Record<string, RawProfile>): void {
     mkdirSync(dirname(this.profilesPath), { recursive: true });
     const payload: RawProfilesFile = {
@@ -503,28 +564,32 @@ export class OpenClawSessionSource {
       .map((record) => {
         const sessionId = `${record.agentId}:${record.profileId}`;
         const cached = this.usageCache.get(sessionId);
+        const decoded = decodeAccessTokenClaims(record.profile.access);
         const profile = {
           ...record.profile,
+          displayName: record.profile.displayName ?? record.profile.email ?? decoded.email,
+          email: record.profile.email ?? decoded.email,
+          planType: record.profile.planType ?? decoded.planType,
           ...cached,
         };
 
         return {
-        id: sessionId,
-        agentId: record.agentId,
-        profileId: record.profileId,
-        provider: profile.provider ?? "unknown",
-        type: profile.type ?? "unknown",
-        accountId: profile.accountId,
-        displayName: profile.displayName,
-        email: profile.email,
-        planType: profile.planType,
-        quota: profile.quota,
-        expiresAt: typeof profile.expires === "number" ? profile.expires : undefined,
-        status: this.resolveStatus(profile),
-        sourceKind: record.sourceKind,
-        sourceLabel: record.sourceLabel,
-        sourcePath: record.sourcePath,
-      };
+          id: sessionId,
+          agentId: record.agentId,
+          profileId: record.profileId,
+          provider: profile.provider ?? "unknown",
+          type: profile.type ?? "unknown",
+          accountId: profile.accountId,
+          displayName: profile.displayName,
+          email: profile.email,
+          planType: profile.planType,
+          quota: profile.quota,
+          expiresAt: typeof profile.expires === "number" ? profile.expires : undefined,
+          status: this.resolveStatus(profile),
+          sourceKind: record.sourceKind,
+          sourceLabel: record.sourceLabel,
+          sourcePath: record.sourcePath,
+        };
       })
       .sort((left, right) => left.id.localeCompare(right.id));
   }
@@ -628,6 +693,29 @@ export class OpenClawSessionSource {
     });
   }
 
+  deleteImportedSession(sessionId: string): { removed: boolean; profileId: string; filePath: string } {
+    if (!this.importedStore) {
+      throw new Error("当前未配置桌面端本地账号存储。");
+    }
+
+    const target = this.listSessions().find((session) => session.id === sessionId);
+    if (!target) {
+      throw new Error(`未找到会话 ${sessionId}。`);
+    }
+
+    if (target.sourceKind !== "local-import") {
+      throw new Error("只有桌面端本地账号支持删除。");
+    }
+
+    const result = this.importedStore.deleteProfile(target.profileId);
+    this.usageCache.delete(sessionId);
+    return {
+      removed: result.removed,
+      profileId: target.profileId,
+      filePath: result.filePath,
+    };
+  }
+
   async refreshUsage(sessionId?: string): Promise<SessionUsageRefreshSummary> {
     const sessions = this.listSessions().filter((session) => session.status !== "invalid");
     const targets = sessionId
@@ -660,7 +748,7 @@ export class OpenClawSessionSource {
         const resolved = await this.resolveSession(representative.id);
         const snapshot = await fetchCodexUsageSnapshot(resolved.apiKey, resolved.accountId);
         const patch = {
-          displayName: representative.displayName,
+          displayName: representative.displayName ?? representative.email,
           email: representative.email,
           planType: snapshot.planType ?? representative.planType,
           quota: snapshot.quota ?? representative.quota,

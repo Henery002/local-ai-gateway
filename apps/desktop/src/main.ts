@@ -261,6 +261,33 @@ ipcMain.handle("gateway:refresh-session-usage", async (_event, sessionId?: strin
   return desktopSessionSource.refreshUsage(sessionId);
 });
 
+ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string) => {
+  const removed = desktopSessionSource.deleteImportedSession(sessionId);
+
+  await gatewayManager.ensureRunning();
+  const sessionPayload = (await callAdmin("/admin/sessions")) as {
+    activeSessionId?: string;
+  };
+
+  if (sessionPayload.activeSessionId === sessionId) {
+    const replacement = desktopSessionSource
+      .listSessions()
+      .find((session) => session.status === "available");
+
+    if (replacement) {
+      await callAdmin("/admin/sessions/active", {
+        method: "PUT",
+        body: JSON.stringify({ sessionId: replacement.id }),
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    data: removed,
+  };
+});
+
 ipcMain.handle("gateway:restart", async () => {
   await gatewayManager.ensureRunning();
 

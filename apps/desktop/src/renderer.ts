@@ -17,6 +17,7 @@ declare global {
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
       refreshSessionUsage: (sessionId?: string) => Promise<SessionUsageRefreshResponse>;
+      deleteCodexAccount: (sessionId: string) => Promise<{ ok: boolean; data: { removed: boolean; profileId: string; filePath: string } }>;
       restartGateway: () => Promise<any>;
       copyOpenClawSnippet: () => Promise<any>;
       openLogs: () => Promise<any>;
@@ -242,7 +243,18 @@ function formatCountdown(value?: number): string {
 }
 
 function getSessionTitle(session: DashboardSessions["data"][number]): string {
-  return session.displayName ?? session.email ?? session.accountId ?? session.profileId;
+  return session.email ?? session.displayName ?? session.accountId ?? session.profileId;
+}
+
+function getSessionSubtitle(session: DashboardSessions["data"][number]): string {
+  const title = getSessionTitle(session);
+  if (session.email && session.email !== title) {
+    return session.email;
+  }
+  if (session.accountId && session.accountId !== title) {
+    return session.accountId;
+  }
+  return session.id;
 }
 
 function getQuotaPercentage(session: DashboardSessions["data"][number]): number | undefined {
@@ -378,9 +390,7 @@ function renderCodexAccounts(): void {
           .map((account) => `
         ${(() => {
           const title = getSessionTitle(account.representative);
-          const subtitle = account.representative.email && account.representative.email !== title
-            ? account.representative.email
-            : account.representative.accountId ?? account.representative.id;
+          const subtitle = getSessionSubtitle(account.representative);
           const quotaPercentage = getQuotaPercentage(account.representative);
           const quotaScope = formatQuotaWindowLabel(account.representative);
           const quotaUpdatedAt = account.representative.quota?.updatedAt
@@ -421,12 +431,13 @@ function renderCodexAccounts(): void {
           </div>
           <div class="account-actions">
             <button class="secondary mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
-              ${account.isActive ? (account.sourceKind === "local-import" ? "当前活动账号" : "当前活动授权") : account.sourceKind === "local-import" ? "设为活动账号" : "设为活动授权"}
+              ${account.isActive ? "当前活动" : "设为活动"}
             </button>
+            <button class="ghost mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
             ${
               account.sourceKind === "openclaw"
                 ? `<button class="ghost mini" data-action="import-openclaw-session" data-session-id="${escapeHtml(account.representative.id)}">导入为桌面端账号</button>`
-                : ""
+                : `<button class="ghost mini danger" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>`
             }
             <button class="ghost mini" data-action="copy-snippet">复制接入片段</button>
           </div>
@@ -1003,6 +1014,22 @@ function bindActions(): void {
       }
     }
 
+    if (action === "refresh-session-usage" && button.dataset.sessionId) {
+      try {
+        setBanner(`正在刷新 ${button.dataset.sessionId} 的额度信息...`, "info");
+        const summary = await refreshWithLiveUsage(button.dataset.sessionId);
+        if (!summary) {
+          setBanner("账号状态已刷新。", "success");
+        } else if (summary.failed > 0) {
+          setBanner(`账号状态已刷新，但仍有 ${summary.failed} 项失败。`, "error");
+        } else {
+          setBanner("账号状态已刷新。", "success");
+        }
+      } catch (error) {
+        setBanner(`账号刷新失败：${String(error)}`, "error");
+      }
+    }
+
     if (action === "copy-snippet") {
       try {
         await copySnippetWithFeedback();
@@ -1019,6 +1046,21 @@ function bindActions(): void {
         setBanner(`已导入桌面端 Codex 账号：${result.data.accountId ?? result.data.profileId}`, "success");
       } catch (error) {
         setBanner(`导入失败：${String(error)}`, "error");
+      }
+    }
+
+    if (action === "delete-codex-account" && button.dataset.sessionId) {
+      try {
+        const confirmed = window.confirm("删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？");
+        if (!confirmed) {
+          return;
+        }
+        setBanner(`正在删除桌面端 Codex 账号 ${button.dataset.sessionId} ...`, "info");
+        const result = await getGatewayApi().deleteCodexAccount(button.dataset.sessionId);
+        await refresh();
+        setBanner(result.data.removed ? "桌面端 Codex 账号已删除。" : "目标账号不存在，已刷新列表。", "success");
+      } catch (error) {
+        setBanner(`删除失败：${String(error)}`, "error");
       }
     }
   });
