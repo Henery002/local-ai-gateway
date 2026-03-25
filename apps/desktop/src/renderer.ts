@@ -291,6 +291,14 @@ function statusTone(status: ProviderConfigurationStatus): string {
   return "未启用";
 }
 
+function isMissingRefreshUsageHandler(error: unknown): boolean {
+  const message = String(error);
+  return (
+    message.includes("gateway:refresh-session-usage") &&
+    message.includes("No handler registered")
+  );
+}
+
 function getProviderConfiguration(id: string) {
   return state.health?.providerConfigurations?.find((item) => item.id === id);
 }
@@ -836,13 +844,15 @@ function bindActions(): void {
     try {
       setBanner("正在刷新状态与 Codex 实时额度...", "info");
       const summary = await refreshWithLiveUsage();
-      if (summary && summary.failed > 0) {
+      if (!summary) {
+        setBanner("状态已刷新。当前桌面主进程尚未启用实时额度刷新。", "info");
+      } else if (summary.failed > 0) {
         setBanner(
           `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项刷新失败。`,
           "error",
         );
       } else {
-        setBanner(`状态已刷新，${summary?.refreshed ?? 0} 个账号额度已更新。`, "success");
+        setBanner(`状态已刷新，${summary.refreshed} 个账号额度已更新。`, "success");
       }
     } catch (error) {
       setBanner(`刷新失败：${String(error)}`, "error");
@@ -1019,7 +1029,20 @@ async function refresh(): Promise<void> {
 
 async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRefreshResponse | undefined> {
   const api = getGatewayApi();
-  const summary = await api.refreshSessionUsage(sessionId);
+  if (typeof api.refreshSessionUsage !== "function") {
+    await refresh();
+    return undefined;
+  }
+
+  let summary: SessionUsageRefreshResponse | undefined;
+  try {
+    summary = await api.refreshSessionUsage(sessionId);
+  } catch (error) {
+    if (!isMissingRefreshUsageHandler(error)) {
+      throw error;
+    }
+  }
+
   await refresh();
   return summary;
 }
@@ -1032,7 +1055,9 @@ void (async () => {
     setOAuthBusyState(false);
     setBanner("正在加载 Local AI Gateway 控制台...", "info");
     const summary = await refreshWithLiveUsage();
-    if (summary && summary.failed > 0) {
+    if (!summary) {
+      setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
+    } else if (summary.failed > 0) {
       setBanner(`控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`, "error");
     } else {
       setBanner("控制台已就绪。", "success");

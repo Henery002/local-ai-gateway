@@ -86,3 +86,4 @@
 - 修复 Electron 桌面端 `renderer` 直接引用 workspace 共享包导致浏览器环境模块解析失败的问题，恢复左侧导航、统计卡片、账号区与 Codex 上游模型下拉的初始化。
 - 新增桌面端构建回归测试，防止 `apps/desktop/dist/renderer.js` 再次产出未解析的 `@local-ai-gateway/*` 裸模块引用。
 - 修复桌面端账号额度长期停留在导入快照的问题，当前会优先从 Codex 上游实时拉取最新剩余额度与重置时间。
+- 修复桌面端在旧主进程尚未注册 `gateway:refresh-session-usage` IPC 时整页初始化失败的问题，现会自动回退到普通状态刷新。
