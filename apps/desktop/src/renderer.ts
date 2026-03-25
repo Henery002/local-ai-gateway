@@ -1,5 +1,11 @@
-import { SUPPORTED_CODEX_UPSTREAM_MODELS } from "@local-ai-gateway/shared";
 import { buildCodexAccountGroups } from "./account-groups.js";
+
+const SUPPORTED_CODEX_UPSTREAM_MODELS = [
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+  "gpt-5.2-codex",
+] as const;
 
 declare global {
   interface Window {

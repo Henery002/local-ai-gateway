@@ -80,3 +80,5 @@
 - 修复桌面端 OAuth 登录在浏览器回调成功后仍可能因主进程 `fetch failed` 报错的问题，改为优先使用 Electron 网络栈完成令牌交换。
 - 修复 OpenClaw 已登录授权与桌面端导入账号在产品语义上的混淆，改由 UI 与文档显式区分“授权源”和“账号”。
 - 修复测试运行时对 workspace 共享包旧 `dist` 产物的隐式依赖，Vitest 现直接解析到源码入口。
+- 修复 Electron 桌面端 `renderer` 直接引用 workspace 共享包导致浏览器环境模块解析失败的问题，恢复左侧导航、统计卡片、账号区与 Codex 上游模型下拉的初始化。
+- 新增桌面端构建回归测试，防止 `apps/desktop/dist/renderer.js` 再次产出未解析的 `@local-ai-gateway/*` 裸模块引用。
