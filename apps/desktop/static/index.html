@@ -718,7 +718,7 @@
           <div class="config-grid" style="margin-top: 18px;">
             <article class="form-card">
               <h3>Codex Provider</h3>
-              <p class="footer-note">Codex 当前直接复用 `~/.openclaw` 中的本地 OAuth 会话，不需要手填 API Key。</p>
+              <p class="footer-note">Codex 当前直接复用 `~/.openclaw` 中的本地 OAuth 授权，不需要手填 API Key。这里可以切换 `codex-default` 背后对应的上游模型。</p>
               <div class="field-grid">
               <div class="field full">
                   <label>接入方式</label>
@@ -731,6 +731,10 @@
                 <div class="field">
                   <label>默认模型别名</label>
                   <input value="codex-default" disabled />
+                </div>
+                <div class="field full">
+                  <label>Codex 上游模型</label>
+                  <select id="codex-upstream-model"></select>
                 </div>
               </div>
             </article>

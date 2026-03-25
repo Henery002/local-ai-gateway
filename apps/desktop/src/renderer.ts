@@ -1,3 +1,4 @@
+import { SUPPORTED_CODEX_UPSTREAM_MODELS } from "@local-ai-gateway/shared";
 import { buildCodexAccountGroups } from "./account-groups.js";
 
 declare global {
@@ -111,6 +112,9 @@ type DashboardProviders = {
 
 type ProviderSettings = {
   defaultModelAlias?: string;
+  codex?: {
+    upstreamModel?: string;
+  };
   openAICompatible?: {
     enabled?: boolean;
     label?: string;
@@ -565,9 +569,22 @@ function renderErrors(): void {
 
 function applySettingsToForm(): void {
   const settings = state.settings ?? {};
+  const codex = settings.codex ?? {};
   const openAI = settings.openAICompatible ?? {};
   const ollama = settings.ollama ?? {};
   const defaultSelect = document.getElementById("default-model-alias") as HTMLSelectElement | null;
+  const codexSelect = document.getElementById("codex-upstream-model") as HTMLSelectElement | null;
+
+  if (codexSelect) {
+    codexSelect.replaceChildren();
+    for (const modelId of SUPPORTED_CODEX_UPSTREAM_MODELS) {
+      const node = document.createElement("option");
+      node.value = modelId;
+      node.textContent = modelId;
+      codexSelect.appendChild(node);
+    }
+    codexSelect.value = codex.upstreamModel ?? "gpt-5.4";
+  }
 
   if (defaultSelect) {
     defaultSelect.replaceChildren();
@@ -611,6 +628,9 @@ function applySettingsToForm(): void {
 function collectSettingsFromForm(): ProviderSettings {
   return {
     defaultModelAlias: (document.getElementById("default-model-alias") as HTMLSelectElement | null)?.value || undefined,
+    codex: {
+      upstreamModel: (document.getElementById("codex-upstream-model") as HTMLSelectElement | null)?.value || undefined,
+    },
     openAICompatible: {
       enabled: (document.getElementById("openai-enabled") as HTMLInputElement | null)?.checked ?? false,
       label: (document.getElementById("openai-label") as HTMLInputElement | null)?.value.trim() || undefined,

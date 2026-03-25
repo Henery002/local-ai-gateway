@@ -60,4 +60,36 @@ describe("provider bootstrap", () => {
       missingEnvKeys: ["LOCAL_AI_GATEWAY_OLLAMA_MODEL"],
     });
   });
+
+  it("supports selecting the codex upstream model from saved settings", () => {
+    const bootstrapped = bootstrapProvidersFromEnvironment(
+      {},
+      {
+        codex: {
+          upstreamModel: "gpt-5.4-mini",
+        },
+      },
+    );
+
+    expect(bootstrapped.models[0]).toMatchObject({
+      alias: "codex-default",
+      provider: "openai-codex",
+      providerModelId: "gpt-5.4-mini",
+      displayName: "Codex gpt-5.4-mini",
+    });
+    expect(bootstrapped.configurations[0]?.notes).toContain("当前上游模型：gpt-5.4-mini");
+  });
+
+  it("ignores unsupported codex upstream models and falls back to gpt-5.4", () => {
+    const bootstrapped = bootstrapProvidersFromEnvironment(
+      {},
+      {
+        codex: {
+          upstreamModel: "not-a-real-model",
+        },
+      },
+    );
+
+    expect(bootstrapped.models[0]?.providerModelId).toBe("gpt-5.4");
+  });
 });

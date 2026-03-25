@@ -87,6 +87,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 - 提供 SQLite 日志存储
 - 提供日志器与模型注册
 - 提供 `ProviderRegistry`，统一管理 provider adapter 的注册与选择
+- `ModelRegistry` 当前支持通过桌面端配置切换 `codex-default` 背后的 Codex 上游模型
 
 ### `packages/openclaw-session`
 

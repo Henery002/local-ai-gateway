@@ -8,6 +8,7 @@ import {
   OLLAMA_PROVIDER_ID,
   OPENAI_COMPAT_PROVIDER_ID,
   ProviderConfigurationSummary,
+  SUPPORTED_CODEX_UPSTREAM_MODELS,
 } from "@local-ai-gateway/shared";
 import { OllamaAdapter } from "@local-ai-gateway/provider-ollama";
 import { OpenAICompatibleAdapter } from "@local-ai-gateway/provider-openai-compatible";
@@ -18,16 +19,33 @@ export interface BootstrappedProviders {
   configurations: ProviderConfigurationSummary[];
 }
 
-const DEFAULT_CODEX_MODEL: GatewayModelDefinition = {
-  alias: DEFAULT_MODEL_ALIAS,
-  displayName: "Codex Default",
-  provider: DEFAULT_PROVIDER_ID,
-  providerModelId: DEFAULT_PROVIDER_MODEL_ID,
-  contextWindow: 1_050_000,
-  maxTokens: 128_000,
-  input: ["text"],
-  reasoning: true,
-};
+function resolveCodexUpstreamModel(
+  env: NodeJS.ProcessEnv,
+  settings: GatewayProviderSettings,
+): string {
+  const requested = env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim() || settings.codex?.upstreamModel?.trim();
+  if (requested && SUPPORTED_CODEX_UPSTREAM_MODELS.includes(requested as (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number])) {
+    return requested;
+  }
+  return DEFAULT_PROVIDER_MODEL_ID;
+}
+
+function buildDefaultCodexModel(
+  env: NodeJS.ProcessEnv,
+  settings: GatewayProviderSettings,
+): GatewayModelDefinition {
+  const upstreamModel = resolveCodexUpstreamModel(env, settings);
+  return {
+    alias: DEFAULT_MODEL_ALIAS,
+    displayName: `Codex ${upstreamModel}`,
+    provider: DEFAULT_PROVIDER_ID,
+    providerModelId: upstreamModel,
+    contextWindow: 1_050_000,
+    maxTokens: 128_000,
+    input: ["text"],
+    reasoning: true,
+  };
+}
 
 function parsePositiveInt(input: string | undefined, fallback: number): number {
   if (!input) {
@@ -111,7 +129,9 @@ export function bootstrapProvidersFromEnvironment(
   settings: GatewayProviderSettings = {},
 ): BootstrappedProviders {
   const adapters: ProviderAdapter[] = [];
-  const models: GatewayModelDefinition[] = [DEFAULT_CODEX_MODEL];
+  const codexModel = buildDefaultCodexModel(env, settings);
+  const codexUsesEnv = Boolean(env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim());
+  const models: GatewayModelDefinition[] = [codexModel];
   const configurations: ProviderConfigurationSummary[] = [
     {
       id: DEFAULT_PROVIDER_ID,
@@ -121,8 +141,13 @@ export function bootstrapProvidersFromEnvironment(
       source: "openclaw-session",
       configuredVia: "OpenClaw 本地授权",
       authMode: "oauth-session",
-      envKeys: [],
-      notes: ["认证来源固定为 ~/.openclaw 本地授权元数据", "活动会话可在桌面端手动切换"],
+      envKeys: ["LOCAL_AI_GATEWAY_CODEX_MODEL"],
+      notes: [
+        "认证来源固定为 ~/.openclaw 本地授权元数据",
+        `当前上游模型：${codexModel.providerModelId}`,
+        codexUsesEnv ? "Codex 上游模型由环境变量指定" : "Codex 上游模型可在桌面端手动切换",
+        "活动会话可在桌面端手动切换",
+      ],
     },
   ];
 

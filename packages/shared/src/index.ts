@@ -12,6 +12,12 @@ export const DEFAULT_OPENAI_BASE_URL = `${DEFAULT_BASE_URL}/v1`;
 export const DEFAULT_PROVIDER_ID = "openai-codex";
 export const DEFAULT_MODEL_ALIAS = "codex-default";
 export const DEFAULT_PROVIDER_MODEL_ID = "gpt-5.4";
+export const SUPPORTED_CODEX_UPSTREAM_MODELS = [
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+  "gpt-5.2-codex",
+] as const;
 export const OPENAI_COMPAT_PROVIDER_ID = "openai-compatible";
 export const OLLAMA_PROVIDER_ID = "ollama";
 export const DEFAULT_OPENCLAW_ROOT = join(homedir(), ".openclaw");
@@ -50,6 +56,10 @@ export interface GatewayStoredConfig {
   updatedAt: string;
 }
 
+export interface CodexProviderSettings {
+  upstreamModel?: string;
+}
+
 export interface OpenAICompatibleProviderSettings {
   enabled?: boolean;
   label?: string;
@@ -77,6 +87,7 @@ export interface OllamaProviderSettings {
 
 export interface GatewayProviderSettings {
   defaultModelAlias?: string;
+  codex?: CodexProviderSettings;
   openAICompatible?: OpenAICompatibleProviderSettings;
   ollama?: OllamaProviderSettings;
 }

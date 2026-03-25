@@ -7,6 +7,7 @@
 - 所有项目文档类 Markdown 文件统一使用中文。
 - 每一次代码改动、需求变更、结构调整、bug 修复、调试结论或优化项，都必须同步更新根目录的 [CHANGELOG.md](./CHANGELOG.md)。
 - 更新 `CHANGELOG.md` 时遵循现有格式：按日期降序排列、同一天收敛到同一个时间戳条目下、每条记录尽量简短。
+- 以后向 GitHub 提交 commit 时，commit 注释统一使用中文。
 - 不得把 access token、refresh token、cookie、Authorization 等敏感信息写入仓库、日志或文档。
 
 ## 文档目录约定
