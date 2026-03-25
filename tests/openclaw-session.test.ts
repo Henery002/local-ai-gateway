@@ -47,7 +47,7 @@ describe("openclaw session source", () => {
     expect(localSession).toMatchObject({
       id: `local-import:${saved.profileId}`,
       sourceKind: "local-import",
-      sourceLabel: "本地导入账号",
+      sourceLabel: "桌面端 Codex 账号",
       accountId: "acct_local_imported",
       status: "available",
     });
@@ -78,6 +78,49 @@ describe("openclaw session source", () => {
     expect(Object.keys(store.listProfiles())).toHaveLength(1);
   });
 
+  it("imports cockpit-style codex exports with metadata snapshots", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-cockpit-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+
+    const result = store.importFromObject([
+      {
+        id: "codex_demo",
+        email: "demo@example.com",
+        auth_mode: "oauth",
+        plan_type: "free",
+        account_id: "acct_cockpit",
+        tokens: {
+          access_token: "cockpit-access-token",
+          refresh_token: "cockpit-refresh-token",
+        },
+        quota: {
+          hourly_percentage: 72,
+          hourly_reset_time: 1_775_053_648,
+          hourly_window_minutes: 10_080,
+          hourly_window_present: true,
+        },
+        usage_updated_at: 1_774_448_847,
+      },
+    ]);
+
+    const profiles = Object.values(store.listProfiles());
+    expect(result.imported).toBe(1);
+    expect(profiles[0]).toMatchObject({
+      accountId: "acct_cockpit",
+      email: "demo@example.com",
+      displayName: "demo@example.com",
+      planType: "free",
+      quota: {
+        scope: "hourly",
+        percentage: 72,
+        resetAt: 1_775_053_648_000,
+        windowMinutes: 10_080,
+        updatedAt: 1_774_448_847_000,
+      },
+    });
+  });
+
   it("can import an OpenClaw session into the desktop local account store", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-copy-"));
     const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
@@ -93,6 +136,7 @@ describe("openclaw session source", () => {
     expect(copied.profile.accountId).toBe("acct_fixture");
     expect(localImported).toMatchObject({
       sourceKind: "local-import",
+      sourceLabel: "桌面端 Codex 账号",
       accountId: "acct_fixture",
       status: "available",
     });

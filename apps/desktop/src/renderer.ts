@@ -69,6 +69,16 @@ type DashboardSessions = {
     agentId: string;
     profileId: string;
     accountId?: string;
+    displayName?: string;
+    email?: string;
+    planType?: string;
+    quota?: {
+      scope?: "hourly" | "weekly";
+      percentage?: number;
+      resetAt?: number;
+      windowMinutes?: number;
+      updatedAt?: number;
+    };
     status: "available" | "expired" | "invalid";
     expiresAt?: number;
     sourceKind?: "openclaw" | "local-import";
@@ -172,6 +182,42 @@ function formatDate(value?: number): string {
   return new Date(value).toLocaleString("zh-CN");
 }
 
+function formatCountdown(value?: number): string {
+  if (!value) {
+    return "待同步";
+  }
+
+  const diff = value - Date.now();
+  if (diff <= 0) {
+    return "已到期";
+  }
+
+  const totalMinutes = Math.floor(diff / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) {
+    return `${days}天 ${hours}小时`;
+  }
+  if (hours > 0) {
+    return `${hours}小时 ${minutes}分钟`;
+  }
+  return `${minutes}分钟`;
+}
+
+function getSessionTitle(session: DashboardSessions["data"][number]): string {
+  return session.displayName ?? session.email ?? session.accountId ?? session.profileId;
+}
+
+function getQuotaPercentage(session: DashboardSessions["data"][number]): number | undefined {
+  const value = session.quota?.percentage;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
 function statusLabel(status: "available" | "expired" | "invalid"): string {
   if (status === "available") {
     return "可用";
@@ -268,27 +314,47 @@ function renderCodexAccounts(): void {
     const cards = group.accounts.length
       ? group.accounts
           .map((account) => `
+        ${(() => {
+          const title = getSessionTitle(account.representative);
+          const subtitle = account.representative.email && account.representative.email !== title
+            ? account.representative.email
+            : account.representative.accountId ?? account.representative.id;
+          const quotaPercentage = getQuotaPercentage(account.representative);
+          const quotaScope = account.representative.quota?.scope === "weekly" ? "周额度" : "小时额度";
+          const quotaUpdatedAt = account.representative.quota?.updatedAt
+            ? `额度快照：${formatDate(account.representative.quota?.updatedAt)}`
+            : "";
+          return `
         <article class="account-card${account.isActive ? " active" : ""}">
           <div class="account-head">
             <div>
-              <strong>${escapeHtml(account.displayName)}</strong>
-              <small>${escapeHtml(account.representative.id)}</small>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(subtitle)}</small>
             </div>
             <span class="pill ${account.representative.status}">${statusLabel(account.representative.status)}</span>
           </div>
           <div class="account-meta">
             <span>账号来源：${escapeHtml(account.sourceLabel)}</span>
             <span>${account.sourceKind === "openclaw" ? "关联 OpenClaw 授权" : "导入记录"}：${account.sessions.length}</span>
+            <span>账号 ID：${escapeHtml(account.representative.accountId ?? "待同步")}</span>
+            <span>套餐类型：${escapeHtml(account.representative.planType ?? "待同步")}</span>
             <span>OAuth 过期：${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+            ${quotaUpdatedAt ? `<span>${escapeHtml(quotaUpdatedAt)}</span>` : ""}
           </div>
           <div class="account-usage">
             <div>
-              <small>剩余额度</small>
-              <strong>待接入</strong>
+              <small>${quotaScope}</small>
+              <strong>${escapeHtml(quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入")}</strong>
+              ${
+                quotaPercentage !== undefined
+                  ? `<div class="quota-meter"><span style="width: ${quotaPercentage}%;"></span></div>`
+                  : ""
+              }
             </div>
             <div>
               <small>重置时间</small>
-              <strong>待接入</strong>
+              <strong>${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</strong>
+              <small class="subtle-date">${escapeHtml(formatDate(account.representative.quota?.resetAt))}</small>
             </div>
           </div>
           <div class="account-actions">
@@ -303,6 +369,8 @@ function renderCodexAccounts(): void {
             <button class="ghost mini" data-action="copy-snippet">复制接入片段</button>
           </div>
         </article>
+      `;
+        })()}
       `)
           .join("")
       : `<div class="empty-card">${escapeHtml(group.emptyText)}</div>`;

@@ -84,6 +84,14 @@ export interface GatewayProviderSettings {
 export type SessionStatus = "available" | "expired" | "invalid";
 export type SessionSourceKind = "openclaw" | "local-import";
 
+export interface SessionQuotaSnapshot {
+  scope?: "hourly" | "weekly";
+  percentage?: number;
+  resetAt?: number;
+  windowMinutes?: number;
+  updatedAt?: number;
+}
+
 export interface SessionSummary {
   id: string;
   agentId: string;
@@ -91,6 +99,10 @@ export interface SessionSummary {
   provider: string;
   type: string;
   accountId?: string;
+  displayName?: string;
+  email?: string;
+  planType?: string;
+  quota?: SessionQuotaSnapshot;
   expiresAt?: number;
   status: SessionStatus;
   sourceKind?: SessionSourceKind;

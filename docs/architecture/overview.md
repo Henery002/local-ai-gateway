@@ -95,6 +95,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 - 扫描本机 OpenClaw `auth-profiles.json`
 - 管理桌面端导入的本地 Codex 账号文件
 - 列出可用 `openai-codex` 会话
+- 解析导入账号中的邮箱、套餐、额度与重置时间快照
 - 解析活动会话
 - 通过 OAuth helper 获取可用 access token
 

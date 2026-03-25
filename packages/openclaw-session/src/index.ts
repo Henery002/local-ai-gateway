@@ -8,6 +8,7 @@ import {
   DEFAULT_OPENCLAW_ROOT,
   GatewayError,
   ResolvedSession,
+  SessionQuotaSnapshot,
   SessionSourceKind,
   SessionStatus,
   SessionSummary,
@@ -22,6 +23,10 @@ interface RawProfile {
   refresh?: string;
   expires?: number;
   label?: string;
+  displayName?: string;
+  email?: string;
+  planType?: string;
+  quota?: SessionQuotaSnapshot;
   importedAt?: string;
   updatedAt?: string;
 }
@@ -44,19 +49,121 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isRawProfile(value: unknown): value is RawProfile {
-  if (!isRecord(value)) {
-    return false;
+function normalizeEpochMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return value > 1_000_000_000_000 ? value : value * 1_000;
+}
+
+function pickQuotaSnapshot(value: Record<string, unknown>): SessionQuotaSnapshot | undefined {
+  const quota = isRecord(value.quota) ? value.quota : undefined;
+  if (!quota) {
+    return undefined;
   }
 
-  const provider = typeof value.provider === "string" ? value.provider : undefined;
-  const hasOAuthTokens =
-    typeof value.access === "string" &&
-    value.access.length > 0 &&
-    typeof value.refresh === "string" &&
-    value.refresh.length > 0;
+  if (
+    quota.hourly_window_present === true ||
+    typeof quota.hourly_percentage === "number" ||
+    typeof quota.hourly_reset_time === "number"
+  ) {
+    return {
+      scope: "hourly",
+      percentage: typeof quota.hourly_percentage === "number" ? quota.hourly_percentage : undefined,
+      resetAt: normalizeEpochMs(quota.hourly_reset_time),
+      windowMinutes:
+        typeof quota.hourly_window_minutes === "number" ? quota.hourly_window_minutes : undefined,
+      updatedAt: normalizeEpochMs(value.usage_updated_at),
+    };
+  }
 
-  return provider === "openai-codex" || hasOAuthTokens;
+  if (
+    quota.weekly_window_present === true ||
+    typeof quota.weekly_percentage === "number" ||
+    typeof quota.weekly_reset_time === "number"
+  ) {
+    return {
+      scope: "weekly",
+      percentage: typeof quota.weekly_percentage === "number" ? quota.weekly_percentage : undefined,
+      resetAt: normalizeEpochMs(quota.weekly_reset_time),
+      updatedAt: normalizeEpochMs(value.usage_updated_at),
+    };
+  }
+
+  return undefined;
+}
+
+function extractRawProfile(value: unknown): RawProfile | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const tokens = isRecord(value.tokens) ? value.tokens : undefined;
+  const access =
+    typeof value.access === "string"
+      ? value.access
+      : typeof tokens?.access_token === "string"
+        ? tokens.access_token
+        : undefined;
+  const refresh =
+    typeof value.refresh === "string"
+      ? value.refresh
+      : typeof tokens?.refresh_token === "string"
+        ? tokens.refresh_token
+        : undefined;
+  const provider =
+    typeof value.provider === "string"
+      ? value.provider
+      : access && refresh
+        ? "openai-codex"
+        : undefined;
+
+  if (provider !== "openai-codex" && !(access && refresh)) {
+    return undefined;
+  }
+
+  return sanitizeProfile({
+    type:
+      typeof value.type === "string"
+        ? value.type
+        : typeof value.auth_mode === "string"
+          ? value.auth_mode
+          : "oauth",
+    provider: "openai-codex",
+    accountId:
+      typeof value.accountId === "string"
+        ? value.accountId
+        : typeof value.account_id === "string"
+          ? value.account_id
+          : undefined,
+    access,
+    refresh,
+    expires: typeof value.expires === "number" ? value.expires : undefined,
+    label:
+      typeof value.label === "string"
+        ? value.label
+        : typeof value.email === "string"
+          ? value.email
+          : typeof value.id === "string"
+            ? value.id
+            : undefined,
+    displayName:
+      typeof value.displayName === "string"
+        ? value.displayName
+        : typeof value.email === "string"
+          ? value.email
+          : undefined,
+    email: typeof value.email === "string" ? value.email : undefined,
+    planType:
+      typeof value.planType === "string"
+        ? value.planType
+        : typeof value.plan_type === "string"
+          ? value.plan_type
+          : undefined,
+    quota: pickQuotaSnapshot(value),
+    importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
+  });
 }
 
 function sanitizeProfile(value: RawProfile): RawProfile {
@@ -68,6 +175,10 @@ function sanitizeProfile(value: RawProfile): RawProfile {
     refresh: typeof value.refresh === "string" ? value.refresh : undefined,
     expires: typeof value.expires === "number" ? value.expires : undefined,
     label: typeof value.label === "string" ? value.label : undefined,
+    displayName: typeof value.displayName === "string" ? value.displayName : undefined,
+    email: typeof value.email === "string" ? value.email : undefined,
+    planType: typeof value.planType === "string" ? value.planType : undefined,
+    quota: value.quota,
     importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
   };
@@ -105,6 +216,18 @@ function buildUniqueProfileId(profile: RawProfile, existing: Record<string, RawP
 }
 
 function collectProfilesFromUnknown(input: unknown): Record<string, RawProfile> {
+  if (Array.isArray(input)) {
+    const profiles: Record<string, RawProfile> = {};
+    for (const item of input) {
+      const profile = extractRawProfile(item);
+      if (!profile) {
+        continue;
+      }
+      profiles[buildUniqueProfileId(profile, profiles)] = profile;
+    }
+    return profiles;
+  }
+
   if (!isRecord(input)) {
     return {};
   }
@@ -112,31 +235,33 @@ function collectProfilesFromUnknown(input: unknown): Record<string, RawProfile> 
   if (isRecord(input.profiles)) {
     const profiles: Record<string, RawProfile> = {};
     for (const [profileId, value] of Object.entries(input.profiles)) {
-      if (isRawProfile(value)) {
-        profiles[profileId] = sanitizeProfile(value);
+      const profile = extractRawProfile(value);
+      if (profile) {
+        profiles[profileId] = profile;
       }
     }
     return profiles;
   }
 
-  if (isRawProfile(input)) {
-    const profile = sanitizeProfile(input);
+  const directProfile = extractRawProfile(input);
+  if (directProfile) {
     return {
-      [createProfileId(profile)]: profile,
+      [createProfileId(directProfile)]: directProfile,
     };
   }
 
-  if (isRawProfile(input["openai-codex"])) {
-    const profile = sanitizeProfile(input["openai-codex"]);
+  const providerProfile = extractRawProfile(input["openai-codex"]);
+  if (providerProfile) {
     return {
-      [createProfileId(profile)]: profile,
+      [createProfileId(providerProfile)]: providerProfile,
     };
   }
 
   const profiles: Record<string, RawProfile> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (isRawProfile(value)) {
-      profiles[key] = sanitizeProfile(value);
+    const profile = extractRawProfile(value);
+    if (profile) {
+      profiles[key] = profile;
     }
   }
   return profiles;
@@ -271,6 +396,10 @@ export class OpenClawSessionSource {
         provider: record.profile.provider ?? "unknown",
         type: record.profile.type ?? "unknown",
         accountId: record.profile.accountId,
+        displayName: record.profile.displayName,
+        email: record.profile.email,
+        planType: record.profile.planType,
+        quota: record.profile.quota,
         expiresAt: typeof record.profile.expires === "number" ? record.profile.expires : undefined,
         status: this.resolveStatus(record.profile),
         sourceKind: record.sourceKind,
@@ -394,7 +523,7 @@ export class OpenClawSessionSource {
 
         records.push({
           sourceKind: "openclaw",
-          sourceLabel: "OpenClaw 会话",
+          sourceLabel: "OpenClaw 可复用授权",
           sourcePath: authFile,
           agentId,
           profileId,
@@ -412,7 +541,7 @@ export class OpenClawSessionSource {
 
         records.push({
           sourceKind: "local-import",
-          sourceLabel: "本地导入账号",
+          sourceLabel: "桌面端 Codex 账号",
           sourcePath: this.importedStore.getProfilesPath(),
           agentId: "local-import",
           profileId,

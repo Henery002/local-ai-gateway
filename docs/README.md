@@ -6,9 +6,11 @@
 
 - [v1 产品需求文档（PRD）](./prd/local-ai-gateway-v1.md)
 - [架构总览](./architecture/overview.md)
+- [概念地图](./architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
 - [OpenClaw 接入与运行说明](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [桌面控制台使用说明](./operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
+- [项目答疑与开发清单](./operations/%E9%A1%B9%E7%9B%AE%E7%AD%94%E7%96%91%E4%B8%8E%E5%BC%80%E5%8F%91%E6%B8%85%E5%8D%95.md)
 - [开发与变更流程](./operations/%E5%BC%80%E5%8F%91%E4%B8%8E%E5%8F%98%E6%9B%B4%E6%B5%81%E7%A8%8B.md)
 - [打包与发布说明](./operations/%E6%89%93%E5%8C%85%E4%B8%8E%E5%8F%91%E5%B8%83.md)
 - [架构决策记录（ADR）0001](./decisions/0001-%E6%9C%8D%E5%8A%A1%E4%BC%98%E5%85%88%E4%BA%8E%E6%A1%8C%E9%9D%A2%E5%A3%B3.md)
@@ -26,4 +28,5 @@
 
 - 本仓库内由项目维护的 Markdown 文档统一使用中文。
 - 所有后续改动必须同步更新仓库根目录的 `CHANGELOG.md`。
+- 影响项目理解的关键答疑、边界说明、待优化项与预研项，应同步更新《项目答疑与开发清单》。
 - `node_modules/`、`vendor_imports/` 等第三方目录中的 Markdown 不属于项目文档范围，不做翻译或改写。

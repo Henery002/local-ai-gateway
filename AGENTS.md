@@ -16,4 +16,5 @@
 - `docs/prd/`：产品需求文档
 - `docs/architecture/`：架构与接口设计
 - `docs/operations/`：运行、调试、维护流程
-
+- `docs/architecture/概念地图.md`：核心概念关系图与术语基准页
+- `docs/operations/项目答疑与开发清单.md`：长期维护的关键答疑、边界说明、待优化项与预研项

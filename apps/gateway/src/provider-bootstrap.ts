@@ -119,10 +119,10 @@ export function bootstrapProvidersFromEnvironment(
       status: "active",
       registered: true,
       source: "openclaw-session",
-      configuredVia: "OpenClaw 会话",
+      configuredVia: "OpenClaw 本地授权",
       authMode: "oauth-session",
       envKeys: [],
-      notes: ["认证来源固定为 ~/.openclaw 会话元数据", "活动会话可在桌面端手动切换"],
+      notes: ["认证来源固定为 ~/.openclaw 本地授权元数据", "活动会话可在桌面端手动切换"],
     },
   ];
 
