@@ -295,7 +295,7 @@ function isMissingRefreshUsageHandler(error: unknown): boolean {
   const message = String(error);
   return (
     message.includes("gateway:refresh-session-usage") &&
-    message.includes("No handler registered")
+    (message.includes("No handler registered") || message.includes("Admin request failed (404)"))
   );
 }
 
