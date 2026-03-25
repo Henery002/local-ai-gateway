@@ -251,11 +251,7 @@ ipcMain.handle("gateway:set-active-session", async (_event, sessionId: string) =
 });
 
 ipcMain.handle("gateway:refresh-session-usage", async (_event, sessionId?: string) => {
-  await gatewayManager.ensureRunning();
-  return callAdmin("/admin/sessions/refresh", {
-    method: "POST",
-    body: JSON.stringify(sessionId ? { sessionId } : {}),
-  });
+  return desktopSessionSource.refreshUsage(sessionId);
 });
 
 ipcMain.handle("gateway:restart", async () => {
