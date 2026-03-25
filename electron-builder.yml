@@ -1,0 +1,18 @@
+appId: com.henery.local-ai-gateway
+productName: Local AI Gateway
+directories:
+  output: release
+files:
+  - apps/**/dist/**
+  - apps/desktop/static/**
+  - packages/**/dist/**
+  - package.json
+  - package-lock.json
+asar: true
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - zip
+    - dmg
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+

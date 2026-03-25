@@ -1,0 +1,96 @@
+# Local AI Gateway
+
+`Local AI Gateway` 是一个面向 macOS 本地单机环境的 AI 网关项目，当前优先服务 OpenClaw。
+
+首版目标：
+
+- 提供本地 `127.0.0.1` 网关服务
+- 对外暴露 OpenAI-compatible 接口
+- 首先接入 Codex provider
+- 复用本机现有 OpenClaw OAuth 授权作为可选的本地授权来源
+- 提供 Electron 桌面控制台用于配置 Provider、导入和管理桌面端 Codex 账号、查看状态和切换活动授权
+
+## 项目结构
+
+- `apps/gateway`：Fastify 网关服务与 Admin API
+- `apps/desktop`：Electron 桌面控制台与本地操作台
+- `packages/core`：配置、路径、日志、SQLite 存储、模型注册
+- `packages/openclaw-session`：OpenClaw 本地授权发现与 OAuth token 解析
+- `packages/provider-codex`：Codex 适配器，底层复用 `@mariozechner/pi-ai`
+- `packages/openai-compat`：OpenAI-compatible 请求与响应转换
+- `packages/shared`：共享常量、类型与错误模型
+- `docs`：项目文档、PRD 与后续设计资料
+
+## 常用命令
+
+- `npm install`
+- `npm run build`
+- `npm run test`
+- `npm run smoke:gateway`
+- `npm run package:desktop`
+- `npm run dist:desktop`
+- `npm run dev:gateway`
+- `npm run dev:desktop`
+
+## 可选 Provider 扩展
+
+当前版本除默认 Codex 外，还支持通过桌面端表单或环境变量启用：
+
+- OpenAI-compatible provider
+- Ollama provider
+
+示例：
+
+```bash
+export LOCAL_AI_GATEWAY_OPENAI_BASE_URL="https://example.com/v1"
+export LOCAL_AI_GATEWAY_OPENAI_API_KEY="sk-..."
+export LOCAL_AI_GATEWAY_OPENAI_MODEL="gpt-4.1-mini"
+
+export LOCAL_AI_GATEWAY_OLLAMA_BASE_URL="http://127.0.0.1:11434"
+export LOCAL_AI_GATEWAY_OLLAMA_MODEL="qwen2.5-coder:7b"
+```
+
+如需让某个扩展模型成为默认模型别名，可设置：
+
+```bash
+export LOCAL_AI_GATEWAY_DEFAULT_MODEL_ALIAS="ollama-default"
+```
+
+如果你不想走终端，也可以直接启动桌面端，在 `Provider 配置` 区块中填写 OpenAI-compatible / Ollama 参数并保存。保存后桌面端会自动重启 gateway。
+
+当前桌面端支持两类 Codex 接入对象：
+
+- 桌面端自己的 Codex 账号
+  - 浏览器 OAuth 自动导入
+  - 本地 JSON / `auth-profiles.json` 文件导入
+- OpenClaw 已登录的本地 Codex OAuth 授权
+  - 自动扫描发现
+  - 可直接作为网关授权来源
+  - 可一键导入为桌面端账号
+
+## 接入说明
+
+启动本地服务后，可将 OpenClaw 的 `baseUrl` 指向：
+
+```txt
+http://127.0.0.1:8787/v1
+```
+
+默认模型别名为：
+
+```txt
+codex-default
+```
+
+## 文档入口
+
+- [文档总览](./docs/README.md)
+- [v1 产品需求文档（PRD）](./docs/prd/local-ai-gateway-v1.md)
+- [架构总览](./docs/architecture/overview.md)
+- [OpenClaw 接入与运行说明](./docs/operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
+- [Provider 扩展配置](./docs/operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
+- [桌面控制台使用说明](./docs/operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
+- [开发与变更流程](./docs/operations/%E5%BC%80%E5%8F%91%E4%B8%8E%E5%8F%98%E6%9B%B4%E6%B5%81%E7%A8%8B.md)
+- [打包与发布说明](./docs/operations/%E6%89%93%E5%8C%85%E4%B8%8E%E5%8F%91%E5%B8%83.md)
+- [架构决策记录（ADR）](./docs/decisions/0001-%E6%9C%8D%E5%8A%A1%E4%BC%98%E5%85%88%E4%BA%8E%E6%A1%8C%E9%9D%A2%E5%A3%B3.md)
+- [变更记录](./CHANGELOG.md)

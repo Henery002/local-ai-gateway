@@ -1,0 +1,31 @@
+{
+  "name": "local-ai-gateway",
+  "version": "0.1.0",
+  "description": "面向 OpenClaw 的本地 AI 网关与 Electron 控制台",
+  "private": true,
+  "type": "module",
+  "main": "apps/desktop/dist/main.js",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "find apps packages -type d -name dist -prune -exec rm -rf {} +",
+    "dev:gateway": "tsx apps/gateway/src/cli.ts",
+    "dev:desktop": "npm run build && electron apps/desktop/dist/main.js",
+    "dist:desktop": "npm run build && electron-builder",
+    "package:desktop": "npm run build && electron-builder --dir",
+    "smoke:gateway": "npm run build && node scripts/smoke-gateway.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "electron": "^37.3.1",
+    "electron-builder": "^26.0.12",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

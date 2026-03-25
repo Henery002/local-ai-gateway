@@ -1,0 +1,11 @@
+{
+  "name": "@local-ai-gateway/desktop",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "dependencies": {
+    "@local-ai-gateway/openclaw-session": "0.1.0",
+    "@local-ai-gateway/shared": "0.1.0"
+  }
+}

@@ -1,0 +1,31 @@
+node_modules/
+dist/
+release/
+.DS_Store
+coverage/
+*.log
+*.tsbuildinfo
+
+# Existing Codex runtime artifacts in this directory
+auth.json
+config.toml
+models_cache.json
+session_index.jsonl
+.codex-global-state.json
+.personality_migration
+memories/
+sessions/
+shell_snapshots/
+skills/
+sqlite/
+tmp/
+vendor_imports/
+state_*.sqlite
+state_*.sqlite-shm
+state_*.sqlite-wal
+logs_*.sqlite
+logs_*.sqlite-shm
+logs_*.sqlite-wal
+
+# Local app data
+.local-ai-gateway/

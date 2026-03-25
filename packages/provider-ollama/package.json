@@ -1,0 +1,17 @@
+{
+  "name": "@local-ai-gateway/provider-ollama",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@local-ai-gateway/shared": "0.1.0",
+    "@mariozechner/pi-ai": "^0.62.0"
+  }
+}

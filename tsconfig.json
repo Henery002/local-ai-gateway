@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/openclaw-session"
+    },
+    {
+      "path": "./packages/provider-codex"
+    },
+    {
+      "path": "./packages/provider-openai-compatible"
+    },
+    {
+      "path": "./packages/provider-ollama"
+    },
+    {
+      "path": "./packages/openai-compat"
+    },
+    {
+      "path": "./apps/gateway"
+    },
+    {
+      "path": "./apps/desktop"
+    }
+  ]
+}

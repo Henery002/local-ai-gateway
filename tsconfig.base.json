@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@local-ai-gateway/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@local-ai-gateway/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@local-ai-gateway/openclaw-session": [
+        "packages/openclaw-session/src/index.ts"
+      ],
+      "@local-ai-gateway/provider-codex": [
+        "packages/provider-codex/src/index.ts"
+      ],
+      "@local-ai-gateway/provider-openai-compatible": [
+        "packages/provider-openai-compatible/src/index.ts"
+      ],
+      "@local-ai-gateway/provider-ollama": [
+        "packages/provider-ollama/src/index.ts"
+      ],
+      "@local-ai-gateway/openai-compat": [
+        "packages/openai-compat/src/index.ts"
+      ]
+    }
+  }
+}

@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local AI Gateway</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f7fb;
+        --panel: rgba(255, 255, 255, 0.88);
+        --panel-strong: #ffffff;
+        --ink: #0f1725;
+        --muted: #617086;
+        --line: rgba(15, 23, 37, 0.08);
+        --blue: #2563eb;
+        --cyan: #14b8c7;
+        --green: #16a34a;
+        --amber: #d97706;
+        --shadow: 0 26px 80px rgba(24, 39, 75, 0.1);
+        font-family: "SF Pro Display", "Avenir Next", "PingFang SC", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 30%),
+          radial-gradient(circle at top right, rgba(20, 184, 199, 0.12), transparent 28%),
+          linear-gradient(180deg, #f8fbff, #f2f5fa 48%, #edf3f8);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 26px 18px;
+        border-right: 1px solid rgba(15, 23, 37, 0.06);
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav-logo,
+      .nav-item {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 12px 32px rgba(37, 99, 235, 0.08);
+        cursor: pointer;
+      }
+
+      .nav-logo {
+        color: white;
+        background: linear-gradient(135deg, var(--blue), var(--cyan));
+        font-size: 1.5rem;
+      }
+
+      .nav-item {
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .main {
+        padding: 26px 28px 32px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 20px;
+        align-items: start;
+        padding: 24px 26px;
+        border-radius: 30px;
+        background:
+          linear-gradient(120deg, rgba(37, 99, 235, 0.96), rgba(20, 184, 199, 0.88)),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02));
+        color: white;
+        box-shadow: var(--shadow);
+      }
+
+      .hero h1 {
+        margin: 0 0 10px;
+        font-size: 2.5rem;
+        letter-spacing: -0.03em;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 760px;
+        color: rgba(255, 255, 255, 0.86);
+        line-height: 1.7;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      button {
+        appearance: none;
+        border: none;
+        border-radius: 16px;
+        padding: 12px 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 160ms ease, opacity 160ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button.primary {
+        color: white;
+        background: linear-gradient(135deg, var(--blue), var(--cyan));
+      }
+
+      button.secondary {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+      }
+
+      button.ghost {
+        color: var(--ink);
+        background: transparent;
+        border: 1px solid var(--line);
+      }
+
+      button.mini {
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-size: 0.92rem;
+      }
+
+      .banner {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--line);
+        font-weight: 700;
+      }
+
+      .banner[data-tone="success"] {
+        background: rgba(22, 163, 74, 0.1);
+        border-color: rgba(22, 163, 74, 0.24);
+      }
+
+      .banner[data-tone="error"] {
+        background: rgba(220, 38, 38, 0.1);
+        border-color: rgba(220, 38, 38, 0.18);
+      }
+
+      .section {
+        margin-top: 22px;
+        padding: 22px 24px;
+        border-radius: 28px;
+        background: var(--panel);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        font-size: 1.15rem;
+        letter-spacing: 0.02em;
+      }
+
+      .section-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+      }
+
+      .overview-grid,
+      .guide-grid,
+      .diagnostic-grid,
+      .account-grid,
+      .provider-grid,
+      .config-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .overview-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .guide-grid,
+      .account-grid,
+      .provider-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .source-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .source-group {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .source-group-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .source-group-head h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .source-group-head p {
+        margin: 4px 0 0;
+        color: var(--muted);
+      }
+
+      .account-subgrid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .config-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stat-card,
+      .guide-card,
+      .account-card,
+      .provider-card-2,
+      .diagnostic-card,
+      .form-card,
+      .empty-card {
+        padding: 18px;
+        border-radius: 22px;
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+      }
+
+      .stat-card small,
+      .guide-card small,
+      .form-card label,
+      .diagnostic-grid small,
+      .diagnostic-inline small,
+      .account-usage small {
+        display: block;
+        color: var(--muted);
+      }
+
+      .stat-card strong,
+      .diagnostic-grid strong,
+      .diagnostic-inline strong,
+      .account-usage strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 1.08rem;
+        word-break: break-word;
+      }
+
+      .account-card.active,
+      .provider-card-2.active {
+        outline: 2px solid rgba(37, 99, 235, 0.26);
+      }
+
+      .account-head,
+      .provider-card-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .account-head strong,
+      .provider-card-head strong {
+        display: block;
+        font-size: 1.18rem;
+      }
+
+      .account-head small,
+      .provider-card-head small,
+      .account-meta span,
+      .provider-card-meta span {
+        color: var(--muted);
+      }
+
+      .account-meta,
+      .provider-card-meta {
+        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .account-usage {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .account-actions,
+      .toolbar {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .toolbar {
+        justify-content: space-between;
+      }
+
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .model-list {
+        margin-top: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .model-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(244, 247, 251, 0.92);
+      }
+
+      .model-row span,
+      .model-row small {
+        color: var(--muted);
+      }
+
+      .pill {
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+
+      .pill.available,
+      .pill.active {
+        color: var(--green);
+        background: rgba(22, 163, 74, 0.1);
+      }
+
+      .pill.expired,
+      .pill.incomplete {
+        color: var(--amber);
+        background: rgba(217, 119, 6, 0.12);
+      }
+
+      .pill.invalid,
+      .pill.disabled {
+        color: #dc2626;
+        background: rgba(220, 38, 38, 0.1);
+      }
+
+      .pill.neutral {
+        color: var(--blue);
+        background: rgba(37, 99, 235, 0.1);
+      }
+
+      .diagnostic-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 14px;
+      }
+
+      .diagnostic-grid > div,
+      .diagnostic-inline,
+      .diagnostic-notes span {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(244, 247, 251, 0.92);
+      }
+
+      .diagnostic-inline {
+        margin-top: 12px;
+      }
+
+      .diagnostic-notes {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .guide-card p {
+        margin: 10px 0 0;
+        line-height: 1.7;
+        color: var(--muted);
+      }
+
+      .guide-card pre {
+        margin: 14px 0 0;
+        padding: 14px 16px;
+        border-radius: 16px;
+        background: rgba(15, 23, 37, 0.06);
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+
+      .form-card h3 {
+        margin: 0 0 12px;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      .field input,
+      .field select {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: rgba(244, 247, 251, 0.96);
+        border-radius: 14px;
+        padding: 12px 14px;
+        font: inherit;
+        color: var(--ink);
+      }
+
+      .switch {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 14px;
+        color: var(--muted);
+      }
+
+      .switch input {
+        width: 18px;
+        height: 18px;
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 37, 0.34);
+        backdrop-filter: blur(10px);
+        padding: 24px;
+      }
+
+      .modal[hidden] {
+        display: none;
+      }
+
+      .modal-card {
+        width: min(760px, 100%);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.58);
+        box-shadow: 0 28px 90px rgba(15, 23, 37, 0.18);
+        overflow: hidden;
+      }
+
+      .modal-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 22px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .modal-head h3 {
+        margin: 0;
+        font-size: 1.8rem;
+      }
+
+      .tab-bar {
+        display: flex;
+        gap: 8px;
+        padding: 16px 24px 0;
+        flex-wrap: wrap;
+      }
+
+      .tab {
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: rgba(244, 247, 251, 0.96);
+        border: 1px solid var(--line);
+      }
+
+      .tab[data-active="true"] {
+        color: white;
+        background: linear-gradient(135deg, var(--blue), var(--cyan));
+      }
+
+      .tab-panel {
+        padding: 20px 24px 26px;
+      }
+
+      .tab-panel p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .footer-note {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 1180px) {
+        .overview-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .guide-grid,
+        .account-grid,
+        .provider-grid,
+        .config-grid,
+        .account-subgrid {
+          grid-template-columns: 1fr;
+        }
+
+        .field-grid,
+        .diagnostic-grid,
+        .account-usage {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          flex-direction: row;
+          justify-content: center;
+          padding: 14px;
+        }
+
+        .main {
+          padding: 18px;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-actions {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="nav-logo">AI</div>
+        <button class="nav-item" data-nav-target="section-overview">总览</button>
+        <button class="nav-item" data-nav-target="section-accounts">账号</button>
+        <button class="nav-item" data-nav-target="section-providers">配置</button>
+        <button class="nav-item" data-nav-target="section-diagnostics">诊断</button>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div>
+            <h1>Local AI Gateway</h1>
+            <p>本地 AI 网关的桌面操作台。你可以在这里配置 Provider、管理 Codex 本地会话、查看默认模型路由，并把 OpenClaw 指向本机统一入口。</p>
+            <div id="status-banner" class="banner" data-tone="info">正在初始化桌面控制台...</div>
+          </div>
+          <div class="hero-actions">
+            <button id="refresh" class="secondary">刷新状态</button>
+            <button id="restart" class="secondary">重启服务</button>
+            <button id="copy-snippet" class="secondary">复制 OpenClaw 片段</button>
+            <button id="open-logs" class="secondary">打开日志目录</button>
+          </div>
+        </section>
+
+        <section id="section-overview" class="section">
+          <div class="section-head">
+            <div>
+              <h2>总览</h2>
+              <p>当前服务状态、默认模型与本地接入信息。</p>
+            </div>
+            <button id="open-account-modal" class="primary">添加 Codex 账号</button>
+          </div>
+          <div class="overview-grid">
+            <article class="stat-card"><small>服务状态</small><strong id="service-state">加载中</strong></article>
+            <article class="stat-card"><small>控制模式</small><strong id="service-mode">加载中</strong></article>
+            <article class="stat-card"><small>默认 Provider</small><strong id="default-provider">加载中</strong></article>
+            <article class="stat-card"><small>默认模型</small><strong id="default-model">加载中</strong></article>
+            <article class="stat-card"><small>OpenClaw Base URL</small><strong id="openclaw-base-url">加载中</strong></article>
+            <article class="stat-card"><small>OpenClaw 片段模型</small><strong id="snippet-model">加载中</strong></article>
+            <article class="stat-card"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></article>
+            <article class="stat-card"><small>OpenClaw 可复用授权数</small><strong id="openclaw-source-count">0</strong></article>
+            <article class="stat-card"><small>已注册 Provider 数</small><strong id="provider-count">0</strong></article>
+            <article class="stat-card" style="grid-column: 1 / -1;"><small>默认模型选择依据</small><strong id="default-selection">加载中</strong></article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <h2>使用说明</h2>
+              <p>桌面端是控制面，不是聊天窗口。</p>
+            </div>
+          </div>
+          <div id="guide-cards" class="guide-grid"></div>
+        </section>
+
+        <section id="section-accounts" class="section">
+          <div class="section-head">
+            <div>
+              <h2>Codex 账号与授权</h2>
+              <p>桌面端自己导入并管理的才是本应用内的 Codex 账号；OpenClaw 部分展示的是可复用的本地授权会话，不等同于本应用账号。</p>
+            </div>
+            <div class="toolbar-right">
+              <button class="secondary" id="copy-snippet-toolbar">复制接入片段</button>
+            </div>
+          </div>
+          <div id="codex-accounts" class="source-groups"></div>
+        </section>
+
+        <section id="section-providers" class="section">
+          <div class="section-head">
+            <div>
+              <h2>Provider 配置</h2>
+              <p>在这里填写不想走终端的本地配置。保存后会自动重启 gateway 生效。</p>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="save-provider-settings" class="primary">保存并重启服务</button>
+            </div>
+            <div class="toolbar-right">
+              <label class="field" style="min-width: 260px;">
+                <span>默认模型别名</span>
+                <select id="default-model-alias"></select>
+              </label>
+            </div>
+          </div>
+          <div class="config-grid" style="margin-top: 18px;">
+            <article class="form-card">
+              <h3>Codex Provider</h3>
+              <p class="footer-note">Codex 当前直接复用 `~/.openclaw` 中的本地 OAuth 会话，不需要手填 API Key。</p>
+              <div class="field-grid">
+              <div class="field full">
+                  <label>接入方式</label>
+                  <input value="自动发现本地 OpenClaw 授权" disabled />
+                </div>
+                <div class="field">
+                  <label>会话来源</label>
+                  <input value="~/.openclaw/agents/*/agent/auth-profiles.json" disabled />
+                </div>
+                <div class="field">
+                  <label>默认模型别名</label>
+                  <input value="codex-default" disabled />
+                </div>
+              </div>
+            </article>
+
+            <article class="form-card">
+              <h3>OpenAI-compatible</h3>
+              <label class="switch"><input id="openai-enabled" type="checkbox" />启用此 Provider</label>
+              <div class="field-grid">
+                <div class="field"><label>显示名称</label><input id="openai-label" placeholder="例如：My Relay" /></div>
+                <div class="field"><label>模型别名</label><input id="openai-alias" placeholder="例如：openai-compatible-default" /></div>
+                <div class="field full"><label>Base URL</label><input id="openai-base-url" placeholder="https://example.com/v1" /></div>
+                <div class="field full"><label>API Key</label><input id="openai-api-key" type="password" placeholder="sk-..." /></div>
+                <div class="field"><label>上游模型名</label><input id="openai-model" placeholder="例如：gpt-4.1-mini" /></div>
+                <div class="field"><label>展示名称</label><input id="openai-display-name" placeholder="例如：OpenAI-Compatible Default" /></div>
+              </div>
+              <div class="footer-note">提示：若同时配置了环境变量和界面表单，运行时会优先使用环境变量。</div>
+            </article>
+
+            <article class="form-card">
+              <h3>Ollama</h3>
+              <label class="switch"><input id="ollama-enabled" type="checkbox" />启用此 Provider</label>
+              <div class="field-grid">
+                <div class="field"><label>显示名称</label><input id="ollama-label" placeholder="例如：Ollama" /></div>
+                <div class="field"><label>模型别名</label><input id="ollama-alias" placeholder="例如：ollama-default" /></div>
+                <div class="field full"><label>Base URL</label><input id="ollama-base-url" placeholder="http://127.0.0.1:11434" /></div>
+                <div class="field"><label>模型名</label><input id="ollama-model" placeholder="例如：qwen2.5-coder:7b" /></div>
+                <div class="field"><label>展示名称</label><input id="ollama-display-name" placeholder="例如：Ollama Default" /></div>
+              </div>
+              <div class="footer-note">提示：此处保存的是本机本地配置，适合你不想再通过终端反复设置的场景。</div>
+            </article>
+
+            <article class="form-card">
+              <h3>已注册 Provider</h3>
+              <div id="provider-registry" class="provider-grid"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="section-diagnostics" class="section">
+          <div class="section-head">
+            <div>
+              <h2>诊断与错误</h2>
+              <p>查看每个 Provider 的启用状态、缺失项与最近错误。</p>
+            </div>
+          </div>
+          <div class="config-grid">
+            <div id="provider-diagnostics" class="provider-grid"></div>
+            <div id="recent-errors" class="provider-grid"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="account-modal" class="modal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>添加 Codex 账号</h3>
+          <button id="close-account-modal" class="ghost">关闭</button>
+        </div>
+        <div class="tab-bar">
+          <button class="tab" data-account-tab="oauth" data-active="false">OAuth 授权</button>
+          <button class="tab" data-account-tab="token" data-active="false">Token / JSON</button>
+          <button class="tab" data-account-tab="apikey" data-active="false">API Key</button>
+          <button class="tab" data-account-tab="import" data-active="true">扫描 OpenClaw</button>
+        </div>
+        <div class="tab-panel" data-account-panel="oauth" hidden>
+          <p>当前版本已经支持浏览器 OAuth 导入。点击下方按钮后会自动打开浏览器完成 OpenAI Codex 授权；若本地回调未自动完成，可把完整回调地址粘贴到输入框中继续。</p>
+          <button id="start-codex-oauth" class="primary">在浏览器中开始授权</button>
+          <div class="field" style="margin-top: 16px;">
+            <label>手动粘贴回调地址</label>
+            <input id="oauth-manual-input" placeholder="例如：http://localhost:1455/auth/callback?code=...&state=..." />
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <button id="submit-codex-oauth-input" class="secondary">我已授权，继续</button>
+              <button id="cancel-codex-oauth" class="ghost">取消授权流程</button>
+            </div>
+          </div>
+          <div id="oauth-status" class="banner" data-tone="info" style="margin-top: 14px;">浏览器授权已准备就绪。</div>
+        </div>
+        <div class="tab-panel" data-account-panel="token" hidden>
+          <p>当前版本已经支持导入常见 JSON 格式，包括 OpenClaw `auth-profiles.json`、单个 `openai-codex` OAuth 凭据对象，以及其他工具导出的兼容结构。</p>
+          <button id="import-codex-json" class="primary">从本地 JSON 文件导入</button>
+          <div class="footer-note">导入完成后，账号会写入本应用自己的本地存储，并出现在账号面板中。</div>
+        </div>
+        <div class="tab-panel" data-account-panel="apikey" hidden>
+          <p>这里预留 API Key 模式，用于未来支持 OpenAI-compatible / 其他官方 API Provider 的图形化接入。</p>
+          <button class="secondary">即将支持</button>
+        </div>
+        <div class="tab-panel" data-account-panel="import">
+          <p>当前版本会自动发现本机现有 OpenClaw 已登录的 Codex OAuth 会话。它们是可复用的授权来源，不直接等于本应用内的 Codex 账号。</p>
+          <button id="import-local-accounts" class="primary">重新扫描 OpenClaw 授权</button>
+          <div class="footer-note">说明：如果你希望把某个 OpenClaw 已登录授权变成本应用自己的 Codex 账号，可在下方授权列表中点击“导入为桌面端账号”。</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="../dist/renderer.js"></script>
+  </body>
+  </html>
