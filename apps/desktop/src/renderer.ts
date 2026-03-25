@@ -16,6 +16,7 @@ declare global {
       saveProviderSettings: (payload: ProviderSettings) => Promise<{ ok: boolean; requiresRestart: boolean }>;
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
+      refreshSessionUsage: (sessionId?: string) => Promise<SessionUsageRefreshResponse>;
       restartGateway: () => Promise<any>;
       copyOpenClawSnippet: () => Promise<any>;
       openLogs: () => Promise<any>;
@@ -144,6 +145,29 @@ type ProviderSettingsResponse = {
   data: ProviderSettings;
 };
 
+type SessionUsageRefreshResponse = {
+  ok: boolean;
+  refreshed: number;
+  failed: number;
+  data: Array<{
+    sessionId: string;
+    accountId?: string;
+    sourceKind?: "openclaw" | "local-import";
+    planType?: string;
+    quota?: {
+      scope?: "hourly" | "weekly";
+      percentage?: number;
+      resetAt?: number;
+      windowMinutes?: number;
+      updatedAt?: number;
+    };
+  }>;
+  errors: Array<{
+    sessionId: string;
+    message: string;
+  }>;
+};
+
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
@@ -226,6 +250,25 @@ function getQuotaPercentage(session: DashboardSessions["data"][number]): number 
     return undefined;
   }
   return Math.max(0, Math.min(100, value));
+}
+
+function formatQuotaWindowLabel(session: DashboardSessions["data"][number]): string {
+  const quota = session.quota;
+  if (!quota) {
+    return "剩余额度";
+  }
+
+  if (typeof quota.windowMinutes === "number") {
+    if (quota.windowMinutes >= 60 * 24 * 6) {
+      return "剩余额度（7天）";
+    }
+    if (quota.windowMinutes >= 60) {
+      return `剩余额度（${Math.round(quota.windowMinutes / 60)}小时）`;
+    }
+    return `剩余额度（${quota.windowMinutes}分钟）`;
+  }
+
+  return quota.scope === "weekly" ? "剩余额度（周）" : "剩余额度（小时）";
 }
 
 function statusLabel(status: "available" | "expired" | "invalid"): string {
@@ -330,9 +373,9 @@ function renderCodexAccounts(): void {
             ? account.representative.email
             : account.representative.accountId ?? account.representative.id;
           const quotaPercentage = getQuotaPercentage(account.representative);
-          const quotaScope = account.representative.quota?.scope === "weekly" ? "周额度" : "小时额度";
+          const quotaScope = formatQuotaWindowLabel(account.representative);
           const quotaUpdatedAt = account.representative.quota?.updatedAt
-            ? `额度快照：${formatDate(account.representative.quota?.updatedAt)}`
+            ? `实时快照：${formatDate(account.representative.quota?.updatedAt)}`
             : "";
           return `
         <article class="account-card${account.isActive ? " active" : ""}">
@@ -791,9 +834,16 @@ async function importCodexJson(): Promise<void> {
 function bindActions(): void {
   document.getElementById("refresh")?.addEventListener("click", async () => {
     try {
-      setBanner("正在刷新状态...", "info");
-      await refresh();
-      setBanner("状态已刷新。", "success");
+      setBanner("正在刷新状态与 Codex 实时额度...", "info");
+      const summary = await refreshWithLiveUsage();
+      if (summary && summary.failed > 0) {
+        setBanner(
+          `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项刷新失败。`,
+          "error",
+        );
+      } else {
+        setBanner(`状态已刷新，${summary?.refreshed ?? 0} 个账号额度已更新。`, "success");
+      }
     } catch (error) {
       setBanner(`刷新失败：${String(error)}`, "error");
     }
@@ -915,7 +965,7 @@ function bindActions(): void {
       try {
         setBanner(`正在切换到 ${button.dataset.sessionId} ...`, "info");
         await getGatewayApi().setActiveSession(button.dataset.sessionId);
-        await refresh();
+        await refreshWithLiveUsage(button.dataset.sessionId);
         setBanner("活动账号已切换。", "success");
       } catch (error) {
         setBanner(`切换失败：${String(error)}`, "error");
@@ -967,6 +1017,13 @@ async function refresh(): Promise<void> {
   setOAuthBusyState(Boolean(state.oauthInFlight));
 }
 
+async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRefreshResponse | undefined> {
+  const api = getGatewayApi();
+  const summary = await api.refreshSessionUsage(sessionId);
+  await refresh();
+  return summary;
+}
+
 void (async () => {
   try {
     bindNavigation();
@@ -974,8 +1031,12 @@ void (async () => {
     setOAuthStatus("浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。", "info");
     setOAuthBusyState(false);
     setBanner("正在加载 Local AI Gateway 控制台...", "info");
-    await refresh();
-    setBanner("控制台已就绪。", "success");
+    const summary = await refreshWithLiveUsage();
+    if (summary && summary.failed > 0) {
+      setBanner(`控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`, "error");
+    } else {
+      setBanner("控制台已就绪。", "success");
+    }
   } catch (error) {
     setBanner(`初始化失败：${String(error)}`, "error");
   }

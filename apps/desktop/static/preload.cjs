@@ -7,6 +7,7 @@ const api = {
   saveProviderSettings: (payload) => ipcRenderer.invoke("gateway:save-provider-settings", payload),
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId) => ipcRenderer.invoke("gateway:set-active-session", sessionId),
+  refreshSessionUsage: (sessionId) => ipcRenderer.invoke("gateway:refresh-session-usage", sessionId),
   restartGateway: () => ipcRenderer.invoke("gateway:restart"),
   copyOpenClawSnippet: () => ipcRenderer.invoke("gateway:copy-openclaw-snippet"),
   openLogs: () => ipcRenderer.invoke("gateway:open-logs"),

@@ -9,6 +9,7 @@ import {
   GatewayError,
   ResolvedSession,
   SessionQuotaSnapshot,
+  SessionUsageRefreshSummary,
   SessionSourceKind,
   SessionStatus,
   SessionSummary,
@@ -43,6 +44,20 @@ interface SessionRecord {
   agentId: string;
   profileId: string;
   profile: RawProfile;
+}
+
+interface CodexUsageWindow {
+  used_percent?: unknown;
+  reset_at?: unknown;
+  limit_window_seconds?: unknown;
+}
+
+interface CodexUsagePayload {
+  plan_type?: unknown;
+  rate_limit?: {
+    primary_window?: CodexUsageWindow;
+    secondary_window?: CodexUsageWindow;
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,6 +201,73 @@ function sanitizeProfile(value: RawProfile): RawProfile {
 
 function createNowIso(): string {
   return new Date().toISOString();
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function clampPercentage(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function buildQuotaSnapshotFromWindow(window: CodexUsageWindow | undefined): SessionQuotaSnapshot | undefined {
+  if (!window) {
+    return undefined;
+  }
+
+  const usedPercent = toFiniteNumber(window.used_percent);
+  const resetAt = normalizeEpochMs(window.reset_at);
+  const limitWindowSeconds = toFiniteNumber(window.limit_window_seconds);
+
+  if (usedPercent === undefined && resetAt === undefined && limitWindowSeconds === undefined) {
+    return undefined;
+  }
+
+  return {
+    scope: (limitWindowSeconds ?? 0) >= 604_800 ? "weekly" : "hourly",
+    percentage: usedPercent === undefined ? undefined : clampPercentage(100 - usedPercent),
+    resetAt,
+    windowMinutes:
+      limitWindowSeconds !== undefined ? Math.max(1, Math.round(limitWindowSeconds / 60)) : undefined,
+    updatedAt: Date.now(),
+  };
+}
+
+async function fetchCodexUsageSnapshot(
+  accessToken: string,
+  accountId?: string,
+): Promise<{ planType?: string; quota?: SessionQuotaSnapshot }> {
+  const headers = new Headers({
+    Authorization: `Bearer ${accessToken}`,
+    Accept: "application/json",
+  });
+
+  if (accountId) {
+    headers.set("ChatGPT-Account-Id", accountId);
+  }
+
+  const response = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+    method: "GET",
+    headers,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Codex 额度接口请求失败 (${response.status})${text ? `: ${text.slice(0, 160)}` : ""}`,
+    );
+  }
+
+  const payload = (await response.json()) as CodexUsagePayload;
+  const quota =
+    buildQuotaSnapshotFromWindow(payload.rate_limit?.primary_window) ??
+    buildQuotaSnapshotFromWindow(payload.rate_limit?.secondary_window);
+
+  return {
+    planType: typeof payload.plan_type === "string" ? payload.plan_type : undefined,
+    quota,
+  };
 }
 
 function slugSegment(input: string): string {
@@ -363,6 +445,34 @@ export class ImportedCodexAccountStore {
     };
   }
 
+  updateProfileMetadata(
+    profileId: string,
+    patch: Pick<RawProfile, "displayName" | "email" | "planType" | "quota">,
+  ): { profileId: string; profile: RawProfile; filePath: string } {
+    const current = this.listProfiles();
+    const existing = current[profileId];
+    if (!existing) {
+      throw new Error(`未找到桌面端 Codex 账号 ${profileId}。`);
+    }
+
+    const now = createNowIso();
+    current[profileId] = {
+      ...existing,
+      displayName: patch.displayName ?? existing.displayName,
+      email: patch.email ?? existing.email,
+      planType: patch.planType ?? existing.planType,
+      quota: patch.quota ?? existing.quota,
+      updatedAt: now,
+    };
+
+    this.saveProfiles(current);
+    return {
+      profileId,
+      profile: current[profileId] as RawProfile,
+      filePath: this.profilesPath,
+    };
+  }
+
   private saveProfiles(profiles: Record<string, RawProfile>): void {
     mkdirSync(dirname(this.profilesPath), { recursive: true });
     const payload: RawProfilesFile = {
@@ -375,6 +485,7 @@ export class ImportedCodexAccountStore {
 
 export class OpenClawSessionSource {
   private readonly importedStore?: ImportedCodexAccountStore;
+  private readonly usageCache = new Map<string, Pick<RawProfile, "displayName" | "email" | "planType" | "quota">>();
 
   constructor(
     private readonly openClawRoot = DEFAULT_OPENCLAW_ROOT,
@@ -389,23 +500,32 @@ export class OpenClawSessionSource {
     const records = this.collectSessionRecords();
 
     return records
-      .map((record) => ({
-        id: `${record.agentId}:${record.profileId}`,
+      .map((record) => {
+        const sessionId = `${record.agentId}:${record.profileId}`;
+        const cached = this.usageCache.get(sessionId);
+        const profile = {
+          ...record.profile,
+          ...cached,
+        };
+
+        return {
+        id: sessionId,
         agentId: record.agentId,
         profileId: record.profileId,
-        provider: record.profile.provider ?? "unknown",
-        type: record.profile.type ?? "unknown",
-        accountId: record.profile.accountId,
-        displayName: record.profile.displayName,
-        email: record.profile.email,
-        planType: record.profile.planType,
-        quota: record.profile.quota,
-        expiresAt: typeof record.profile.expires === "number" ? record.profile.expires : undefined,
-        status: this.resolveStatus(record.profile),
+        provider: profile.provider ?? "unknown",
+        type: profile.type ?? "unknown",
+        accountId: profile.accountId,
+        displayName: profile.displayName,
+        email: profile.email,
+        planType: profile.planType,
+        quota: profile.quota,
+        expiresAt: typeof profile.expires === "number" ? profile.expires : undefined,
+        status: this.resolveStatus(profile),
         sourceKind: record.sourceKind,
         sourceLabel: record.sourceLabel,
         sourcePath: record.sourcePath,
-      }))
+      };
+      })
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
@@ -506,6 +626,76 @@ export class OpenClawSessionSource {
     return this.importedStore.importOAuthProfile(rawProfile, {
       label: options.label ?? rawProfile.label ?? target.accountId ?? "从 OpenClaw 导入的 Codex 账号",
     });
+  }
+
+  async refreshUsage(sessionId?: string): Promise<SessionUsageRefreshSummary> {
+    const sessions = this.listSessions().filter((session) => session.status !== "invalid");
+    const targets = sessionId
+      ? sessions.filter((session) => session.id === sessionId)
+      : sessions;
+
+    if (sessionId && targets.length === 0) {
+      throw new Error(`未找到会话 ${sessionId}。`);
+    }
+
+    const groups = new Map<string, SessionSummary[]>();
+    for (const session of targets) {
+      const key = `${session.sourceKind ?? "openclaw"}:${session.accountId ?? session.id}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.push(session);
+      } else {
+        groups.set(key, [session]);
+      }
+    }
+
+    const data: SessionUsageRefreshSummary["data"] = [];
+    const errors: SessionUsageRefreshSummary["errors"] = [];
+    let refreshed = 0;
+
+    for (const sessionsForAccount of groups.values()) {
+      const representative = sessionsForAccount[0];
+
+      try {
+        const resolved = await this.resolveSession(representative.id);
+        const snapshot = await fetchCodexUsageSnapshot(resolved.apiKey, resolved.accountId);
+        const patch = {
+          displayName: representative.displayName,
+          email: representative.email,
+          planType: snapshot.planType ?? representative.planType,
+          quota: snapshot.quota ?? representative.quota,
+        } satisfies Pick<RawProfile, "displayName" | "email" | "planType" | "quota">;
+
+        for (const session of sessionsForAccount) {
+          this.usageCache.set(session.id, patch);
+          if (session.sourceKind === "local-import" && this.importedStore) {
+            this.importedStore.updateProfileMetadata(session.profileId, patch);
+          }
+
+          data.push({
+            sessionId: session.id,
+            accountId: session.accountId,
+            sourceKind: session.sourceKind,
+            planType: patch.planType,
+            quota: patch.quota,
+          });
+          refreshed += 1;
+        }
+      } catch (error) {
+        errors.push({
+          sessionId: representative.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      ok: errors.length === 0,
+      refreshed,
+      failed: errors.length,
+      data,
+      errors,
+    };
   }
 
   private collectSessionRecords(): SessionRecord[] {

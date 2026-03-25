@@ -125,6 +125,25 @@ export interface ResolvedSession extends SessionSummary {
   apiKey: string;
 }
 
+export interface SessionUsageRefreshItem {
+  sessionId: string;
+  accountId?: string;
+  sourceKind?: SessionSourceKind;
+  planType?: string;
+  quota?: SessionQuotaSnapshot;
+}
+
+export interface SessionUsageRefreshSummary {
+  ok: boolean;
+  refreshed: number;
+  failed: number;
+  data: SessionUsageRefreshItem[];
+  errors: Array<{
+    sessionId: string;
+    message: string;
+  }>;
+}
+
 export interface ProviderSummary {
   id: string;
   label: string;
@@ -158,6 +177,7 @@ export interface DefaultModelSelectionSummary {
 export interface SessionSource {
   listSessions(): SessionSummary[];
   resolveSession(sessionId?: string): Promise<ResolvedSession>;
+  refreshUsage?(sessionId?: string): Promise<SessionUsageRefreshSummary>;
 }
 
 export interface ProviderStream {

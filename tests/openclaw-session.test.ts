@@ -2,9 +2,16 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
+
+const originalFetch = global.fetch;
+
+afterEach(() => {
+  global.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
 
 describe("openclaw session source", () => {
   it("discovers codex sessions from auth profile files", async () => {
@@ -139,6 +146,86 @@ describe("openclaw session source", () => {
       sourceLabel: "桌面端 Codex 账号",
       accountId: "acct_fixture",
       status: "available",
+    });
+  });
+
+  it("refreshes codex usage snapshots and persists imported account metadata", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-refresh-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const saved = store.upsertOAuthCredentials({
+      access: "local-access-token",
+      refresh: "local-refresh-token",
+      expires: 4_102_444_800_000,
+      accountId: "acct_live_refresh",
+    });
+
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          plan_type: "plus",
+          rate_limit: {
+            primary_window: {
+              used_percent: 12,
+              reset_at: 1_775_053_648,
+              limit_window_seconds: 18_000,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+    );
+
+    const summary = await source.refreshUsage(`local-import:${saved.profileId}`);
+    const sessions = source.listSessions();
+    const refreshed = sessions.find((session) => session.id === `local-import:${saved.profileId}`);
+    const persisted = store.listProfiles()[saved.profileId];
+
+    expect(summary).toMatchObject({
+      ok: true,
+      refreshed: 1,
+      failed: 0,
+      data: [
+        {
+          sessionId: `local-import:${saved.profileId}`,
+          accountId: "acct_live_refresh",
+          planType: "plus",
+          quota: {
+            scope: "hourly",
+            percentage: 88,
+            resetAt: 1_775_053_648_000,
+            windowMinutes: 300,
+          },
+        },
+      ],
+    });
+    expect(refreshed).toMatchObject({
+      planType: "plus",
+      quota: {
+        scope: "hourly",
+        percentage: 88,
+        resetAt: 1_775_053_648_000,
+        windowMinutes: 300,
+      },
+    });
+    expect(persisted).toMatchObject({
+      planType: "plus",
+      quota: {
+        scope: "hourly",
+        percentage: 88,
+        resetAt: 1_775_053_648_000,
+        windowMinutes: 300,
+      },
     });
   });
 });

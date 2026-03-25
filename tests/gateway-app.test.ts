@@ -21,6 +21,7 @@ import {
   ResolvedSession,
   SessionSource,
   SessionSummary,
+  SessionUsageRefreshSummary,
 } from "@local-ai-gateway/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -64,6 +65,29 @@ class FakeSessionSource implements SessionSource {
 
   async resolveSession(): Promise<ResolvedSession> {
     return this.session;
+  }
+
+  async refreshUsage(sessionId?: string): Promise<SessionUsageRefreshSummary> {
+    return {
+      ok: true,
+      refreshed: 1,
+      failed: 0,
+      data: [
+        {
+          sessionId: sessionId ?? this.session.id,
+          accountId: this.session.accountId,
+          sourceKind: "local-import",
+          planType: "plus",
+          quota: {
+            scope: "hourly",
+            percentage: 88,
+            resetAt: 4_102_444_800_000,
+            updatedAt: 4_102_111_111_000,
+          },
+        },
+      ],
+      errors: [],
+    };
   }
 }
 
@@ -273,6 +297,31 @@ describe("gateway app", () => {
       expect(sessions.statusCode).toBe(200);
       expect(sessions.json()).toMatchObject({
         activeSessionId: "main:fake:default",
+      });
+
+      const refreshed = await app.inject({
+        method: "POST",
+        url: "/admin/sessions/refresh",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          sessionId: "main:fake:default",
+        },
+      });
+      expect(refreshed.statusCode).toBe(200);
+      expect(refreshed.json()).toMatchObject({
+        ok: true,
+        refreshed: 1,
+        failed: 0,
+        data: [
+          {
+            sessionId: "main:fake:default",
+            accountId: "acct_fake",
+            planType: "plus",
+          },
+        ],
       });
     } finally {
       await app.close();

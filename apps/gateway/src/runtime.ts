@@ -20,6 +20,7 @@ import {
   ProviderSummary,
   SessionSource,
   SessionSummary,
+  SessionUsageRefreshSummary,
 } from "@local-ai-gateway/shared";
 
 import { bootstrapProvidersFromEnvironment } from "./provider-bootstrap.js";
@@ -66,6 +67,25 @@ export class GatewayRuntime {
 
   setActiveSessionId(sessionId: string): void {
     this.configStore.setActiveSession(sessionId);
+  }
+
+  async refreshSessionUsage(sessionId?: string): Promise<SessionUsageRefreshSummary> {
+    if (typeof this.sessionSource.refreshUsage !== "function") {
+      return {
+        ok: false,
+        refreshed: 0,
+        failed: 1,
+        data: [],
+        errors: [
+          {
+            sessionId: sessionId ?? "all",
+            message: "当前会话源不支持实时额度刷新。",
+          },
+        ],
+      };
+    }
+
+    return this.sessionSource.refreshUsage(sessionId);
   }
 
   getHealth(): GatewayHealth {

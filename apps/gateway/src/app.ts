@@ -189,6 +189,12 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.post("/admin/sessions/refresh", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as { sessionId?: string };
+    return runtime.refreshSessionUsage(body.sessionId);
+  });
+
   app.post("/admin/service/restart", async (request, reply) => {
     requireAdminAuth(runtime, request);
     reply.send({
