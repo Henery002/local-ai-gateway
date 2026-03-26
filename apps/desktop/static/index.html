@@ -505,8 +505,8 @@
 
       .account-subgrid {
         display: grid;
-        gap: var(--space-3);
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-4);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
       .stat-card,
@@ -548,6 +548,12 @@
         box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08);
       }
 
+      .account-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+
       .account-head,
       .provider-card-head {
         display: flex;
@@ -574,6 +580,14 @@
       .account-meta,
       .provider-card-meta {
         margin-top: var(--space-3);
+      }
+
+      .account-meta {
+        display: grid;
+        gap: 6px;
+      }
+
+      .provider-card-meta {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px var(--space-3);
@@ -586,10 +600,14 @@
       }
 
       .account-usage {
-        margin-top: var(--space-3);
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-3);
+      }
+
+      .usage-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
 
       .quota-meter {
@@ -620,7 +638,6 @@
 
       .account-actions,
       .toolbar {
-        margin-top: var(--space-3);
         display: flex;
         gap: var(--space-2);
         flex-wrap: wrap;
@@ -876,8 +893,6 @@
 
         .field-grid,
         .diagnostic-grid,
-        .account-usage,
-        .account-meta,
         .provider-card-meta {
           grid-template-columns: 1fr;
         }

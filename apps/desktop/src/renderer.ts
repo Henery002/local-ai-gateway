@@ -475,7 +475,7 @@ function renderCodexAccounts(): void {
             <span>${escapeHtml(quotaUpdatedAt)}</span>
           </div>
           <div class="account-usage">
-            <div>
+            <div class="usage-item">
               <small>${quotaScope}</small>
               <strong>${escapeHtml(quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入")}</strong>
               ${
@@ -484,7 +484,7 @@ function renderCodexAccounts(): void {
                   : ""
               }
             </div>
-            <div>
+            <div class="usage-item">
               <small>重置时间</small>
               <strong>${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</strong>
               <small class="subtle-date">${escapeHtml(formatDate(account.representative.quota?.resetAt))}</small>
