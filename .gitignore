@@ -29,3 +29,4 @@ logs_*.sqlite-wal
 
 # Local app data
 .local-ai-gateway/
+.history/
