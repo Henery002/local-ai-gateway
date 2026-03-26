@@ -10,6 +10,7 @@
 - [OpenClaw 接入与运行说明](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [桌面控制台使用说明](./operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
+- [桌面端 UI 与交互重构交接说明](./operations/%E6%A1%8C%E9%9D%A2%E7%AB%AF-ui-%E4%BA%A4%E4%BA%92%E9%87%8D%E6%9E%84%E4%BA%A4%E6%8E%A5%E8%AF%B4%E6%98%8E.md)
 - [Codex 接入风险与限流说明](./operations/codex-%E6%8E%A5%E5%85%A5%E9%A3%8E%E9%99%A9%E4%B8%8E%E9%99%90%E6%B5%81%E8%AF%B4%E6%98%8E.md)
 - [项目答疑与开发清单](./operations/%E9%A1%B9%E7%9B%AE%E7%AD%94%E7%96%91%E4%B8%8E%E5%BC%80%E5%8F%91%E6%B8%85%E5%8D%95.md)
 - [开发与变更流程](./operations/%E5%BC%80%E5%8F%91%E4%B8%8E%E5%8F%98%E6%9B%B4%E6%B5%81%E7%A8%8B.md)
