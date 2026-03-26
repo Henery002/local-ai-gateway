@@ -15,19 +15,33 @@ declare global {
       getHealth: () => Promise<DashboardHealth>;
       getProviders: () => Promise<DashboardProviders>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
-      saveProviderSettings: (payload: ProviderSettings) => Promise<{ ok: boolean; requiresRestart: boolean }>;
+      saveProviderSettings: (
+        payload: ProviderSettings,
+      ) => Promise<{ ok: boolean; requiresRestart: boolean }>;
       getSystemSettings: () => Promise<SystemSettingsResponse>;
-      saveSystemSettings: (payload: SystemSettings) => Promise<SystemSettingsResponse>;
+      saveSystemSettings: (
+        payload: SystemSettings,
+      ) => Promise<SystemSettingsResponse>;
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
-      refreshSessionUsage: (sessionId?: string) => Promise<SessionUsageRefreshResponse>;
-      deleteCodexAccount: (sessionId: string) => Promise<{ ok: boolean; data: { removed: boolean; profileId: string; filePath: string } }>;
+      refreshSessionUsage: (
+        sessionId?: string,
+      ) => Promise<SessionUsageRefreshResponse>;
+      deleteCodexAccount: (sessionId: string) => Promise<{
+        ok: boolean;
+        data: { removed: boolean; profileId: string; filePath: string };
+      }>;
       restartGateway: () => Promise<any>;
       copyOpenClawSnippet: () => Promise<any>;
       openLogs: () => Promise<any>;
       loginCodexOAuth: () => Promise<{
         ok: boolean;
-        data: { sessionId: string; profileId: string; accountId?: string; filePath: string };
+        data: {
+          sessionId: string;
+          profileId: string;
+          accountId?: string;
+          filePath: string;
+        };
       }>;
       submitCodexOAuthInput: (input: string) => Promise<{ ok: boolean }>;
       cancelCodexOAuth: () => Promise<{ ok: boolean }>;
@@ -50,7 +64,12 @@ declare global {
       }>;
       importOpenClawSession: (sessionId: string) => Promise<{
         ok: boolean;
-        data: { sessionId: string; profileId: string; accountId?: string; filePath: string };
+        data: {
+          sessionId: string;
+          profileId: string;
+          accountId?: string;
+          filePath: string;
+        };
       }>;
     };
   }
@@ -222,7 +241,9 @@ let autoRefreshTimer: number | undefined;
 function getGatewayApi() {
   const api = window.localAIGateway;
   if (!api) {
-    throw new Error("Electron preload 未成功注入，桌面桥接不可用。请重启桌面端。");
+    throw new Error(
+      "Electron preload 未成功注入，桌面桥接不可用。请重启桌面端。",
+    );
   }
   return api;
 }
@@ -232,7 +253,7 @@ function escapeHtml(value: string): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
+    .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
 
@@ -243,7 +264,10 @@ function setText(id: string, value: string): void {
   }
 }
 
-function setBanner(message: string, tone: "info" | "success" | "error" = "info"): void {
+function setBanner(
+  message: string,
+  tone: "info" | "success" | "error" = "info",
+): void {
   const node = document.getElementById("status-banner");
   if (!node) {
     return;
@@ -255,7 +279,12 @@ function setBanner(message: string, tone: "info" | "success" | "error" = "info")
 function loadPersistedView(): DashboardView {
   try {
     const saved = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
-    if (saved === "overview" || saved === "accounts" || saved === "providers" || saved === "diagnostics") {
+    if (
+      saved === "overview" ||
+      saved === "accounts" ||
+      saved === "providers" ||
+      saved === "diagnostics"
+    ) {
       return saved;
     }
   } catch {
@@ -272,16 +301,24 @@ function setActiveView(view: DashboardView): void {
     // ignore
   }
 
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-nav-target]"))) {
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-nav-target]"),
+  )) {
     node.dataset.active = node.dataset.navTarget === view ? "true" : "false";
   }
 
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-view]"))) {
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-view]"),
+  )) {
     node.hidden = node.dataset.view !== view;
   }
 }
 
-function setButtonLoading(button: HTMLButtonElement | null, loading: boolean, loadingText?: string): void {
+function setButtonLoading(
+  button: HTMLButtonElement | null,
+  loading: boolean,
+  loadingText?: string,
+): void {
   if (!button) {
     return;
   }
@@ -359,10 +396,17 @@ function clearAutoRefreshTimer(): void {
 }
 
 function getSessionTitle(session: DashboardSessions["data"][number]): string {
-  return session.email ?? session.displayName ?? session.accountId ?? session.profileId;
+  return (
+    session.email ??
+    session.displayName ??
+    session.accountId ??
+    session.profileId
+  );
 }
 
-function getQuotaPercentage(session: DashboardSessions["data"][number]): number | undefined {
+function getQuotaPercentage(
+  session: DashboardSessions["data"][number],
+): number | undefined {
   const value = session.quota?.percentage;
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -370,7 +414,9 @@ function getQuotaPercentage(session: DashboardSessions["data"][number]): number 
   return Math.max(0, Math.min(100, value));
 }
 
-function formatQuotaWindowLabel(session: DashboardSessions["data"][number]): string {
+function formatQuotaWindowLabel(
+  session: DashboardSessions["data"][number],
+): string {
   const quota = session.quota;
   if (!quota) {
     return "剩余额度";
@@ -426,7 +472,8 @@ function isMissingRefreshUsageHandler(error: unknown): boolean {
   const message = String(error);
   return (
     message.includes("gateway:refresh-session-usage") &&
-    (message.includes("No handler registered") || message.includes("Admin request failed (404)"))
+    (message.includes("No handler registered") ||
+      message.includes("Admin request failed (404)"))
   );
 }
 
@@ -449,7 +496,10 @@ function getActiveProviderLabel(): string {
 }
 
 function getAccountGroups() {
-  return buildCodexAccountGroups(state.sessions?.data ?? [], state.sessions?.activeSessionId);
+  return buildCodexAccountGroups(
+    state.sessions?.data ?? [],
+    state.sessions?.activeSessionId,
+  );
 }
 
 function compareOptionalNumbers(
@@ -469,7 +519,10 @@ function compareOptionalNumbers(
   return direction === "asc" ? left - right : right - left;
 }
 
-function matchesAccountSearch(group: ReturnType<typeof getAccountGroups>["groups"][number], query: string): boolean {
+function matchesAccountSearch(
+  group: ReturnType<typeof getAccountGroups>["groups"][number],
+  query: string,
+): boolean {
   if (!query) {
     return true;
   }
@@ -499,43 +552,54 @@ function sortAccountGroups(
     return filtered;
   }
 
-    return [...filtered].sort((left, right) => {
-      let delta = 0;
+  return [...filtered].sort((left, right) => {
+    let delta = 0;
 
-      if (state.accountSortKey === "name") {
-        delta =
-          getSessionTitle(left.representative).localeCompare(getSessionTitle(right.representative), "zh-CN") *
-          (state.accountSortDirection === "asc" ? 1 : -1);
-      }
+    if (state.accountSortKey === "name") {
+      delta =
+        getSessionTitle(left.representative).localeCompare(
+          getSessionTitle(right.representative),
+          "zh-CN",
+        ) * (state.accountSortDirection === "asc" ? 1 : -1);
+    }
 
-      if (state.accountSortKey === "quota") {
-        delta = compareOptionalNumbers(
-          left.representative.quota?.percentage,
-          right.representative.quota?.percentage,
-          state.accountSortDirection,
-        );
-      }
+    if (state.accountSortKey === "quota") {
+      delta = compareOptionalNumbers(
+        left.representative.quota?.percentage,
+        right.representative.quota?.percentage,
+        state.accountSortDirection,
+      );
+    }
 
-      if (state.accountSortKey === "resetAt") {
-        delta = compareOptionalNumbers(
-          left.representative.quota?.resetAt,
-          right.representative.quota?.resetAt,
-          state.accountSortDirection,
-        );
-      }
+    if (state.accountSortKey === "resetAt") {
+      delta = compareOptionalNumbers(
+        left.representative.quota?.resetAt,
+        right.representative.quota?.resetAt,
+        state.accountSortDirection,
+      );
+    }
 
-      if (delta === 0) {
-        delta = getSessionTitle(left.representative).localeCompare(getSessionTitle(right.representative), "zh-CN");
-      }
+    if (delta === 0) {
+      delta = getSessionTitle(left.representative).localeCompare(
+        getSessionTitle(right.representative),
+        "zh-CN",
+      );
+    }
 
-      return delta;
-    });
+    return delta;
+  });
 }
 
 function updateAccountToolbarState(): void {
-  const searchInput = document.getElementById("account-search") as HTMLInputElement | null;
-  const sortSelect = document.getElementById("account-sort-key") as HTMLSelectElement | null;
-  const sortDirectionButton = document.getElementById("account-sort-direction") as HTMLButtonElement | null;
+  const searchInput = document.getElementById(
+    "account-search",
+  ) as HTMLInputElement | null;
+  const sortSelect = document.getElementById(
+    "account-sort-key",
+  ) as HTMLSelectElement | null;
+  const sortDirectionButton = document.getElementById(
+    "account-sort-direction",
+  ) as HTMLButtonElement | null;
 
   if (searchInput && searchInput.value !== state.accountSearch) {
     searchInput.value = state.accountSearch;
@@ -546,7 +610,8 @@ function updateAccountToolbarState(): void {
   }
 
   if (sortDirectionButton) {
-    sortDirectionButton.textContent = state.accountSortDirection === "asc" ? "升序" : "降序";
+    sortDirectionButton.textContent =
+      state.accountSortDirection === "asc" ? "升序" : "降序";
     sortDirectionButton.setAttribute(
       "aria-label",
       `当前为${state.accountSortDirection === "asc" ? "升序" : "降序"}排序，点击切换`,
@@ -564,12 +629,23 @@ function renderTopSummary(): void {
   }
 
   const groups = getAccountGroups();
-  const activeSession = sessions.data.find((session) => session.id === sessions.activeSessionId);
+  const activeSession = sessions.data.find(
+    (session) => session.id === sessions.activeSessionId,
+  );
 
   setText("top-summary-status", health.ok ? "服务运行中" : "服务异常");
-  setText("top-summary-route", health.openclaw?.model ?? health.defaultModel ?? "codex-default");
-  setText("top-summary-session", activeSession ? getSessionTitle(activeSession) : "未选择活动会话");
-  setText("top-summary-providers", `${providers.data.length} 个 Provider / ${groups.total} 个授权对象`);
+  setText(
+    "top-summary-route",
+    health.openclaw?.model ?? health.defaultModel ?? "codex-default",
+  );
+  setText(
+    "top-summary-session",
+    activeSession ? getSessionTitle(activeSession) : "未选择活动会话",
+  );
+  setText(
+    "top-summary-providers",
+    `${providers.data.length} 个 Provider / ${groups.total} 个授权对象`,
+  );
 }
 
 function renderOverview(): void {
@@ -584,13 +660,31 @@ function renderOverview(): void {
   setText("service-mode", health.managed ? "桌面托管" : "外部服务");
   setText("default-provider", getActiveProviderLabel());
   setText("default-model", health.defaultModel ?? "codex-default");
-  setText("openclaw-base-url", health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1");
+  setText(
+    "openclaw-base-url",
+    health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1",
+  );
   const sourceCounts = getAccountGroups();
   setText("local-account-count", String(sourceCounts.localImport));
   setText("openclaw-source-count", String(sourceCounts.openclaw));
   setText("provider-count", String(providers.data.length));
-  setText("default-selection", health.defaultSelection?.reason ?? "使用默认规则");
-  setText("snippet-model", health.openclaw?.model ?? health.defaultModel ?? "codex-default");
+  setText(
+    "default-selection",
+    health.defaultSelection?.reason ?? "使用默认规则",
+  );
+  setText(
+    "snippet-model",
+    health.openclaw?.model ?? health.defaultModel ?? "codex-default",
+  );
+}
+
+function getAvatarToneIndex(id: string): number {
+  const toneCount = 12;
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash) % toneCount;
 }
 
 function renderCodexAccounts(): void {
@@ -604,103 +698,107 @@ function renderCodexAccounts(): void {
     {
       key: "local-import",
       title: "桌面端 Codex 账号",
-      description: "这里展示的是本应用自己管理的 Codex 账号。通过 OAuth 或 JSON 成功导入后，才会出现在这里。",
+      description:
+        "这里展示的是本应用自己管理的 Codex 账号。通过 OAuth 或 JSON 成功导入后，才会出现在这里。",
       kindLabel: "个账号",
       emptyText: "当前还没有导入任何桌面端 Codex 账号。",
-      accounts: sortAccountGroups(accountGroups.groups.filter((group) => group.sourceKind === "local-import")),
+      accounts: sortAccountGroups(
+        accountGroups.groups.filter(
+          (group) => group.sourceKind === "local-import",
+        ),
+      ),
     },
     {
       key: "openclaw",
       title: "OpenClaw 可复用授权会话",
-      description: "这里展示的是 OpenClaw 已登录的本地 Codex OAuth 授权。它们可直接作为网关授权来源，也可以一键导入为桌面端账号。",
+      description:
+        "这里展示的是 OpenClaw 已登录的本地 Codex OAuth 授权。它们可直接作为网关授权来源，也可以一键导入为桌面端账号。",
       kindLabel: "个授权",
       emptyText: "当前没有从 OpenClaw 检测到可复用的 Codex 授权会话。",
-      accounts: sortAccountGroups(accountGroups.groups.filter((group) => group.sourceKind === "openclaw")),
+      accounts: sortAccountGroups(
+        accountGroups.groups.filter((group) => group.sourceKind === "openclaw"),
+      ),
     },
   ];
 
   container.innerHTML = "";
   for (const group of groups) {
     const section = document.createElement("section");
-    section.className = "source-group";
+    section.style.marginBottom = "32px";
     const cards = group.accounts.length
       ? group.accounts
-          .map((account) => `
+          .map(
+            (account) => `
         ${(() => {
           const title = getSessionTitle(account.representative);
+          const avatarTone = getAvatarToneIndex(account.representative.id);
           const quotaPercentage = getQuotaPercentage(account.representative);
           const quotaScope = formatQuotaWindowLabel(account.representative);
-          const quotaToneClass = getQuotaToneClass(quotaPercentage);
+          const quotaToneClass = getQuotaToneClass(quotaPercentage).replace(
+            "quota-",
+            "",
+          );
           const quotaUpdatedAt = account.representative.quota?.updatedAt
-            ? `最近同步：${formatDate(account.representative.quota?.updatedAt)}`
-            : "最近同步：尚无实时快照";
+            ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+            : "尚未同步";
           return `
-        <article class="account-card${account.isActive ? " active" : ""}">
-          <div class="account-head">
-            <div>
-              <strong>${escapeHtml(title)}</strong>
-            </div>
-            <span class="pill ${account.representative.status}">${statusLabel(account.representative.status)}</span>
-          </div>
-          <div class="account-meta">
-            <span>套餐类型：${escapeHtml(account.representative.planType ?? "待同步")}</span>
-            <span>OAuth 过期：${escapeHtml(formatDate(account.representative.expiresAt))}</span>
-            <span>${escapeHtml(quotaUpdatedAt)}</span>
-          </div>
-          <div class="account-usage">
-            <div class="usage-item">
-              <div class="usage-item-head">
-                <small>${quotaScope}</small>
+        <div class="account-item${account.isActive ? " active" : ""}">
+          <div class="acc-header">
+            <div class="acc-title-group">
+              <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
+              <div class="acc-info">
+                <h4>${escapeHtml(title)}</h4>
+                <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
               </div>
-              ${
-                quotaPercentage !== undefined
-                  ? `<div class="quota-progress-row">
-                      <div class="quota-meter ${quotaToneClass}"><span style="width: ${quotaPercentage}%;"></span></div>
-                      <strong class="quota-inline-value">${escapeHtml(`${quotaPercentage}%`)}</strong>
-                    </div>`
-                  : `<strong>待接入</strong>`
-              }
             </div>
-            <div class="usage-item">
-              <div class="usage-item-head">
-                <small>重置时间</small>
-                <strong>${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</strong>
-              </div>
-              ${
-                account.representative.quota?.resetAt
-                  ? `<small class="subtle-date">${escapeHtml(formatDate(account.representative.quota?.resetAt))}</small>`
-                  : ""
-              }
+            <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
+          </div>
+          <div class="acc-meta">
+            <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
+            <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+          </div>
+          <div style="margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+              <span style="color: var(--text-secondary);">${quotaScope}</span>
+              <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
+            </div>
+            <div class="acc-quota-bar">
+              <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
+              <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
+              <span>${escapeHtml(quotaUpdatedAt)}</span>
             </div>
           </div>
-          <div class="account-actions">
-            <button class="secondary mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
+          <div class="acc-actions">
+            <button class="btn ${account.isActive ? "primary" : "secondary"} mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
               ${account.isActive ? "当前活动" : "设为活动"}
             </button>
-            <button class="ghost mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
+            <button class="btn secondary mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
             ${
               account.sourceKind === "openclaw"
-                ? `<button class="ghost mini" data-action="import-openclaw-session" data-session-id="${escapeHtml(account.representative.id)}">导入为桌面端账号</button>`
-                : `<button class="ghost mini danger" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>`
+                ? `<button class="btn ghost mini" data-action="import-openclaw-session" data-session-id="${escapeHtml(account.representative.id)}">导入</button>`
+                : `<button class="btn ghost danger-ghost mini" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>`
             }
-            <button class="ghost mini" data-action="copy-snippet">复制接入片段</button>
+            <button class="btn ghost mini" style="margin-left: auto;" data-action="copy-snippet" title="复制接入片段">复制片段</button>
           </div>
-        </article>
+        </div>
       `;
         })()}
-      `)
+      `,
+          )
           .join("")
-      : `<div class="empty-card">${escapeHtml(group.emptyText)}</div>`;
+      : `<div class="empty-state">${escapeHtml(group.emptyText)}</div>`;
 
     section.innerHTML = `
-      <div class="source-group-head">
+      <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px;">
         <div>
-          <h3>${escapeHtml(group.title)}</h3>
-          <p>${escapeHtml(group.description)}</p>
+          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">${escapeHtml(group.title)}</h3>
+          <p style="margin: 0; font-size: 14px; color: var(--text-secondary);">${escapeHtml(group.description)}</p>
         </div>
-        <span class="pill neutral">${group.accounts.length} ${group.kindLabel}</span>
+        <span class="badge neutral">${group.accounts.length} ${group.kindLabel}</span>
       </div>
-      <div class="account-subgrid">${cards}</div>
+      <div class="grid-layout grid-3">${cards}</div>
     `;
     container.appendChild(section);
   }
@@ -716,38 +814,45 @@ function renderProviderRegistry(): void {
 
   const providers = state.providers;
   if (!providers?.data.length) {
-    container.innerHTML = "<div class='empty-card'>当前没有已注册 provider</div>";
+    container.innerHTML =
+      "<div class='empty-card'>当前没有已注册 provider</div>";
     return;
   }
 
   container.innerHTML = "";
   for (const provider of providers.data) {
-    const isDefault = provider.models.some((model) => model.alias === state.health?.defaultModel);
-    const card = document.createElement("article");
-    card.className = `provider-card-2${isDefault ? " active" : ""}`;
+    const isDefault = provider.models.some(
+      (model) => model.alias === state.health?.defaultModel,
+    );
+    const card = document.createElement("div");
+    card.className = `provider-item${isDefault ? " active" : ""}`;
     const modelRows = provider.models
-      .map((model) => `
-        <div class="model-row">
-          <strong>${escapeHtml(model.alias)}</strong>
-          <span>${model.alias === state.health?.defaultModel ? "默认" : "可用"}</span>
-          <small>${escapeHtml(model.providerModelId)}</small>
+      .map(
+        (model) => `
+        <div class="model-line">
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <strong style="font-weight: 600; color: var(--text-primary);">${escapeHtml(model.alias)}</strong>
+            <span style="color: var(--text-tertiary); font-size: 11px;">${escapeHtml(model.providerModelId)}</span>
+          </div>
+          <span class="badge ${model.alias === state.health?.defaultModel ? "active" : "neutral"}">${model.alias === state.health?.defaultModel ? "默认" : "可用"}</span>
         </div>
-      `)
+      `,
+      )
       .join("");
 
     card.innerHTML = `
-      <div class="provider-card-head">
-        <div>
-          <strong>${escapeHtml(provider.label)}</strong>
-          <small>${escapeHtml(provider.id)}</small>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(provider.label)}</strong>
+          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(provider.id)}</span>
         </div>
-        <span class="pill neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
+        <span class="badge neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
       </div>
-      <div class="provider-card-meta">
-        <span>配置来源：${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</span>
-        <span>${provider.usesSessions ? `活动会话：${escapeHtml(provider.activeSessionId ?? "未选择")}` : "无需活动会话"}</span>
+      <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-light);">
+        <span>配置来源: ${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</span>
+        <span>${provider.usesSessions ? `活动会话: ${escapeHtml(provider.activeSessionId ?? "未选择")}` : "无需活动会话"}</span>
       </div>
-      <div class="model-list">${modelRows}</div>
+      <div class="provider-models">${modelRows}</div>
     `;
     container.appendChild(card);
   }
@@ -761,34 +866,35 @@ function renderDiagnostics(): void {
 
   const diagnostics = state.health?.providerConfigurations ?? [];
   if (!diagnostics.length) {
-    container.innerHTML = "<div class='empty-card'>暂无 provider 诊断信息</div>";
+    container.innerHTML =
+      "<div class='empty-card'>暂无 provider 诊断信息</div>";
     return;
   }
 
   container.innerHTML = "";
   for (const item of diagnostics) {
-    const card = document.createElement("article");
-    card.className = `diagnostic-card status-${item.status}`;
+    const card = document.createElement("div");
+    card.className = "card";
     const missing = item.missingEnvKeys?.length
-      ? `<div class="diagnostic-inline"><small>缺失项</small><strong>${escapeHtml(item.missingEnvKeys.join(", "))}</strong></div>`
+      ? `<div style="margin-top: 12px; padding: 8px; background: var(--warning-bg); border-radius: 6px; font-size: 14px; color: var(--warning);"><strong style="display: block; margin-bottom: 2px;">缺失配置项</strong>${escapeHtml(item.missingEnvKeys.join(", "))}</div>`
       : "";
     const notes = item.notes?.length
-      ? `<div class="diagnostic-notes">${item.notes.map((note) => `<span>${escapeHtml(note)}</span>`).join("")}</div>`
+      ? `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 4px;">${item.notes.map((note) => `<span style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 4px 8px; border-radius: 4px;">${escapeHtml(note)}</span>`).join("")}</div>`
       : "";
 
     card.innerHTML = `
-      <div class="provider-card-head">
-        <div>
-          <strong>${escapeHtml(item.label)}</strong>
-          <small>${escapeHtml(item.id)}</small>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.label)}</strong>
+          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(item.id)}</span>
         </div>
-        <span class="pill ${item.status}">${statusTone(item.status)}</span>
+        <span class="badge ${item.status}">${statusTone(item.status)}</span>
       </div>
-      <div class="diagnostic-grid">
-        <div><small>注册状态</small><strong>${item.registered ? "已注册" : "未注册"}</strong></div>
-        <div><small>来源</small><strong>${escapeHtml(item.configuredVia)}</strong></div>
-        <div><small>鉴权方式</small><strong>${escapeHtml(item.authMode)}</strong></div>
-        <div><small>Base URL</small><strong>${escapeHtml(item.baseUrl ?? "未设置")}</strong></div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">注册状态</span><strong style="font-weight: 500;">${item.registered ? "已注册" : "未注册"}</strong></div>
+        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">配置来源</span><strong style="font-weight: 500;">${escapeHtml(item.configuredVia)}</strong></div>
+        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">鉴权方式</span><strong style="font-weight: 500;">${escapeHtml(item.authMode)}</strong></div>
+        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">Base URL</span><strong style="font-weight: 500;">${escapeHtml(item.baseUrl ?? "未设置")}</strong></div>
       </div>
       ${missing}
       ${notes}
@@ -817,35 +923,35 @@ function renderGuide(): void {
   ].join("\n");
 
   container.innerHTML = `
-    <article class="guide-card">
-      <h3>这是个什么应用</h3>
-      <p>这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及 OpenClaw 本地授权的复用与导入。</p>
-    </article>
-    <article class="guide-card">
-      <h3>如何使用</h3>
-      <p>先在本页完成 provider 配置，再重启本地服务，然后把 OpenClaw 指向下方片段中的本地地址即可。</p>
-      <pre>${escapeHtml(snippet)}</pre>
-    </article>
-    <article class="guide-card">
-      <h3>OpenAI-compatible</h3>
-      <p>${escapeHtml(
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">定位说明</h3>
+      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及 OpenClaw 本地授权的复用与导入。</p>
+    </div>
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">如何接入</h3>
+      <p style="margin: 0 0 8px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在配置页完成 provider 设定并重启服务，然后将客户端指向下方本地地址：</p>
+      <pre style="margin: 0; padding: 12px; background: var(--bg-surface); border-radius: 8px; font-size: 14px; border: 1px solid var(--border-light); overflow-x: auto;">${escapeHtml(snippet)}</pre>
+    </div>
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">OpenAI-Compatible</h3>
+      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">${escapeHtml(
         openAI?.status === "active"
           ? "已启用，可以直接通过模型别名访问。"
           : openAI?.status === "incomplete"
             ? `配置还不完整：${openAI.missingEnvKeys?.join(", ") ?? "缺少关键字段"}`
-            : "尚未启用。请在下方表单填写 Base URL、API Key 和模型名。",
+            : "尚未启用。请在配置页填写 Base URL、API Key 和模型名。",
       )}</p>
-    </article>
-    <article class="guide-card">
-      <h3>Ollama</h3>
-      <p>${escapeHtml(
+    </div>
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">本地 Ollama</h3>
+      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">${escapeHtml(
         ollama?.status === "active"
           ? "已启用，可以将它的模型别名设为默认模型。"
           : ollama?.status === "incomplete"
             ? `配置还不完整：${ollama.missingEnvKeys?.join(", ") ?? "缺少关键字段"}`
-            : "尚未启用。请在下方表单填写本地 Ollama 地址和模型名。",
+            : "尚未启用。请在配置页填写本地 Ollama 地址和模型名。",
       )}</p>
-    </article>
+    </div>
   `;
 }
 
@@ -864,38 +970,38 @@ function renderErrors(): void {
 
   container.innerHTML = "";
   for (const item of refreshErrors.slice(0, 6)) {
-    const card = document.createElement("article");
-    card.className = "diagnostic-card";
+    const card = document.createElement("div");
+    card.className = "card";
     card.innerHTML = `
-      <div class="provider-card-head">
-        <div>
-          <strong>额度刷新失败</strong>
-          <small>${escapeHtml(item.sessionId)}</small>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <strong style="font-size: 15px; font-weight: 600;">额度刷新失败</strong>
+          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(item.sessionId)}</span>
         </div>
-        <span class="pill incomplete">需处理</span>
+        <span class="badge incomplete">需处理</span>
       </div>
-      <div class="diagnostic-inline">
-        <small>原因</small>
-        <strong>${escapeHtml(item.message)}</strong>
+      <div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;">
+        <strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">原因</strong>
+        ${escapeHtml(item.message)}
       </div>
     `;
     container.appendChild(card);
   }
 
   for (const item of errors.slice(0, 6)) {
-    const card = document.createElement("article");
-    card.className = "diagnostic-card";
+    const card = document.createElement("div");
+    card.className = "card";
     card.innerHTML = `
-      <div class="provider-card-head">
-        <div>
-          <strong>${escapeHtml(item.level.toUpperCase())}</strong>
-          <small>${escapeHtml(new Date(item.createdAt).toLocaleString("zh-CN"))}</small>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.level.toUpperCase())}</strong>
+          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(new Date(item.createdAt).toLocaleString("zh-CN"))}</span>
         </div>
-        <span class="pill ${item.level === "error" ? "disabled" : "neutral"}">${item.level === "error" ? "错误" : "日志"}</span>
+        <span class="badge ${item.level === "error" ? "disabled" : "neutral"}">${item.level === "error" ? "错误" : "日志"}</span>
       </div>
-      <div class="diagnostic-inline">
-        <small>内容</small>
-        <strong>${escapeHtml(item.message)}</strong>
+      <div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;">
+        <strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">内容</strong>
+        ${escapeHtml(item.message)}
       </div>
     `;
     container.appendChild(card);
@@ -907,8 +1013,12 @@ function applySettingsToForm(): void {
   const codex = settings.codex ?? {};
   const openAI = settings.openAICompatible ?? {};
   const ollama = settings.ollama ?? {};
-  const defaultSelect = document.getElementById("default-model-alias") as HTMLSelectElement | null;
-  const codexSelect = document.getElementById("codex-upstream-model") as HTMLSelectElement | null;
+  const defaultSelect = document.getElementById(
+    "default-model-alias",
+  ) as HTMLSelectElement | null;
+  const codexSelect = document.getElementById(
+    "codex-upstream-model",
+  ) as HTMLSelectElement | null;
 
   if (codexSelect) {
     codexSelect.replaceChildren();
@@ -925,7 +1035,9 @@ function applySettingsToForm(): void {
     defaultSelect.replaceChildren();
     const aliasSet = new Set<string>([
       "codex-default",
-      ...(state.providers?.data.flatMap((provider) => provider.models.map((model) => model.alias)) ?? []),
+      ...(state.providers?.data.flatMap((provider) =>
+        provider.models.map((model) => model.alias),
+      ) ?? []),
       ...(openAI.alias ? [openAI.alias] : []),
       ...(ollama.alias ? [ollama.alias] : []),
       ...(settings.defaultModelAlias ? [settings.defaultModelAlias] : []),
@@ -944,34 +1056,63 @@ function applySettingsToForm(): void {
     defaultSelect.value = settings.defaultModelAlias ?? "";
   }
 
-  (document.getElementById("openai-enabled") as HTMLInputElement | null)!.checked = Boolean(openAI.enabled);
-  (document.getElementById("openai-label") as HTMLInputElement | null)!.value = openAI.label ?? "OpenAI-Compatible";
-  (document.getElementById("openai-base-url") as HTMLInputElement | null)!.value = openAI.baseUrl ?? "";
-  (document.getElementById("openai-api-key") as HTMLInputElement | null)!.value = openAI.apiKey ?? "";
-  (document.getElementById("openai-model") as HTMLInputElement | null)!.value = openAI.model ?? "";
-  (document.getElementById("openai-alias") as HTMLInputElement | null)!.value = openAI.alias ?? "openai-compatible-default";
-  (document.getElementById("openai-display-name") as HTMLInputElement | null)!.value = openAI.displayName ?? "";
+  (document.getElementById(
+    "openai-enabled",
+  ) as HTMLInputElement | null)!.checked = Boolean(openAI.enabled);
+  (document.getElementById("openai-label") as HTMLInputElement | null)!.value =
+    openAI.label ?? "OpenAI-Compatible";
+  (document.getElementById(
+    "openai-base-url",
+  ) as HTMLInputElement | null)!.value = openAI.baseUrl ?? "";
+  (document.getElementById(
+    "openai-api-key",
+  ) as HTMLInputElement | null)!.value = openAI.apiKey ?? "";
+  (document.getElementById("openai-model") as HTMLInputElement | null)!.value =
+    openAI.model ?? "";
+  (document.getElementById("openai-alias") as HTMLInputElement | null)!.value =
+    openAI.alias ?? "openai-compatible-default";
+  (document.getElementById(
+    "openai-display-name",
+  ) as HTMLInputElement | null)!.value = openAI.displayName ?? "";
 
-  (document.getElementById("ollama-enabled") as HTMLInputElement | null)!.checked = Boolean(ollama.enabled);
-  (document.getElementById("ollama-label") as HTMLInputElement | null)!.value = ollama.label ?? "Ollama";
-  (document.getElementById("ollama-base-url") as HTMLInputElement | null)!.value = ollama.baseUrl ?? "http://127.0.0.1:11434";
-  (document.getElementById("ollama-model") as HTMLInputElement | null)!.value = ollama.model ?? "";
-  (document.getElementById("ollama-alias") as HTMLInputElement | null)!.value = ollama.alias ?? "ollama-default";
-  (document.getElementById("ollama-display-name") as HTMLInputElement | null)!.value = ollama.displayName ?? "";
+  (document.getElementById(
+    "ollama-enabled",
+  ) as HTMLInputElement | null)!.checked = Boolean(ollama.enabled);
+  (document.getElementById("ollama-label") as HTMLInputElement | null)!.value =
+    ollama.label ?? "Ollama";
+  (document.getElementById(
+    "ollama-base-url",
+  ) as HTMLInputElement | null)!.value =
+    ollama.baseUrl ?? "http://127.0.0.1:11434";
+  (document.getElementById("ollama-model") as HTMLInputElement | null)!.value =
+    ollama.model ?? "";
+  (document.getElementById("ollama-alias") as HTMLInputElement | null)!.value =
+    ollama.alias ?? "ollama-default";
+  (document.getElementById(
+    "ollama-display-name",
+  ) as HTMLInputElement | null)!.value = ollama.displayName ?? "";
 }
 
 function applySystemSettingsToForm(): void {
   const settings = state.systemSettings ?? {};
-  const launchAtLogin = document.getElementById("launch-at-login") as HTMLInputElement | null;
-  const autoRefreshInterval = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
-  const autoRefreshHint = document.getElementById("auto-refresh-hint") as HTMLElement | null;
+  const launchAtLogin = document.getElementById(
+    "launch-at-login",
+  ) as HTMLInputElement | null;
+  const autoRefreshInterval = document.getElementById(
+    "auto-refresh-interval",
+  ) as HTMLSelectElement | null;
+  const autoRefreshHint = document.getElementById(
+    "auto-refresh-hint",
+  ) as HTMLElement | null;
 
   if (launchAtLogin) {
     launchAtLogin.checked = Boolean(settings.launchAtLogin);
   }
 
   if (autoRefreshInterval) {
-    autoRefreshInterval.value = String(normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds));
+    autoRefreshInterval.value = String(
+      normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds),
+    );
   }
 
   if (autoRefreshHint) {
@@ -982,7 +1123,9 @@ function applySystemSettingsToForm(): void {
 function configureAutoRefreshTimer(): void {
   clearAutoRefreshTimer();
 
-  const seconds = normalizeAutoRefreshIntervalSeconds(state.systemSettings?.autoRefreshIntervalSeconds);
+  const seconds = normalizeAutoRefreshIntervalSeconds(
+    state.systemSettings?.autoRefreshIntervalSeconds,
+  );
   autoRefreshTimer = window.setInterval(() => {
     void triggerBackgroundLiveUsageRefresh("auto");
   }, seconds * 1_000);
@@ -990,26 +1133,77 @@ function configureAutoRefreshTimer(): void {
 
 function collectSettingsFromForm(): ProviderSettings {
   return {
-    defaultModelAlias: (document.getElementById("default-model-alias") as HTMLSelectElement | null)?.value || undefined,
+    defaultModelAlias:
+      (
+        document.getElementById(
+          "default-model-alias",
+        ) as HTMLSelectElement | null
+      )?.value || undefined,
     codex: {
-      upstreamModel: (document.getElementById("codex-upstream-model") as HTMLSelectElement | null)?.value || undefined,
+      upstreamModel:
+        (
+          document.getElementById(
+            "codex-upstream-model",
+          ) as HTMLSelectElement | null
+        )?.value || undefined,
     },
     openAICompatible: {
-      enabled: (document.getElementById("openai-enabled") as HTMLInputElement | null)?.checked ?? false,
-      label: (document.getElementById("openai-label") as HTMLInputElement | null)?.value.trim() || undefined,
-      baseUrl: (document.getElementById("openai-base-url") as HTMLInputElement | null)?.value.trim() || undefined,
-      apiKey: (document.getElementById("openai-api-key") as HTMLInputElement | null)?.value.trim() || undefined,
-      model: (document.getElementById("openai-model") as HTMLInputElement | null)?.value.trim() || undefined,
-      alias: (document.getElementById("openai-alias") as HTMLInputElement | null)?.value.trim() || undefined,
-      displayName: (document.getElementById("openai-display-name") as HTMLInputElement | null)?.value.trim() || undefined,
+      enabled:
+        (document.getElementById("openai-enabled") as HTMLInputElement | null)
+          ?.checked ?? false,
+      label:
+        (
+          document.getElementById("openai-label") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      baseUrl:
+        (
+          document.getElementById("openai-base-url") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      apiKey:
+        (
+          document.getElementById("openai-api-key") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      model:
+        (
+          document.getElementById("openai-model") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      alias:
+        (
+          document.getElementById("openai-alias") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      displayName:
+        (
+          document.getElementById(
+            "openai-display-name",
+          ) as HTMLInputElement | null
+        )?.value.trim() || undefined,
     },
     ollama: {
-      enabled: (document.getElementById("ollama-enabled") as HTMLInputElement | null)?.checked ?? false,
-      label: (document.getElementById("ollama-label") as HTMLInputElement | null)?.value.trim() || undefined,
-      baseUrl: (document.getElementById("ollama-base-url") as HTMLInputElement | null)?.value.trim() || undefined,
-      model: (document.getElementById("ollama-model") as HTMLInputElement | null)?.value.trim() || undefined,
-      alias: (document.getElementById("ollama-alias") as HTMLInputElement | null)?.value.trim() || undefined,
-      displayName: (document.getElementById("ollama-display-name") as HTMLInputElement | null)?.value.trim() || undefined,
+      enabled:
+        (document.getElementById("ollama-enabled") as HTMLInputElement | null)
+          ?.checked ?? false,
+      label:
+        (
+          document.getElementById("ollama-label") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      baseUrl:
+        (
+          document.getElementById("ollama-base-url") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      model:
+        (
+          document.getElementById("ollama-model") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      alias:
+        (
+          document.getElementById("ollama-alias") as HTMLInputElement | null
+        )?.value.trim() || undefined,
+      displayName:
+        (
+          document.getElementById(
+            "ollama-display-name",
+          ) as HTMLInputElement | null
+        )?.value.trim() || undefined,
     },
   };
 }
@@ -1027,9 +1221,17 @@ async function saveSettingsAndRestart(): Promise<void> {
 async function saveSystemSettings(): Promise<void> {
   const api = getGatewayApi();
   const payload: SystemSettings = {
-    launchAtLogin: (document.getElementById("launch-at-login") as HTMLInputElement | null)?.checked ?? false,
+    launchAtLogin:
+      (document.getElementById("launch-at-login") as HTMLInputElement | null)
+        ?.checked ?? false,
     autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(
-      Number((document.getElementById("auto-refresh-interval") as HTMLSelectElement | null)?.value ?? "120"),
+      Number(
+        (
+          document.getElementById(
+            "auto-refresh-interval",
+          ) as HTMLSelectElement | null
+        )?.value ?? "120",
+      ),
     ),
   };
 
@@ -1053,21 +1255,30 @@ function closeAccountModal(): void {
   if (modal) {
     modal.hidden = true;
   }
-  setOAuthStatus("浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。", "info");
+  setOAuthStatus(
+    "浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。",
+    "info",
+  );
 }
 
 function setAccountTab(tab: string): void {
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-account-tab]"))) {
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-account-tab]"),
+  )) {
     node.dataset.active = node.dataset.accountTab === tab ? "true" : "false";
   }
 
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-account-panel]"))) {
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-account-panel]"),
+  )) {
     node.hidden = node.dataset.accountPanel !== tab;
   }
 }
 
 function bindNavigation(): void {
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-nav-target]"))) {
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-nav-target]"),
+  )) {
     node.addEventListener("click", () => {
       const target = node.dataset.navTarget;
       if (!target) {
@@ -1083,7 +1294,10 @@ async function copySnippetWithFeedback(): Promise<void> {
   setBanner("OpenClaw 接入片段已复制。", "success");
 }
 
-function setOAuthStatus(message: string, tone: "info" | "success" | "error" = "info"): void {
+function setOAuthStatus(
+  message: string,
+  tone: "info" | "success" | "error" = "info",
+): void {
   const node = document.getElementById("oauth-status");
   if (!node) {
     return;
@@ -1094,14 +1308,24 @@ function setOAuthStatus(message: string, tone: "info" | "success" | "error" = "i
 
 function setOAuthBusyState(inFlight: boolean): void {
   state.oauthInFlight = inFlight;
-  const startButton = document.getElementById("start-codex-oauth") as HTMLButtonElement | null;
-  const submitButton = document.getElementById("submit-codex-oauth-input") as HTMLButtonElement | null;
-  const cancelButton = document.getElementById("cancel-codex-oauth") as HTMLButtonElement | null;
-  const input = document.getElementById("oauth-manual-input") as HTMLInputElement | null;
+  const startButton = document.getElementById(
+    "start-codex-oauth",
+  ) as HTMLButtonElement | null;
+  const submitButton = document.getElementById(
+    "submit-codex-oauth-input",
+  ) as HTMLButtonElement | null;
+  const cancelButton = document.getElementById(
+    "cancel-codex-oauth",
+  ) as HTMLButtonElement | null;
+  const input = document.getElementById(
+    "oauth-manual-input",
+  ) as HTMLInputElement | null;
 
   if (startButton) {
     startButton.disabled = inFlight;
-    startButton.textContent = inFlight ? "等待授权完成..." : "在浏览器中开始授权";
+    startButton.textContent = inFlight
+      ? "等待授权完成..."
+      : "在浏览器中开始授权";
   }
   if (submitButton) {
     submitButton.disabled = !inFlight;
@@ -1120,14 +1344,20 @@ async function startCodexOAuthFlow(): Promise<void> {
   }
 
   setOAuthBusyState(true);
-  setOAuthStatus("已打开浏览器授权页面。若未自动完成，请把回调地址粘贴到下方输入框。", "info");
+  setOAuthStatus(
+    "已打开浏览器授权页面。若未自动完成，请把回调地址粘贴到下方输入框。",
+    "info",
+  );
   setBanner("正在等待 Codex OAuth 授权完成...", "info");
 
   try {
     const result = await getGatewayApi().loginCodexOAuth();
     await refresh();
     closeAccountModal();
-    setBanner(`Codex 账号已导入：${result.data.accountId ?? result.data.profileId}`, "success");
+    setBanner(
+      `Codex 账号已导入：${result.data.accountId ?? result.data.profileId}`,
+      "success",
+    );
   } catch (error) {
     setOAuthStatus(`授权失败：${String(error)}`, "error");
     setBanner(`Codex 授权失败：${String(error)}`, "error");
@@ -1137,7 +1367,10 @@ async function startCodexOAuthFlow(): Promise<void> {
 }
 
 async function submitCodexOAuthInput(): Promise<void> {
-  const input = (document.getElementById("oauth-manual-input") as HTMLInputElement | null)?.value.trim() ?? "";
+  const input =
+    (
+      document.getElementById("oauth-manual-input") as HTMLInputElement | null
+    )?.value.trim() ?? "";
   await getGatewayApi().submitCodexOAuthInput(input);
   setOAuthStatus("已提交手动回调地址，正在继续完成授权...", "info");
 }
@@ -1157,7 +1390,10 @@ async function importCodexJson(): Promise<void> {
 
   await refresh();
   closeAccountModal();
-  setBanner(`已导入 ${result.imported ?? 0} 个 Codex 账号，更新 ${result.updated ?? 0} 个账号。`, "success");
+  setBanner(
+    `已导入 ${result.imported ?? 0} 个 Codex 账号，更新 ${result.updated ?? 0} 个账号。`,
+    "success",
+  );
 }
 
 async function importAccountConfig(): Promise<void> {
@@ -1177,7 +1413,9 @@ async function importAccountConfig(): Promise<void> {
 
 function bindActions(): void {
   document.getElementById("refresh")?.addEventListener("click", async () => {
-    const button = document.getElementById("refresh") as HTMLButtonElement | null;
+    const button = document.getElementById(
+      "refresh",
+    ) as HTMLButtonElement | null;
     try {
       setButtonLoading(button, true, "刷新中");
       setBanner("正在刷新状态与 Codex 实时额度...", "info");
@@ -1190,7 +1428,10 @@ function bindActions(): void {
           "error",
         );
       } else {
-        setBanner(`状态已刷新，${summary.refreshed} 个账号额度已更新。`, "success");
+        setBanner(
+          `状态已刷新，${summary.refreshed} 个账号额度已更新。`,
+          "success",
+        );
       }
     } catch (error) {
       setBanner(`刷新失败：${String(error)}`, "error");
@@ -1210,21 +1451,25 @@ function bindActions(): void {
     }
   });
 
-  document.getElementById("copy-snippet")?.addEventListener("click", async () => {
-    try {
-      await copySnippetWithFeedback();
-    } catch (error) {
-      setBanner(`复制失败：${String(error)}`, "error");
-    }
-  });
+  document
+    .getElementById("copy-snippet")
+    ?.addEventListener("click", async () => {
+      try {
+        await copySnippetWithFeedback();
+      } catch (error) {
+        setBanner(`复制失败：${String(error)}`, "error");
+      }
+    });
 
-  document.getElementById("copy-snippet-toolbar")?.addEventListener("click", async () => {
-    try {
-      await copySnippetWithFeedback();
-    } catch (error) {
-      setBanner(`复制失败：${String(error)}`, "error");
-    }
-  });
+  document
+    .getElementById("copy-snippet-toolbar")
+    ?.addEventListener("click", async () => {
+      try {
+        await copySnippetWithFeedback();
+      } catch (error) {
+        setBanner(`复制失败：${String(error)}`, "error");
+      }
+    });
 
   document.getElementById("open-logs")?.addEventListener("click", async () => {
     try {
@@ -1235,124 +1480,168 @@ function bindActions(): void {
     }
   });
 
-  document.getElementById("save-provider-settings")?.addEventListener("click", async () => {
-    try {
-      await saveSettingsAndRestart();
-    } catch (error) {
-      setBanner(`保存配置失败：${String(error)}`, "error");
-    }
-  });
-
-  document.getElementById("save-system-settings")?.addEventListener("click", async () => {
-    const button = document.getElementById("save-system-settings") as HTMLButtonElement | null;
-    try {
-      setButtonLoading(button, true, "保存中");
-      setBanner("正在保存系统配置...", "info");
-      await saveSystemSettings();
-      setBanner("系统配置已保存。", "success");
-    } catch (error) {
-      setBanner(`保存系统配置失败：${String(error)}`, "error");
-    } finally {
-      setButtonLoading(button, false);
-    }
-  });
-
-  document.getElementById("open-account-modal")?.addEventListener("click", () => {
-    openAccountModal("oauth");
-  });
-
-  document.getElementById("import-account-config")?.addEventListener("click", async () => {
-    try {
-      await importAccountConfig();
-    } catch (error) {
-      setBanner(`账号配置导入失败：${String(error)}`, "error");
-    }
-  });
-
-  document.getElementById("refresh-accounts")?.addEventListener("click", async () => {
-    const button = document.getElementById("refresh-accounts") as HTMLButtonElement | null;
-    try {
-      setButtonLoading(button, true, "刷新中");
-      setBanner("正在刷新全部账号的额度与状态...", "info");
-      const summary = await refreshWithLiveUsage();
-      if (!summary) {
-        setBanner("账号状态已刷新。", "success");
-      } else if (summary.failed > 0) {
-        setBanner(`账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项失败。`, "error");
-      } else {
-        setBanner(`账号状态已刷新，${summary.refreshed} 个账号已更新。`, "success");
+  document
+    .getElementById("save-provider-settings")
+    ?.addEventListener("click", async () => {
+      try {
+        await saveSettingsAndRestart();
+      } catch (error) {
+        setBanner(`保存配置失败：${String(error)}`, "error");
       }
-    } catch (error) {
-      setBanner(`账号刷新失败：${String(error)}`, "error");
-    } finally {
-      setButtonLoading(button, false);
-    }
-  });
+    });
 
-  document.getElementById("account-search")?.addEventListener("input", (event) => {
-    state.accountSearch = (event.target as HTMLInputElement).value;
-    renderCodexAccounts();
-  });
+  document
+    .getElementById("save-system-settings")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "save-system-settings",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "保存中");
+        setBanner("正在保存系统配置...", "info");
+        await saveSystemSettings();
+        setBanner("系统配置已保存。", "success");
+      } catch (error) {
+        setBanner(`保存系统配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
 
-  document.getElementById("account-sort-key")?.addEventListener("change", (event) => {
-    state.accountSortKey = (event.target as HTMLSelectElement).value as AccountSortKey;
-    renderCodexAccounts();
-  });
+  document
+    .getElementById("open-account-modal")
+    ?.addEventListener("click", () => {
+      openAccountModal("oauth");
+    });
 
-  document.getElementById("account-sort-direction")?.addEventListener("click", () => {
-    state.accountSortDirection = state.accountSortDirection === "asc" ? "desc" : "asc";
-    renderCodexAccounts();
-  });
+  document
+    .getElementById("import-account-config")
+    ?.addEventListener("click", async () => {
+      try {
+        await importAccountConfig();
+      } catch (error) {
+        setBanner(`账号配置导入失败：${String(error)}`, "error");
+      }
+    });
 
-  document.getElementById("close-account-modal")?.addEventListener("click", () => {
-    closeAccountModal();
-  });
+  document
+    .getElementById("refresh-accounts")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "refresh-accounts",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "刷新中");
+        setBanner("正在刷新全部账号的额度与状态...", "info");
+        const summary = await refreshWithLiveUsage();
+        if (!summary) {
+          setBanner("账号状态已刷新。", "success");
+        } else if (summary.failed > 0) {
+          setBanner(
+            `账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项失败。`,
+            "error",
+          );
+        } else {
+          setBanner(
+            `账号状态已刷新，${summary.refreshed} 个账号已更新。`,
+            "success",
+          );
+        }
+      } catch (error) {
+        setBanner(`账号刷新失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
 
-  document.getElementById("import-local-accounts")?.addEventListener("click", async () => {
-    try {
-      await refresh();
+  document
+    .getElementById("account-search")
+    ?.addEventListener("input", (event) => {
+      state.accountSearch = (event.target as HTMLInputElement).value;
+      renderCodexAccounts();
+    });
+
+  document
+    .getElementById("account-sort-key")
+    ?.addEventListener("change", (event) => {
+      state.accountSortKey = (event.target as HTMLSelectElement)
+        .value as AccountSortKey;
+      renderCodexAccounts();
+    });
+
+  document
+    .getElementById("account-sort-direction")
+    ?.addEventListener("click", () => {
+      state.accountSortDirection =
+        state.accountSortDirection === "asc" ? "desc" : "asc";
+      renderCodexAccounts();
+    });
+
+  document
+    .getElementById("close-account-modal")
+    ?.addEventListener("click", () => {
       closeAccountModal();
-      setBanner("已重新扫描本地 OpenClaw 授权。", "success");
-    } catch (error) {
-      setBanner(`重新扫描失败：${String(error)}`, "error");
-    }
-  });
+    });
 
-  document.getElementById("start-codex-oauth")?.addEventListener("click", async () => {
-    await startCodexOAuthFlow();
-  });
+  document
+    .getElementById("import-local-accounts")
+    ?.addEventListener("click", async () => {
+      try {
+        await refresh();
+        closeAccountModal();
+        setBanner("已重新扫描本地 OpenClaw 授权。", "success");
+      } catch (error) {
+        setBanner(`重新扫描失败：${String(error)}`, "error");
+      }
+    });
 
-  document.getElementById("submit-codex-oauth-input")?.addEventListener("click", async () => {
-    try {
-      await submitCodexOAuthInput();
-    } catch (error) {
-      setOAuthStatus(`提交失败：${String(error)}`, "error");
-    }
-  });
+  document
+    .getElementById("start-codex-oauth")
+    ?.addEventListener("click", async () => {
+      await startCodexOAuthFlow();
+    });
 
-  document.getElementById("cancel-codex-oauth")?.addEventListener("click", async () => {
-    await cancelCodexOAuthFlow();
-  });
+  document
+    .getElementById("submit-codex-oauth-input")
+    ?.addEventListener("click", async () => {
+      try {
+        await submitCodexOAuthInput();
+      } catch (error) {
+        setOAuthStatus(`提交失败：${String(error)}`, "error");
+      }
+    });
 
-  document.getElementById("import-codex-json")?.addEventListener("click", async () => {
-    try {
-      await importCodexJson();
-    } catch (error) {
-      setBanner(`JSON 导入失败：${String(error)}`, "error");
-    }
-  });
+  document
+    .getElementById("cancel-codex-oauth")
+    ?.addEventListener("click", async () => {
+      await cancelCodexOAuthFlow();
+    });
 
-  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-account-tab]"))) {
+  document
+    .getElementById("import-codex-json")
+    ?.addEventListener("click", async () => {
+      try {
+        await importCodexJson();
+      } catch (error) {
+        setBanner(`JSON 导入失败：${String(error)}`, "error");
+      }
+    });
+
+  for (const node of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-account-tab]"),
+  )) {
     node.addEventListener("click", () => {
       setAccountTab(node.dataset.accountTab ?? "import");
     });
   }
 
-  document.getElementById("account-modal")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) {
-      closeAccountModal();
-    }
-  });
+  document
+    .getElementById("account-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeAccountModal();
+      }
+    });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -1392,7 +1681,10 @@ function bindActions(): void {
         if (!summary) {
           setBanner("账号状态已刷新。", "success");
         } else if (summary.failed > 0) {
-          setBanner(`账号状态已刷新，但仍有 ${summary.failed} 项失败。`, "error");
+          setBanner(
+            `账号状态已刷新，但仍有 ${summary.failed} 项失败。`,
+            "error",
+          );
         } else {
           setBanner("账号状态已刷新。", "success");
         }
@@ -1413,10 +1705,18 @@ function bindActions(): void {
 
     if (action === "import-openclaw-session" && button.dataset.sessionId) {
       try {
-        setBanner(`正在从 ${button.dataset.sessionId} 导入桌面端账号...`, "info");
-        const result = await getGatewayApi().importOpenClawSession(button.dataset.sessionId);
+        setBanner(
+          `正在从 ${button.dataset.sessionId} 导入桌面端账号...`,
+          "info",
+        );
+        const result = await getGatewayApi().importOpenClawSession(
+          button.dataset.sessionId,
+        );
         await refresh();
-        setBanner(`已导入桌面端 Codex 账号：${result.data.accountId ?? result.data.profileId}`, "success");
+        setBanner(
+          `已导入桌面端 Codex 账号：${result.data.accountId ?? result.data.profileId}`,
+          "success",
+        );
       } catch (error) {
         setBanner(`导入失败：${String(error)}`, "error");
       }
@@ -1424,14 +1724,26 @@ function bindActions(): void {
 
     if (action === "delete-codex-account" && button.dataset.sessionId) {
       try {
-        const confirmed = window.confirm("删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？");
+        const confirmed = window.confirm(
+          "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
+        );
         if (!confirmed) {
           return;
         }
-        setBanner(`正在删除桌面端 Codex 账号 ${button.dataset.sessionId} ...`, "info");
-        const result = await getGatewayApi().deleteCodexAccount(button.dataset.sessionId);
+        setBanner(
+          `正在删除桌面端 Codex 账号 ${button.dataset.sessionId} ...`,
+          "info",
+        );
+        const result = await getGatewayApi().deleteCodexAccount(
+          button.dataset.sessionId,
+        );
         await refresh();
-        setBanner(result.data.removed ? "桌面端 Codex 账号已删除。" : "目标账号不存在，已刷新列表。", "success");
+        setBanner(
+          result.data.removed
+            ? "桌面端 Codex 账号已删除。"
+            : "目标账号不存在，已刷新列表。",
+          "success",
+        );
       } catch (error) {
         setBanner(`删除失败：${String(error)}`, "error");
       }
@@ -1441,7 +1753,13 @@ function bindActions(): void {
 
 async function refresh(): Promise<void> {
   const api = getGatewayApi();
-  const [health, providers, sessions, settingsResponse, systemSettingsResponse] = await Promise.all([
+  const [
+    health,
+    providers,
+    sessions,
+    settingsResponse,
+    systemSettingsResponse,
+  ] = await Promise.all([
     api.getHealth(),
     api.getProviders(),
     api.getSessions(),
@@ -1477,7 +1795,9 @@ async function refreshSessionsOnly(): Promise<void> {
   renderErrors();
 }
 
-async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRefreshResponse | undefined> {
+async function refreshWithLiveUsage(
+  sessionId?: string,
+): Promise<SessionUsageRefreshResponse | undefined> {
   const api = getGatewayApi();
   if (typeof api.refreshSessionUsage !== "function") {
     state.lastUsageRefresh = undefined;
@@ -1513,12 +1833,18 @@ async function triggerBackgroundLiveUsageRefresh(
       if (!summary) {
         setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
       } else if (summary.failed > 0) {
-        setBanner(`控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`, "error");
+        setBanner(
+          `控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`,
+          "error",
+        );
       } else {
         setBanner("控制台已就绪。实时额度已完成后台同步。", "success");
       }
     } else if (summary?.failed) {
-      setBanner(`自动刷新完成，但有 ${summary.failed} 项额度同步失败。`, "error");
+      setBanner(
+        `自动刷新完成，但有 ${summary.failed} 项额度同步失败。`,
+        "error",
+      );
     }
     return summary;
   } catch (error) {
@@ -1539,7 +1865,10 @@ void (async () => {
     bindNavigation();
     setActiveView(state.activeView);
     bindActions();
-    setOAuthStatus("浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。", "info");
+    setOAuthStatus(
+      "浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。",
+      "info",
+    );
     setOAuthBusyState(false);
     setBanner("正在加载 Local AI Gateway 控制台...", "info");
     await refresh();
