@@ -9,6 +9,12 @@ import {
   type AccountSortDirection,
   type AccountSortKey,
 } from "./account-view-model.js";
+import {
+  buildRuntimeDiagnostics,
+  normalizeErrorMessage,
+  type RuntimeDiagnostic,
+  type RuntimeDiagnosticLoadFailure,
+} from "./runtime-diagnostics.js";
 
 const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.4",
@@ -249,11 +255,13 @@ const state: {
   accountSortDirection: AccountSortDirection;
   backgroundRefreshInFlight?: boolean;
   sessionPulseInFlight?: boolean;
+  runtimeDiagnostics: RuntimeDiagnostic[];
 } = {
   activeView: "overview",
   accountSearch: "",
-  accountSortKey: "default",
+  accountSortKey: "quota",
   accountSortDirection: "desc",
+  runtimeDiagnostics: [],
 };
 
 let autoRefreshTimer: number | undefined;
@@ -472,6 +480,47 @@ function statusTone(status: ProviderConfigurationStatus): string {
   return "未启用";
 }
 
+function diagnosticBadgeClass(
+  severity: RuntimeDiagnostic["severity"],
+): "active" | "neutral" | "incomplete" | "disabled" {
+  if (severity === "success") {
+    return "active";
+  }
+  if (severity === "warning") {
+    return "incomplete";
+  }
+  if (severity === "error") {
+    return "disabled";
+  }
+  return "neutral";
+}
+
+function diagnosticSeverityLabel(
+  severity: RuntimeDiagnostic["severity"],
+): string {
+  if (severity === "success") {
+    return "正常";
+  }
+  if (severity === "warning") {
+    return "关注";
+  }
+  if (severity === "error") {
+    return "异常";
+  }
+  return "提示";
+}
+
+function getPrimaryRuntimeDiagnostic():
+  | RuntimeDiagnostic
+  | undefined {
+  return (
+    state.runtimeDiagnostics.find((item) => item.severity === "error") ??
+    state.runtimeDiagnostics.find((item) => item.severity === "warning") ??
+    state.runtimeDiagnostics.find((item) => item.severity === "info") ??
+    state.runtimeDiagnostics[0]
+  );
+}
+
 function isMissingRefreshUsageHandler(error: unknown): boolean {
   const message = String(error);
   return (
@@ -548,8 +597,18 @@ function renderTopSummary(): void {
   const activeSession = sessions.data.find(
     (session) => session.id === sessions.activeSessionId,
   );
+  const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
 
-  setText("top-summary-status", health.ok ? "服务运行中" : "服务异常");
+  setText(
+    "top-summary-status",
+    primaryDiagnostic?.severity === "error"
+      ? primaryDiagnostic.title
+      : primaryDiagnostic?.severity === "warning"
+        ? primaryDiagnostic.title
+        : health.ok
+          ? "服务运行中"
+          : "服务异常",
+  );
   setText(
     "top-summary-route",
     health.openclaw?.model ?? health.defaultModel ?? "codex-default",
@@ -601,49 +660,20 @@ function renderCodexAccounts(): void {
   }
 
   const accountGroups = getAccountGroups();
-  const groups = [
+  const accounts = sortAccountGroups(
+    accountGroups.groups.filter((group) => group.sourceKind === "local-import"),
     {
-      key: "local-import",
-      title: "桌面端 Codex 账号",
-      description:
-        "这里展示的是本应用自己管理的 Codex 账号。通过 OAuth 或 JSON 成功导入后，才会出现在这里。",
-      kindLabel: "个账号",
-      emptyText: "当前还没有导入任何桌面端 Codex 账号。",
-      accounts: sortAccountGroups(
-        accountGroups.groups.filter(
-          (group) => group.sourceKind === "local-import",
-        ),
-        {
-          search: state.accountSearch,
-          sortKey: state.accountSortKey,
-          sortDirection: state.accountSortDirection,
-        },
-      ),
+      search: state.accountSearch,
+      sortKey: state.accountSortKey,
+      sortDirection: state.accountSortDirection,
     },
-    {
-      key: "openclaw",
-      title: "OpenClaw 可复用授权会话",
-      description:
-        "这里展示的是 OpenClaw 已登录的本地 Codex OAuth 授权。它们可直接作为网关授权来源，也可以一键导入为桌面端账号。",
-      kindLabel: "个授权",
-      emptyText: "当前没有从 OpenClaw 检测到可复用的 Codex 授权会话。",
-      accounts: sortAccountGroups(
-        accountGroups.groups.filter((group) => group.sourceKind === "openclaw"),
-        {
-          search: state.accountSearch,
-          sortKey: state.accountSortKey,
-          sortDirection: state.accountSortDirection,
-        },
-      ),
-    },
-  ];
+  );
 
   container.innerHTML = "";
-  for (const group of groups) {
-    const section = document.createElement("section");
-    section.style.marginBottom = "32px";
-    const cards = group.accounts.length
-      ? group.accounts
+  const section = document.createElement("section");
+  section.style.marginBottom = "32px";
+  const cards = accounts.length
+    ? accounts
           .map(
             (account) => `
         ${(() => {
@@ -705,11 +735,7 @@ function renderCodexAccounts(): void {
               ${account.isActive ? "当前活动" : "设为活动"}
             </button>
             <button class="btn secondary mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
-            ${
-              account.sourceKind === "openclaw"
-                ? `<button class="btn ghost mini" data-action="import-openclaw-session" data-session-id="${escapeHtml(account.representative.id)}">导入</button>`
-                : `<button class="btn ghost danger-ghost mini" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>`
-            }
+            <button class="btn ghost danger-ghost mini" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>
             <button class="btn ghost mini" style="margin-left: auto;" data-action="copy-snippet" title="复制接入片段">复制片段</button>
           </div>
         </div>
@@ -718,20 +744,19 @@ function renderCodexAccounts(): void {
       `,
           )
           .join("")
-      : `<div class="empty-state">${escapeHtml(group.emptyText)}</div>`;
+    : "<div class='empty-state'>当前还没有导入任何桌面端 Codex 账号。可通过“添加账号”或“导入配置”补充。</div>";
 
-    section.innerHTML = `
+  section.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px;">
         <div>
-          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">${escapeHtml(group.title)}</h3>
-          <p style="margin: 0; font-size: 14px; color: var(--text-secondary);">${escapeHtml(group.description)}</p>
+          <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">桌面端 Codex 账号</h3>
+          <p style="margin: 0; font-size: 14px; color: var(--text-secondary);">这里展示的是本应用自己管理并可直接切换的 Codex 账号。</p>
         </div>
-        <span class="badge neutral">${group.accounts.length} ${group.kindLabel}</span>
+        <span class="badge neutral">${accounts.length} 个账号</span>
       </div>
       <div class="grid-layout grid-3">${cards}</div>
     `;
-    container.appendChild(section);
-  }
+  container.appendChild(section);
 
   updateAccountToolbarState();
 }
@@ -789,9 +814,36 @@ function renderProviderRegistry(): void {
 }
 
 function renderDiagnostics(): void {
+  const serviceContainer = document.getElementById("service-diagnostics");
   const container = document.getElementById("provider-diagnostics");
-  if (!container) {
+  if (!container || !serviceContainer) {
     return;
+  }
+
+  const runtimeDiagnostics = state.runtimeDiagnostics;
+  if (!runtimeDiagnostics.length) {
+    serviceContainer.innerHTML =
+      "<div class='empty-card'>当前没有额外的运行状态提示</div>";
+  } else {
+    serviceContainer.innerHTML = "";
+    for (const item of runtimeDiagnostics) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const suggestion = item.suggestion
+        ? `<div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;"><strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">建议处理</strong>${escapeHtml(item.suggestion)}</div>`
+        : "";
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.title)}</strong>
+            <span style="font-size: 14px; color: var(--text-secondary);">${escapeHtml(item.message)}</span>
+          </div>
+          <span class="badge ${diagnosticBadgeClass(item.severity)}">${diagnosticSeverityLabel(item.severity)}</span>
+        </div>
+        ${suggestion}
+      `;
+      serviceContainer.appendChild(card);
+    }
   }
 
   const diagnostics = state.health?.providerConfigurations ?? [];
@@ -855,7 +907,7 @@ function renderGuide(): void {
   container.innerHTML = `
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">定位说明</h3>
-      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及 OpenClaw 本地授权的复用与导入。</p>
+      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及本机可复用授权的导入与复用。</p>
     </div>
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">如何接入</h3>
@@ -1065,6 +1117,46 @@ function applySystemSettingsToForm(): void {
   }
 }
 
+function buildHealthFallback(): DashboardHealth {
+  const gatewayPort = normalizeGatewayPort(state.systemSettings?.gatewayPort);
+  return {
+    ok: false,
+    managed: false,
+    defaultModel: "codex-default",
+    openclaw: {
+      baseUrl: `http://127.0.0.1:${gatewayPort}/v1`,
+      provider: "openai",
+      model: "codex-default",
+    },
+    recentErrors: [],
+    providerConfigurations: [],
+  };
+}
+
+function buildEmptyProviders(): DashboardProviders {
+  return {
+    data: [],
+  };
+}
+
+function buildEmptySessions(): DashboardSessions {
+  return {
+    activeSessionId: undefined,
+    data: [],
+  };
+}
+
+function updateRuntimeDiagnostics(
+  loadFailures: RuntimeDiagnosticLoadFailure[],
+): void {
+  state.runtimeDiagnostics = buildRuntimeDiagnostics({
+    gatewayOk: state.health?.ok,
+    activeSessionId: state.sessions?.activeSessionId,
+    sessions: state.sessions?.data ?? [],
+    loadFailures,
+  });
+}
+
 function configureAutoRefreshTimer(): void {
   clearAutoRefreshTimer();
 
@@ -1250,7 +1342,7 @@ function bindNavigation(): void {
 
 async function copySnippetWithFeedback(): Promise<void> {
   await getGatewayApi().copyOpenClawSnippet();
-  setBanner("OpenClaw 接入片段已复制。", "success");
+  setBanner("接入片段已复制。", "success");
 }
 
 function setOAuthStatus(
@@ -1548,7 +1640,7 @@ function bindActions(): void {
       try {
         await refresh();
         closeAccountModal();
-        setBanner("已重新扫描本地 OpenClaw 授权。", "success");
+        setBanner("已重新扫描本地可复用授权。", "success");
       } catch (error) {
         setBanner(`重新扫描失败：${String(error)}`, "error");
       }
@@ -1663,25 +1755,6 @@ function bindActions(): void {
       }
     }
 
-    if (action === "import-openclaw-session" && button.dataset.sessionId) {
-      try {
-        setBanner(
-          `正在从 ${button.dataset.sessionId} 导入桌面端账号...`,
-          "info",
-        );
-        const result = await getGatewayApi().importOpenClawSession(
-          button.dataset.sessionId,
-        );
-        await refresh();
-        setBanner(
-          `已导入桌面端 Codex 账号：${result.data.accountId ?? result.data.profileId}`,
-          "success",
-        );
-      } catch (error) {
-        setBanner(`导入失败：${String(error)}`, "error");
-      }
-    }
-
     if (action === "delete-codex-account" && button.dataset.sessionId) {
       try {
         const confirmed = window.confirm(
@@ -1714,24 +1787,75 @@ function bindActions(): void {
 async function refresh(): Promise<void> {
   const api = getGatewayApi();
   const [
-    health,
-    providers,
-    sessions,
-    settingsResponse,
-    systemSettingsResponse,
-  ] = await Promise.all([
+    healthResult,
+    providersResult,
+    sessionsResult,
+    settingsResult,
+    systemSettingsResult,
+  ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
     api.getSessions(),
     api.getProviderSettings(),
     api.getSystemSettings(),
   ]);
+  const loadFailures: RuntimeDiagnosticLoadFailure[] = [];
 
-  state.health = health;
-  state.providers = providers;
-  state.sessions = sessions;
-  state.settings = settingsResponse.data;
-  state.systemSettings = systemSettingsResponse.data;
+  if (systemSettingsResult.status === "fulfilled") {
+    state.systemSettings = systemSettingsResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "system-settings",
+      message: normalizeErrorMessage(systemSettingsResult.reason),
+    });
+    state.systemSettings = {
+      launchAtLogin: false,
+      autoRefreshIntervalSeconds: 120,
+      gatewayPort: 8787,
+    };
+  }
+
+  if (healthResult.status === "fulfilled") {
+    state.health = healthResult.value;
+  } else {
+    loadFailures.push({
+      scope: "health",
+      message: normalizeErrorMessage(healthResult.reason),
+    });
+    state.health = buildHealthFallback();
+  }
+
+  if (providersResult.status === "fulfilled") {
+    state.providers = providersResult.value;
+  } else {
+    loadFailures.push({
+      scope: "providers",
+      message: normalizeErrorMessage(providersResult.reason),
+    });
+    state.providers = buildEmptyProviders();
+  }
+
+  if (sessionsResult.status === "fulfilled") {
+    state.sessions = sessionsResult.value;
+  } else {
+    loadFailures.push({
+      scope: "sessions",
+      message: normalizeErrorMessage(sessionsResult.reason),
+    });
+    state.sessions = buildEmptySessions();
+  }
+
+  if (settingsResult.status === "fulfilled") {
+    state.settings = settingsResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "provider-settings",
+      message: normalizeErrorMessage(settingsResult.reason),
+    });
+    state.settings = {};
+  }
+
+  updateRuntimeDiagnostics(loadFailures);
 
   renderOverview();
   renderTopSummary();
@@ -1750,9 +1874,11 @@ async function refresh(): Promise<void> {
 async function refreshSessionsOnly(): Promise<void> {
   const api = getGatewayApi();
   state.sessions = await api.getSessions();
+  updateRuntimeDiagnostics([]);
   renderOverview();
   renderTopSummary();
   renderCodexAccounts();
+  renderDiagnostics();
   renderErrors();
 }
 
@@ -1847,7 +1973,14 @@ void (async () => {
     setOAuthBusyState(false);
     setBanner("正在加载 Local AI Gateway 控制台...", "info");
     await refresh();
-    setBanner("控制台已就绪，正在后台同步实时额度...", "info");
+    const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
+    if (primaryDiagnostic?.severity === "error") {
+      setBanner(`控制台已加载，但存在异常：${primaryDiagnostic.title}`, "error");
+    } else if (primaryDiagnostic?.severity === "warning") {
+      setBanner(`控制台已加载，请关注：${primaryDiagnostic.title}`, "info");
+    } else {
+      setBanner("控制台已就绪，正在后台同步实时额度...", "info");
+    }
     void triggerBackgroundLiveUsageRefresh("init");
   } catch (error) {
     setBanner(`初始化失败：${String(error)}`, "error");

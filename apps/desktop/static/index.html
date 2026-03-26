@@ -925,7 +925,7 @@
         <div class="sidebar-foot">
           <div class="sidebar-foot-card">
             <strong>本地控制面</strong>
-            第三方客户端统一通过 <code>127.0.0.1:8787/v1</code> 接入本网关。
+            第三方客户端统一通过本地网关入口地址接入。
           </div>
         </div>
       </aside>
@@ -986,10 +986,10 @@
                 <div class="card mini-stat"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
                 <div class="card mini-stat"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
                 <div class="card mini-stat"><small>默认模型</small><strong id="default-model">加载中</strong></div>
-                <div class="card mini-stat"><small>OpenClaw Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
-                <div class="card mini-stat"><small>OpenClaw 片段模型</small><strong id="snippet-model">加载中</strong></div>
+                <div class="card mini-stat"><small>网关 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
+                <div class="card mini-stat"><small>接入片段模型</small><strong id="snippet-model">加载中</strong></div>
                 <div class="card mini-stat"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
-                <div class="card mini-stat"><small>OpenClaw 授权数</small><strong id="openclaw-source-count">0</strong></div>
+                <div class="card mini-stat"><small>可复用授权数</small><strong id="openclaw-source-count">0</strong></div>
                 <div class="card mini-stat" style="grid-column: 1 / -1;">
                   <small>默认模型选择依据</small>
                   <strong id="default-selection">加载中</strong>
@@ -1011,14 +1011,13 @@
             <section>
               <div class="section-head">
                 <h2>账号资产管理</h2>
-                <p>管理桌面端本地维护的 Codex 账号，以及发现自 OpenClaw 的可复用授权。</p>
+                <p>管理桌面端本地维护的 Codex 账号，并支持导入本机可复用授权。</p>
               </div>
               
               <div class="toolbar">
                 <div class="toolbar-group">
                   <input id="account-search" class="input-field search-input" type="search" placeholder="搜索名称、邮箱或 ID..." />
                   <select id="account-sort-key" class="input-field" style="width: auto;">
-                    <option value="default">默认排序</option>
                     <option value="quota">按剩余额度</option>
                     <option value="resetAt">按重置时间</option>
                     <option value="name">按名称</option>
@@ -1076,7 +1075,7 @@
                   <div class="form-row">
                     <div class="form-field">
                       <label>接入方式</label>
-                      <input class="input-field" value="自动发现本地 OpenClaw 授权" disabled />
+                      <input class="input-field" value="自动发现本地可复用授权" disabled />
                     </div>
                     <div class="form-field">
                       <label>会话来源</label>
@@ -1201,6 +1200,10 @@
               
               <div class="grid-layout grid-2">
                 <div>
+                  <h3 style="font-size: 14px; margin-bottom: 12px;">服务分层诊断</h3>
+                  <div id="service-diagnostics" class="grid-layout grid-1"></div>
+                </div>
+                <div>
                   <h3 style="font-size: 14px; margin-bottom: 12px;">Provider 诊断</h3>
                   <div id="provider-diagnostics" class="grid-layout grid-1"></div>
                 </div>
@@ -1223,14 +1226,14 @@
           <button id="close-account-modal" class="btn ghost mini">关闭</button>
         </div>
         <div class="modal-tabs">
-          <button class="modal-tab" data-account-tab="import" data-active="true">扫描 OpenClaw</button>
+          <button class="modal-tab" data-account-tab="import" data-active="true">扫描本地授权</button>
           <button class="modal-tab" data-account-tab="oauth" data-active="false">OAuth 授权</button>
           <button class="modal-tab" data-account-tab="token" data-active="false">JSON 导入</button>
           <button class="modal-tab" data-account-tab="apikey" data-active="false">API Key</button>
         </div>
         
         <div class="modal-body" data-account-panel="import">
-          <p>自动扫描本机现有的 OpenClaw Codex 授权会话。这能最快复用你已有的登录状态。</p>
+          <p>自动扫描本机现有的可复用 Codex 授权会话。这能最快复用你已有的登录状态。</p>
           <button id="import-local-accounts" class="btn primary">重新扫描本地授权</button>
         </div>
         
