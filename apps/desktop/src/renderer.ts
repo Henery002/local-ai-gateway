@@ -7,6 +7,8 @@ const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.2-codex",
 ] as const;
 
+const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
+
 declare global {
   interface Window {
     localAIGateway?: {
@@ -216,8 +218,25 @@ function setBanner(message: string, tone: "info" | "success" | "error" = "info")
   node.setAttribute("data-tone", tone);
 }
 
+function loadPersistedView(): DashboardView {
+  try {
+    const saved = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+    if (saved === "overview" || saved === "accounts" || saved === "providers" || saved === "diagnostics") {
+      return saved;
+    }
+  } catch {
+    // ignore
+  }
+  return "overview";
+}
+
 function setActiveView(view: DashboardView): void {
   state.activeView = view;
+  try {
+    window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+  } catch {
+    // ignore
+  }
 
   for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-nav-target]"))) {
     node.dataset.active = node.dataset.navTarget === view ? "true" : "false";
@@ -362,6 +381,23 @@ function getActiveProviderLabel(): string {
 
 function getAccountGroups() {
   return buildCodexAccountGroups(state.sessions?.data ?? [], state.sessions?.activeSessionId);
+}
+
+function renderTopSummary(): void {
+  const health = state.health;
+  const providers = state.providers;
+  const sessions = state.sessions;
+  if (!health || !providers || !sessions) {
+    return;
+  }
+
+  const groups = getAccountGroups();
+  const activeSession = sessions.data.find((session) => session.id === sessions.activeSessionId);
+
+  setText("top-summary-status", health.ok ? "服务运行中" : "服务异常");
+  setText("top-summary-route", health.openclaw?.model ?? health.defaultModel ?? "codex-default");
+  setText("top-summary-session", activeSession ? getSessionTitle(activeSession) : "未选择活动会话");
+  setText("top-summary-providers", `${providers.data.length} 个 Provider / ${groups.total} 个授权对象`);
 }
 
 function renderOverview(): void {
@@ -1114,6 +1150,7 @@ async function refresh(): Promise<void> {
   state.settings = settingsResponse.data;
 
   renderOverview();
+  renderTopSummary();
   renderCodexAccounts();
   renderProviderRegistry();
   renderDiagnostics();
@@ -1147,6 +1184,7 @@ async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRef
 
 void (async () => {
   try {
+    state.activeView = loadPersistedView();
     bindNavigation();
     setActiveView(state.activeView);
     bindActions();

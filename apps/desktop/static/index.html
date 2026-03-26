@@ -265,6 +265,34 @@
         justify-content: flex-end;
       }
 
+      .topbar-meta {
+        margin-top: var(--space-4);
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--space-3);
+      }
+
+      .summary-card {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(247, 249, 252, 0.92);
+        border: 1px solid rgba(20, 32, 51, 0.06);
+      }
+
+      .summary-card small {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .summary-card strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 0.92rem;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+
       button {
         appearance: none;
         display: inline-flex;
@@ -373,6 +401,34 @@
         background: var(--panel);
         border: 1px solid rgba(255, 255, 255, 0.76);
         box-shadow: var(--shadow-md);
+      }
+
+      .section-block {
+        display: grid;
+        gap: var(--space-3);
+      }
+
+      .section-block + .section-block {
+        margin-top: var(--space-5);
+      }
+
+      .block-head {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--space-3);
+        align-items: end;
+      }
+
+      .block-head h3 {
+        margin: 0;
+        font-size: 0.98rem;
+      }
+
+      .block-head p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 0.84rem;
       }
 
       .section-head {
@@ -803,6 +859,7 @@
       }
 
       @media (max-width: 1240px) {
+        .topbar-meta,
         .overview-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -860,6 +917,7 @@
         }
 
         .account-subgrid,
+        .topbar-meta,
         .overview-grid {
           grid-template-columns: 1fr;
         }
@@ -926,6 +984,24 @@
             <span class="eyebrow">Local AI Gateway</span>
             <h1>本地 AI 网关控制台</h1>
             <p>统一管理本机的 Codex 授权、Provider 配置、默认模型路由和第三方客户端接入信息，优先服务 OpenClaw 与其他本地应用。</p>
+            <div class="topbar-meta">
+              <article class="summary-card">
+                <small>服务概况</small>
+                <strong id="top-summary-status">加载中</strong>
+              </article>
+              <article class="summary-card">
+                <small>当前路由模型</small>
+                <strong id="top-summary-route">加载中</strong>
+              </article>
+              <article class="summary-card">
+                <small>当前活动授权</small>
+                <strong id="top-summary-session">加载中</strong>
+              </article>
+              <article class="summary-card">
+                <small>Provider / 授权数</small>
+                <strong id="top-summary-providers">加载中</strong>
+              </article>
+            </div>
           </div>
           <div class="topbar-actions">
             <button id="refresh" class="secondary">刷新状态</button>
@@ -1009,61 +1085,98 @@
                   </label>
                 </div>
               </div>
-              <div class="config-grid" style="margin-top: 16px;">
-                <article class="form-card">
-                  <h3>Codex Provider</h3>
-                  <p class="footer-note">Codex 当前直接复用 `~/.openclaw` 中的本地 OAuth 授权，不需要手填 API Key。这里可以切换 `codex-default` 背后对应的上游模型。</p>
-                  <div class="field-grid">
-                    <div class="field full">
-                      <label>接入方式</label>
-                      <input value="自动发现本地 OpenClaw 授权" disabled />
-                    </div>
-                    <div class="field">
-                      <label>会话来源</label>
-                      <input value="~/.openclaw/agents/*/agent/auth-profiles.json" disabled />
-                    </div>
-                    <div class="field">
-                      <label>默认模型别名</label>
-                      <input value="codex-default" disabled />
-                    </div>
-                    <div class="field full">
-                      <label>Codex 上游模型</label>
-                      <select id="codex-upstream-model"></select>
-                    </div>
+              <div class="section-block">
+                <div class="block-head">
+                  <div>
+                    <h3>会话型 Provider</h3>
+                    <p>这里管理由本地 OAuth 授权驱动的会话型路由，当前仅包含 Codex。</p>
                   </div>
-                </article>
+                </div>
+                <div class="config-grid">
+                  <article class="form-card">
+                    <h3>Codex Provider</h3>
+                    <p class="footer-note">Codex 当前直接复用 `~/.openclaw` 中的本地 OAuth 授权，不需要手填 API Key。这里可以切换 `codex-default` 背后对应的上游模型。</p>
+                    <div class="field-grid">
+                      <div class="field full">
+                        <label>接入方式</label>
+                        <input value="自动发现本地 OpenClaw 授权" disabled />
+                      </div>
+                      <div class="field">
+                        <label>会话来源</label>
+                        <input value="~/.openclaw/agents/*/agent/auth-profiles.json" disabled />
+                      </div>
+                      <div class="field">
+                        <label>默认模型别名</label>
+                        <input value="codex-default" disabled />
+                      </div>
+                      <div class="field full">
+                        <label>Codex 上游模型</label>
+                        <select id="codex-upstream-model"></select>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </div>
 
-                <article class="form-card">
-                  <h3>OpenAI-compatible</h3>
-                  <label class="switch"><input id="openai-enabled" type="checkbox" />启用此 Provider</label>
-                  <div class="field-grid">
-                    <div class="field"><label>显示名称</label><input id="openai-label" placeholder="例如：My Relay" /></div>
-                    <div class="field"><label>模型别名</label><input id="openai-alias" placeholder="例如：openai-compatible-default" /></div>
-                    <div class="field full"><label>Base URL</label><input id="openai-base-url" placeholder="https://example.com/v1" /></div>
-                    <div class="field full"><label>API Key</label><input id="openai-api-key" type="password" placeholder="sk-..." /></div>
-                    <div class="field"><label>上游模型名</label><input id="openai-model" placeholder="例如：gpt-4.1-mini" /></div>
-                    <div class="field"><label>展示名称</label><input id="openai-display-name" placeholder="例如：OpenAI-Compatible Default" /></div>
+              <div class="section-block">
+                <div class="block-head">
+                  <div>
+                    <h3>云端兼容 Provider</h3>
+                    <p>用于接入标准 OpenAI-compatible 接口。当前界面只提供一个配置槽位。</p>
                   </div>
-                  <div class="footer-note">当前界面只提供一个 OpenAI-compatible 配置槽位。若同时配置环境变量和界面表单，运行时会优先使用环境变量。</div>
-                </article>
+                </div>
+                <div class="config-grid">
+                  <article class="form-card">
+                    <h3>OpenAI-compatible</h3>
+                    <label class="switch"><input id="openai-enabled" type="checkbox" />启用此 Provider</label>
+                    <div class="field-grid">
+                      <div class="field"><label>显示名称</label><input id="openai-label" placeholder="例如：My Relay" /></div>
+                      <div class="field"><label>模型别名</label><input id="openai-alias" placeholder="例如：openai-compatible-default" /></div>
+                      <div class="field full"><label>Base URL</label><input id="openai-base-url" placeholder="https://example.com/v1" /></div>
+                      <div class="field full"><label>API Key</label><input id="openai-api-key" type="password" placeholder="sk-..." /></div>
+                      <div class="field"><label>上游模型名</label><input id="openai-model" placeholder="例如：gpt-4.1-mini" /></div>
+                      <div class="field"><label>展示名称</label><input id="openai-display-name" placeholder="例如：OpenAI-Compatible Default" /></div>
+                    </div>
+                    <div class="footer-note">若同时配置环境变量和界面表单，运行时会优先使用环境变量。</div>
+                  </article>
+                </div>
+              </div>
 
-                <article class="form-card">
-                  <h3>Ollama</h3>
-                  <label class="switch"><input id="ollama-enabled" type="checkbox" />启用此 Provider</label>
-                  <div class="field-grid">
-                    <div class="field"><label>显示名称</label><input id="ollama-label" placeholder="例如：Ollama" /></div>
-                    <div class="field"><label>模型别名</label><input id="ollama-alias" placeholder="例如：ollama-default" /></div>
-                    <div class="field full"><label>Base URL</label><input id="ollama-base-url" placeholder="http://127.0.0.1:11434" /></div>
-                    <div class="field"><label>模型名</label><input id="ollama-model" placeholder="例如：qwen2.5-coder:7b" /></div>
-                    <div class="field"><label>展示名称</label><input id="ollama-display-name" placeholder="例如：Ollama Default" /></div>
+              <div class="section-block">
+                <div class="block-head">
+                  <div>
+                    <h3>本地模型 Provider</h3>
+                    <p>用于接入本机运行的 Ollama 等本地模型服务。</p>
                   </div>
-                  <div class="footer-note">此处保存的是本机本地配置，适合你不想再通过终端反复设置的场景。</div>
-                </article>
+                </div>
+                <div class="config-grid">
+                  <article class="form-card">
+                    <h3>Ollama</h3>
+                    <label class="switch"><input id="ollama-enabled" type="checkbox" />启用此 Provider</label>
+                    <div class="field-grid">
+                      <div class="field"><label>显示名称</label><input id="ollama-label" placeholder="例如：Ollama" /></div>
+                      <div class="field"><label>模型别名</label><input id="ollama-alias" placeholder="例如：ollama-default" /></div>
+                      <div class="field full"><label>Base URL</label><input id="ollama-base-url" placeholder="http://127.0.0.1:11434" /></div>
+                      <div class="field"><label>模型名</label><input id="ollama-model" placeholder="例如：qwen2.5-coder:7b" /></div>
+                      <div class="field"><label>展示名称</label><input id="ollama-display-name" placeholder="例如：Ollama Default" /></div>
+                    </div>
+                    <div class="footer-note">此处保存的是本机本地配置，适合你不想再通过终端反复设置的场景。</div>
+                  </article>
+                </div>
+              </div>
 
-                <article class="form-card">
-                  <h3>已注册 Provider</h3>
-                  <div id="provider-registry" class="provider-grid"></div>
-                </article>
+              <div class="section-block">
+                <div class="block-head">
+                  <div>
+                    <h3>已注册 Provider</h3>
+                    <p>展示当前真正注册进网关并可被第三方应用访问的 provider 和模型别名。</p>
+                  </div>
+                </div>
+                <div class="config-grid">
+                  <article class="form-card">
+                    <div id="provider-registry" class="provider-grid"></div>
+                  </article>
+                </div>
               </div>
             </section>
           </div>
