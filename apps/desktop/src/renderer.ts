@@ -211,6 +211,30 @@ function setBanner(message: string, tone: "info" | "success" | "error" = "info")
   node.setAttribute("data-tone", tone);
 }
 
+function setButtonLoading(button: HTMLButtonElement | null, loading: boolean, loadingText?: string): void {
+  if (!button) {
+    return;
+  }
+
+  if (loading) {
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent ?? "";
+    }
+    button.dataset.loading = "true";
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = loadingText ?? `${button.dataset.originalText}...`;
+    return;
+  }
+
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+  delete button.dataset.loading;
+  if (button.dataset.originalText) {
+    button.textContent = button.dataset.originalText;
+  }
+}
+
 function formatDate(value?: number): string {
   if (!value) {
     return "待同步";
@@ -247,13 +271,6 @@ function getSessionTitle(session: DashboardSessions["data"][number]): string {
 }
 
 function getSessionSubtitle(session: DashboardSessions["data"][number]): string {
-  const title = getSessionTitle(session);
-  if (session.email && session.email !== title) {
-    return session.email;
-  }
-  if (session.accountId && session.accountId !== title) {
-    return session.accountId;
-  }
   return session.id;
 }
 
@@ -406,9 +423,6 @@ function renderCodexAccounts(): void {
             <span class="pill ${account.representative.status}">${statusLabel(account.representative.status)}</span>
           </div>
           <div class="account-meta">
-            <span>账号来源：${escapeHtml(account.sourceLabel)}</span>
-            <span>${account.sourceKind === "openclaw" ? "关联 OpenClaw 授权" : "导入记录"}：${account.sessions.length}</span>
-            <span>账号 ID：${escapeHtml(account.representative.accountId ?? "待同步")}</span>
             <span>套餐类型：${escapeHtml(account.representative.planType ?? "待同步")}</span>
             <span>OAuth 过期：${escapeHtml(formatDate(account.representative.expiresAt))}</span>
             ${quotaUpdatedAt ? `<span>${escapeHtml(quotaUpdatedAt)}</span>` : ""}
@@ -873,7 +887,9 @@ async function importCodexJson(): Promise<void> {
 
 function bindActions(): void {
   document.getElementById("refresh")?.addEventListener("click", async () => {
+    const button = document.getElementById("refresh") as HTMLButtonElement | null;
     try {
+      setButtonLoading(button, true, "刷新中");
       setBanner("正在刷新状态与 Codex 实时额度...", "info");
       const summary = await refreshWithLiveUsage();
       if (!summary) {
@@ -888,6 +904,8 @@ function bindActions(): void {
       }
     } catch (error) {
       setBanner(`刷新失败：${String(error)}`, "error");
+    } finally {
+      setButtonLoading(button, false);
     }
   });
 
@@ -1015,7 +1033,9 @@ function bindActions(): void {
     }
 
     if (action === "refresh-session-usage" && button.dataset.sessionId) {
+      const refreshButton = button as HTMLButtonElement;
       try {
+        setButtonLoading(refreshButton, true, "刷新中");
         setBanner(`正在刷新 ${button.dataset.sessionId} 的额度信息...`, "info");
         const summary = await refreshWithLiveUsage(button.dataset.sessionId);
         if (!summary) {
@@ -1027,6 +1047,8 @@ function bindActions(): void {
         }
       } catch (error) {
         setBanner(`账号刷新失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(refreshButton, false);
       }
     }
 

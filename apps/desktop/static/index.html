@@ -119,6 +119,10 @@
 
       button {
         appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
         border: none;
         border-radius: 16px;
         padding: 12px 16px;
@@ -127,8 +131,23 @@
         transition: transform 160ms ease, opacity 160ms ease;
       }
 
-      button:hover {
+      button:hover:not(:disabled) {
         transform: translateY(-1px);
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.72;
+      }
+
+      button[data-loading="true"]::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        animation: spin 0.8s linear infinite;
       }
 
       button.primary {
@@ -366,6 +385,12 @@
       .subtle-date {
         margin-top: 6px;
         font-size: 0.8rem;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .account-actions,
