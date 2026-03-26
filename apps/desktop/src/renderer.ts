@@ -169,6 +169,8 @@ type SessionUsageRefreshResponse = {
   }>;
 };
 
+type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
+
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
@@ -176,7 +178,10 @@ const state: {
   settings?: ProviderSettings;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
-} = {};
+  activeView: DashboardView;
+} = {
+  activeView: "overview",
+};
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -209,6 +214,18 @@ function setBanner(message: string, tone: "info" | "success" | "error" = "info")
   }
   node.textContent = message;
   node.setAttribute("data-tone", tone);
+}
+
+function setActiveView(view: DashboardView): void {
+  state.activeView = view;
+
+  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-nav-target]"))) {
+    node.dataset.active = node.dataset.navTarget === view ? "true" : "false";
+  }
+
+  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-view]"))) {
+    node.hidden = node.dataset.view !== view;
+  }
 }
 
 function setButtonLoading(button: HTMLButtonElement | null, loading: boolean, loadingText?: string): void {
@@ -792,7 +809,7 @@ function bindNavigation(): void {
       if (!target) {
         return;
       }
-      document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActiveView(target as DashboardView);
     });
   }
 }
@@ -1131,6 +1148,7 @@ async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRef
 void (async () => {
   try {
     bindNavigation();
+    setActiveView(state.activeView);
     bindActions();
     setOAuthStatus("浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。", "info");
     setOAuthBusyState(false);
