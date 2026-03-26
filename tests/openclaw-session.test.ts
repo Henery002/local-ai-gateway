@@ -165,6 +165,89 @@ describe("openclaw session source", () => {
     });
   });
 
+  it("upserts codex accounts from cockpit all-platform transfer exports", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-transfer-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+
+    store.importAccountConfigObject({
+      platforms: {
+        codex: {
+          exported_data: [
+            {
+              id: "codex_existing",
+              email: "demo@example.com",
+              auth_mode: "oauth",
+              plan_type: "free",
+              account_id: "acct_transfer",
+              tokens: {
+                access_token: "old-access-token",
+                refresh_token: "old-refresh-token",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const result = store.importAccountConfigObject({
+      platforms: {
+        codex: {
+          exported_data: [
+            {
+              id: "codex_existing",
+              email: "demo@example.com",
+              auth_mode: "oauth",
+              plan_type: "plus",
+              account_id: "acct_transfer",
+              tokens: {
+                access_token: "new-access-token",
+                refresh_token: "new-refresh-token",
+              },
+              quota: {
+                hourly_percentage: 91,
+                hourly_reset_time: 1_775_053_648,
+                hourly_window_minutes: 300,
+                hourly_window_present: true,
+              },
+              usage_updated_at: 1_774_448_847,
+            },
+          ],
+        },
+        openai: {
+          exported_data: [
+            {
+              api_key: "should-not-be-imported",
+            },
+          ],
+        },
+      },
+    });
+
+    const profiles = store.listProfiles();
+    const imported = Object.values(profiles);
+
+    expect(result).toMatchObject({
+      imported: 0,
+      updated: 1,
+    });
+    expect(Object.keys(profiles)).toHaveLength(1);
+    expect(imported[0]).toMatchObject({
+      accountId: "acct_transfer",
+      email: "demo@example.com",
+      planType: "plus",
+      access: "new-access-token",
+      refresh: "new-refresh-token",
+      quota: {
+        scope: "hourly",
+        percentage: 91,
+        resetAt: 1_775_053_648_000,
+        windowMinutes: 300,
+        updatedAt: 1_774_448_847_000,
+      },
+    });
+  });
+
   it("can import an OpenClaw session into the desktop local account store", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-copy-"));
     const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");

@@ -505,7 +505,7 @@
 
       .account-subgrid {
         display: grid;
-        gap: var(--space-4);
+        gap: var(--space-5);
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
@@ -520,6 +520,22 @@
         border-radius: 18px;
         background: var(--panel-strong);
         border: 1px solid var(--line);
+        box-shadow: 0 12px 28px rgba(28, 45, 74, 0.08);
+        transition:
+          transform 180ms ease,
+          box-shadow 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .stat-card:hover,
+      .guide-card:hover,
+      .account-card:hover,
+      .provider-card-2:hover,
+      .diagnostic-card:hover,
+      .form-card:hover,
+      .empty-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 36px rgba(28, 45, 74, 0.12);
       }
 
       .stat-card small,
@@ -653,6 +669,30 @@
         display: flex;
         gap: var(--space-2);
         flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .toolbar-search {
+        min-width: 240px;
+      }
+
+      .toolbar-search input,
+      .toolbar-select {
+        min-height: 38px;
+        border: 1px solid var(--line);
+        background: var(--panel-soft);
+        border-radius: 12px;
+        padding: 0 12px;
+        color: var(--text);
+      }
+
+      .toolbar-search input {
+        width: 100%;
+      }
+
+      .icon-button {
+        min-width: 40px;
+        padding: 0 12px;
       }
 
       .model-list {
@@ -1036,7 +1076,6 @@
                   <h2>总览</h2>
                   <p>当前服务状态、默认模型与本地接入信息。</p>
                 </div>
-                <button id="open-account-modal" class="primary">添加 Codex 账号</button>
               </div>
               <div class="overview-grid">
                 <article class="stat-card"><small>服务状态</small><strong id="service-state">加载中</strong></article>
@@ -1073,8 +1112,25 @@
                   <h2>Codex 账号与授权</h2>
                   <p>桌面端自己导入并管理的才是本应用内的 Codex 账号；OpenClaw 部分展示的是可复用的本地授权会话，不等同于本应用账号。</p>
                 </div>
+              </div>
+              <div class="toolbar">
+                <div class="toolbar-left">
+                  <label class="toolbar-search">
+                    <input id="account-search" type="search" placeholder="搜索账号名称、邮箱或账号 ID" />
+                  </label>
+                  <select id="account-sort-key" class="toolbar-select">
+                    <option value="default">默认排序</option>
+                    <option value="quota">按剩余额度</option>
+                    <option value="resetAt">按重置时间</option>
+                    <option value="name">按账号名称</option>
+                  </select>
+                  <button class="secondary icon-button" id="account-sort-direction" title="切换升降序">降序</button>
+                </div>
                 <div class="toolbar-right">
+                  <button class="secondary" id="refresh-accounts">刷新全部账号</button>
+                  <button class="secondary" id="import-account-config">导入账号配置信息</button>
                   <button class="secondary" id="copy-snippet-toolbar">复制接入片段</button>
+                  <button id="open-account-modal" class="primary">添加 Codex 账号</button>
                 </div>
               </div>
               <div id="codex-accounts" class="source-groups"></div>

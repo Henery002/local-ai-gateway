@@ -33,6 +33,16 @@ declare global {
         ok: boolean;
         canceled?: boolean;
         imported?: number;
+        updated?: number;
+        profileIds?: string[];
+        selectedPath?: string;
+      }>;
+      importAccountConfig: () => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        imported?: number;
+        updated?: number;
+        skipped?: number;
         profileIds?: string[];
         selectedPath?: string;
       }>;
@@ -172,6 +182,8 @@ type SessionUsageRefreshResponse = {
 };
 
 type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
+type AccountSortKey = "default" | "name" | "quota" | "resetAt";
+type AccountSortDirection = "asc" | "desc";
 
 const state: {
   health?: DashboardHealth;
@@ -181,8 +193,14 @@ const state: {
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
   activeView: DashboardView;
+  accountSearch: string;
+  accountSortKey: AccountSortKey;
+  accountSortDirection: AccountSortDirection;
 } = {
   activeView: "overview",
+  accountSearch: "",
+  accountSortKey: "default",
+  accountSortDirection: "desc",
 };
 
 function getGatewayApi() {
@@ -383,6 +401,109 @@ function getAccountGroups() {
   return buildCodexAccountGroups(state.sessions?.data ?? [], state.sessions?.activeSessionId);
 }
 
+function compareOptionalNumbers(
+  left: number | undefined,
+  right: number | undefined,
+  direction: AccountSortDirection,
+): number {
+  if (left === undefined && right === undefined) {
+    return 0;
+  }
+  if (left === undefined) {
+    return 1;
+  }
+  if (right === undefined) {
+    return -1;
+  }
+  return direction === "asc" ? left - right : right - left;
+}
+
+function matchesAccountSearch(group: ReturnType<typeof getAccountGroups>["groups"][number], query: string): boolean {
+  if (!query) {
+    return true;
+  }
+
+  const haystack = [
+    getSessionTitle(group.representative),
+    group.representative.email,
+    group.representative.accountId,
+    group.representative.profileId,
+    ...group.sessions.map((session) => session.email),
+    ...group.sessions.map((session) => session.accountId),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(query);
+}
+
+function sortAccountGroups(
+  groups: ReturnType<typeof getAccountGroups>["groups"],
+): ReturnType<typeof getAccountGroups>["groups"] {
+  const query = state.accountSearch.trim().toLowerCase();
+  const filtered = groups.filter((group) => matchesAccountSearch(group, query));
+
+  if (state.accountSortKey === "default") {
+    return filtered;
+  }
+
+    return [...filtered].sort((left, right) => {
+      let delta = 0;
+
+      if (state.accountSortKey === "name") {
+        delta =
+          getSessionTitle(left.representative).localeCompare(getSessionTitle(right.representative), "zh-CN") *
+          (state.accountSortDirection === "asc" ? 1 : -1);
+      }
+
+      if (state.accountSortKey === "quota") {
+        delta = compareOptionalNumbers(
+          left.representative.quota?.percentage,
+          right.representative.quota?.percentage,
+          state.accountSortDirection,
+        );
+      }
+
+      if (state.accountSortKey === "resetAt") {
+        delta = compareOptionalNumbers(
+          left.representative.quota?.resetAt,
+          right.representative.quota?.resetAt,
+          state.accountSortDirection,
+        );
+      }
+
+      if (delta === 0) {
+        delta = getSessionTitle(left.representative).localeCompare(getSessionTitle(right.representative), "zh-CN");
+      }
+
+      return delta;
+    });
+}
+
+function updateAccountToolbarState(): void {
+  const searchInput = document.getElementById("account-search") as HTMLInputElement | null;
+  const sortSelect = document.getElementById("account-sort-key") as HTMLSelectElement | null;
+  const sortDirectionButton = document.getElementById("account-sort-direction") as HTMLButtonElement | null;
+
+  if (searchInput && searchInput.value !== state.accountSearch) {
+    searchInput.value = state.accountSearch;
+  }
+
+  if (sortSelect && sortSelect.value !== state.accountSortKey) {
+    sortSelect.value = state.accountSortKey;
+  }
+
+  if (sortDirectionButton) {
+    sortDirectionButton.textContent = state.accountSortDirection === "asc" ? "升序" : "降序";
+    sortDirectionButton.setAttribute(
+      "aria-label",
+      `当前为${state.accountSortDirection === "asc" ? "升序" : "降序"}排序，点击切换`,
+    );
+    sortDirectionButton.title = `当前为${state.accountSortDirection === "asc" ? "升序" : "降序"}排序`;
+  }
+}
+
 function renderTopSummary(): void {
   const health = state.health;
   const providers = state.providers;
@@ -435,7 +556,7 @@ function renderCodexAccounts(): void {
       description: "这里展示的是本应用自己管理的 Codex 账号。通过 OAuth 或 JSON 成功导入后，才会出现在这里。",
       kindLabel: "个账号",
       emptyText: "当前还没有导入任何桌面端 Codex 账号。",
-      accounts: accountGroups.groups.filter((group) => group.sourceKind === "local-import"),
+      accounts: sortAccountGroups(accountGroups.groups.filter((group) => group.sourceKind === "local-import")),
     },
     {
       key: "openclaw",
@@ -443,7 +564,7 @@ function renderCodexAccounts(): void {
       description: "这里展示的是 OpenClaw 已登录的本地 Codex OAuth 授权。它们可直接作为网关授权来源，也可以一键导入为桌面端账号。",
       kindLabel: "个授权",
       emptyText: "当前没有从 OpenClaw 检测到可复用的 Codex 授权会话。",
-      accounts: accountGroups.groups.filter((group) => group.sourceKind === "openclaw"),
+      accounts: sortAccountGroups(accountGroups.groups.filter((group) => group.sourceKind === "openclaw")),
     },
   ];
 
@@ -521,6 +642,8 @@ function renderCodexAccounts(): void {
     `;
     container.appendChild(section);
   }
+
+  updateAccountToolbarState();
 }
 
 function renderProviderRegistry(): void {
@@ -929,7 +1052,22 @@ async function importCodexJson(): Promise<void> {
 
   await refresh();
   closeAccountModal();
-  setBanner(`已导入 ${result.imported ?? 0} 个 Codex 账号。`, "success");
+  setBanner(`已导入 ${result.imported ?? 0} 个 Codex 账号，更新 ${result.updated ?? 0} 个账号。`, "success");
+}
+
+async function importAccountConfig(): Promise<void> {
+  const result = await getGatewayApi().importAccountConfig();
+  if (result.canceled) {
+    setBanner("已取消账号配置导入。", "info");
+    return;
+  }
+
+  await refresh();
+  setActiveView("accounts");
+  setBanner(
+    `账号配置已导入：新增 ${result.imported ?? 0} 个，更新 ${result.updated ?? 0} 个。`,
+    "success",
+  );
 }
 
 function bindActions(): void {
@@ -1002,6 +1140,49 @@ function bindActions(): void {
 
   document.getElementById("open-account-modal")?.addEventListener("click", () => {
     openAccountModal("oauth");
+  });
+
+  document.getElementById("import-account-config")?.addEventListener("click", async () => {
+    try {
+      await importAccountConfig();
+    } catch (error) {
+      setBanner(`账号配置导入失败：${String(error)}`, "error");
+    }
+  });
+
+  document.getElementById("refresh-accounts")?.addEventListener("click", async () => {
+    const button = document.getElementById("refresh-accounts") as HTMLButtonElement | null;
+    try {
+      setButtonLoading(button, true, "刷新中");
+      setBanner("正在刷新全部账号的额度与状态...", "info");
+      const summary = await refreshWithLiveUsage();
+      if (!summary) {
+        setBanner("账号状态已刷新。", "success");
+      } else if (summary.failed > 0) {
+        setBanner(`账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项失败。`, "error");
+      } else {
+        setBanner(`账号状态已刷新，${summary.refreshed} 个账号已更新。`, "success");
+      }
+    } catch (error) {
+      setBanner(`账号刷新失败：${String(error)}`, "error");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
+
+  document.getElementById("account-search")?.addEventListener("input", (event) => {
+    state.accountSearch = (event.target as HTMLInputElement).value;
+    renderCodexAccounts();
+  });
+
+  document.getElementById("account-sort-key")?.addEventListener("change", (event) => {
+    state.accountSortKey = (event.target as HTMLSelectElement).value as AccountSortKey;
+    renderCodexAccounts();
+  });
+
+  document.getElementById("account-sort-direction")?.addEventListener("click", () => {
+    state.accountSortDirection = state.accountSortDirection === "asc" ? "desc" : "asc";
+    renderCodexAccounts();
   });
 
   document.getElementById("close-account-modal")?.addEventListener("click", () => {

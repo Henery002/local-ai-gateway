@@ -16,6 +16,7 @@ const api = {
   submitCodexOAuthInput: (input) => ipcRenderer.invoke("gateway:submit-codex-oauth-input", input),
   cancelCodexOAuth: () => ipcRenderer.invoke("gateway:cancel-codex-oauth"),
   importCodexJson: () => ipcRenderer.invoke("gateway:import-codex-json"),
+  importAccountConfig: () => ipcRenderer.invoke("gateway:import-account-config"),
   importOpenClawSession: (sessionId) => ipcRenderer.invoke("gateway:import-openclaw-session", sessionId),
 };
 

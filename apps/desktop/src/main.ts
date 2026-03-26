@@ -406,8 +406,39 @@ ipcMain.handle("gateway:import-codex-json", async () => {
 
   const selectedPath = result.filePaths[0];
   const parsed = JSON.parse(readFileSync(selectedPath, "utf8")) as unknown;
-  const imported = importedCodexAccountStore.importFromObject(parsed);
-  if (imported.imported === 0) {
+  const imported = importedCodexAccountStore.importAccountConfigObject(parsed);
+  if (imported.imported === 0 && imported.updated === 0) {
+    throw new Error("所选文件中未发现可用的 openai-codex OAuth 凭据。");
+  }
+
+  return {
+    ok: true,
+    selectedPath,
+    ...imported,
+  };
+});
+
+ipcMain.handle("gateway:import-account-config", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "选择账号配置文件",
+    properties: ["openFile"],
+    filters: [
+      { name: "JSON 文件", extensions: ["json"] },
+      { name: "全部文件", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      ok: false,
+      canceled: true,
+    };
+  }
+
+  const selectedPath = result.filePaths[0];
+  const parsed = JSON.parse(readFileSync(selectedPath, "utf8")) as unknown;
+  const imported = importedCodexAccountStore.importAccountConfigObject(parsed);
+  if (imported.imported === 0 && imported.updated === 0) {
     throw new Error("所选文件中未发现可用的 openai-codex OAuth 凭据。");
   }
 

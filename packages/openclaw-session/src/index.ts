@@ -393,6 +393,53 @@ function collectProfilesFromUnknown(input: unknown): Record<string, RawProfile> 
   return profiles;
 }
 
+function extractCodexTransferPayload(input: unknown): unknown {
+  if (!isRecord(input)) {
+    return input;
+  }
+
+  const platforms = isRecord(input.platforms) ? input.platforms : undefined;
+  const codex = isRecord(platforms?.codex) ? platforms.codex : undefined;
+  const exportedData = codex?.exported_data;
+
+  if (Array.isArray(exportedData) || isRecord(exportedData)) {
+    return exportedData;
+  }
+
+  return input;
+}
+
+function normalizeComparableEmail(value?: string): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : undefined;
+}
+
+function findMatchingProfileId(
+  current: Record<string, RawProfile>,
+  profile: RawProfile,
+): string | undefined {
+  if (profile.accountId) {
+    const matchedByAccountId = Object.entries(current).find(
+      ([, existing]) => existing.accountId === profile.accountId,
+    );
+    if (matchedByAccountId) {
+      return matchedByAccountId[0];
+    }
+  }
+
+  const email = normalizeComparableEmail(profile.email);
+  if (email) {
+    const matchedByEmail = Object.entries(current).find(
+      ([, existing]) => normalizeComparableEmail(existing.email) === email,
+    );
+    if (matchedByEmail) {
+      return matchedByEmail[0];
+    }
+  }
+
+  return undefined;
+}
+
 export class ImportedCodexAccountStore {
   constructor(private readonly profilesPath = resolveGatewayPaths().codexProfilesPath) {}
 
@@ -484,6 +531,54 @@ export class ImportedCodexAccountStore {
 
     return {
       imported: profileIds.length,
+      profileIds,
+      filePath: this.profilesPath,
+    };
+  }
+
+  importAccountConfigObject(input: unknown): {
+    imported: number;
+    updated: number;
+    skipped: number;
+    profileIds: string[];
+    filePath: string;
+  } {
+    const extracted = collectProfilesFromUnknown(extractCodexTransferPayload(input));
+    const current = this.listProfiles();
+    const now = createNowIso();
+    const profileIds: string[] = [];
+    let imported = 0;
+    let updated = 0;
+
+    for (const [, profile] of Object.entries(extracted)) {
+      const normalized = sanitizeProfile(profile);
+      const matchedProfileId = findMatchingProfileId(current, normalized);
+      const profileId = matchedProfileId ?? buildUniqueProfileId(normalized, current);
+      const existing = current[profileId];
+
+      current[profileId] = {
+        ...existing,
+        ...normalized,
+        importedAt: existing?.importedAt ?? normalized.importedAt ?? now,
+        updatedAt: now,
+      };
+
+      profileIds.push(profileId);
+      if (existing) {
+        updated += 1;
+      } else {
+        imported += 1;
+      }
+    }
+
+    if (profileIds.length > 0) {
+      this.saveProfiles(current);
+    }
+
+    return {
+      imported,
+      updated,
+      skipped: 0,
       profileIds,
       filePath: this.profilesPath,
     };
