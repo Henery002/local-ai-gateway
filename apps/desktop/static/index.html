@@ -1151,6 +1151,20 @@
                       <input id="launch-at-login" type="checkbox" style="width: 18px; height: 18px;" />
                     </div>
                     <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                      <label>网关端口</label>
+                      <input
+                        id="gateway-port"
+                        class="input-field"
+                        type="number"
+                        min="1"
+                        max="65535"
+                        step="1"
+                        style="max-width: 300px;"
+                      />
+                      <div id="gateway-port-hint" class="form-hint">当前网关入口：http://127.0.0.1:8787/v1</div>
+                      <div class="form-hint">如提示端口被占用，可改为其他端口并保存，托管网关会自动重启。</div>
+                    </div>
+                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
                       <label>自动刷新时间间隔</label>
                       <select id="auto-refresh-interval" class="input-field" style="max-width: 300px;">
                         <option value="60">1 分钟</option>

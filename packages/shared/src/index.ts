@@ -96,6 +96,7 @@ export interface GatewayProviderSettings {
 export interface DesktopSystemSettings {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;
+  gatewayPort?: number;
 }
 
 export type SessionStatus = "available" | "expired" | "invalid";

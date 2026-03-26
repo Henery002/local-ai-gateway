@@ -185,7 +185,7 @@ class FakeProviderAdapter implements ProviderAdapter {
   }
 }
 
-function createTestRuntime() {
+function createTestRuntime(options?: { serverHost?: string; serverPort?: number }) {
   const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
   const paths = ensureAppPaths(rootDir);
   const database = new GatewayDatabase(paths);
@@ -214,6 +214,8 @@ function createTestRuntime() {
     modelRegistry,
     sessionSource,
     providerRegistry,
+    options?.serverHost,
+    options?.serverPort,
   );
 
   return {
@@ -246,6 +248,8 @@ describe("gateway app", () => {
       expect(health.statusCode).toBe(200);
       expect(health.json()).toMatchObject({
         ok: true,
+        host: "127.0.0.1",
+        port: 8787,
         provider: "fake-provider",
         defaultModel: "fake-default",
         defaultSelection: {
@@ -322,6 +326,52 @@ describe("gateway app", () => {
             planType: "plus",
           },
         ],
+      });
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().openclaw).toMatchObject({
+        baseUrl: "http://127.0.0.1:8787/v1",
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("reflects custom host and port in health and openclaw snippet", async () => {
+    const { rootDir, runtime, database } = createTestRuntime({
+      serverHost: "127.0.0.1",
+      serverPort: 18999,
+    });
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const health = await app.inject({ method: "GET", url: "/healthz" });
+      expect(health.statusCode).toBe(200);
+      expect(health.json()).toMatchObject({
+        host: "127.0.0.1",
+        port: 18999,
+      });
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().openclaw).toMatchObject({
+        baseUrl: "http://127.0.0.1:18999/v1",
       });
     } finally {
       await app.close();

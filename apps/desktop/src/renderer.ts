@@ -215,6 +215,7 @@ type SessionUsageRefreshResponse = {
 type SystemSettings = {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;
+  gatewayPort?: number;
 };
 
 type SystemSettingsResponse = {
@@ -385,6 +386,17 @@ function normalizeAutoRefreshIntervalSeconds(value?: number): number {
     return 120;
   }
   return Math.max(30, Math.min(1_800, Math.round(value)));
+}
+
+function normalizeGatewayPort(value?: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 8787;
+  }
+  const rounded = Math.round(value);
+  if (rounded < 1 || rounded > 65_535) {
+    return 8787;
+  }
+  return rounded;
 }
 
 function formatAutoRefreshInterval(value?: number): string {
@@ -971,6 +983,12 @@ function applySystemSettingsToForm(): void {
   const autoRefreshHint = document.getElementById(
     "auto-refresh-hint",
   ) as HTMLElement | null;
+  const gatewayPortInput = document.getElementById(
+    "gateway-port",
+  ) as HTMLInputElement | null;
+  const gatewayPortHint = document.getElementById(
+    "gateway-port-hint",
+  ) as HTMLElement | null;
 
   if (launchAtLogin) {
     launchAtLogin.checked = Boolean(settings.launchAtLogin);
@@ -984,6 +1002,15 @@ function applySystemSettingsToForm(): void {
 
   if (autoRefreshHint) {
     autoRefreshHint.textContent = `当前将每 ${formatAutoRefreshInterval(settings.autoRefreshIntervalSeconds)} 自动刷新一次账号额度与状态。`;
+  }
+
+  const gatewayPort = normalizeGatewayPort(settings.gatewayPort);
+  if (gatewayPortInput) {
+    gatewayPortInput.value = String(gatewayPort);
+  }
+
+  if (gatewayPortHint) {
+    gatewayPortHint.textContent = `当前网关入口：http://127.0.0.1:${gatewayPort}/v1`;
   }
 }
 
@@ -1098,6 +1125,13 @@ async function saveSystemSettings(): Promise<void> {
             "auto-refresh-interval",
           ) as HTMLSelectElement | null
         )?.value ?? "120",
+      ),
+    ),
+    gatewayPort: normalizeGatewayPort(
+      Number(
+        (
+          document.getElementById("gateway-port") as HTMLInputElement | null
+        )?.value ?? "8787",
       ),
     ),
   };

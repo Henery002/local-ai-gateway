@@ -5,6 +5,20 @@ import { createGatewayApp } from "./app.js";
 import { bootstrapProvidersFromEnvironment } from "./provider-bootstrap.js";
 import { GatewayRuntime } from "./runtime.js";
 
+function resolveGatewayPort(): number {
+  const raw = process.env.LOCAL_AI_GATEWAY_PORT?.trim();
+  if (!raw) {
+    return DEFAULT_PORT;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
+    return DEFAULT_PORT;
+  }
+
+  return parsed;
+}
+
 async function main(): Promise<void> {
   const paths = ensureAppPaths();
   const database = new GatewayDatabase(paths);
@@ -14,8 +28,20 @@ async function main(): Promise<void> {
     process.env,
     configStore.getProviderSettings(),
   );
+  const host = DEFAULT_HOST;
+  const port = resolveGatewayPort();
   const modelRegistry = new ModelRegistry(bootstrapped.models);
-  const runtime = new GatewayRuntime(paths, configStore, database, logger, modelRegistry);
+  const runtime = new GatewayRuntime(
+    paths,
+    configStore,
+    database,
+    logger,
+    modelRegistry,
+    undefined,
+    undefined,
+    host,
+    port,
+  );
   const app = createGatewayApp(runtime);
 
   const close = async (signal: string) => {
@@ -29,13 +55,13 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void close("SIGTERM"));
 
   await app.listen({
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
+    host,
+    port,
   });
 
   logger.info("gateway_started", {
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
+    host,
+    port,
   });
 }
 

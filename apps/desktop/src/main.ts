@@ -2,13 +2,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
+import { Socket } from "node:net";
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, shell } from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
 
 import {
-  DEFAULT_BASE_URL,
+  DEFAULT_HOST,
+  DEFAULT_PORT,
   resolveGatewayPaths,
   toIsoNow,
   type DesktopSystemSettings,
@@ -41,7 +43,8 @@ class GatewayProcessManager {
       return this.ensuring;
     }
 
-    if (await this.isHealthy()) {
+    const port = getConfiguredGatewayPort();
+    if (await this.isHealthy(port)) {
       return { managed: this.managed };
     }
 
@@ -51,7 +54,7 @@ class GatewayProcessManager {
       }
 
       this.startManagedGateway();
-      await this.waitForHealthy();
+      await this.waitForHealthy(port);
       return { managed: this.managed };
     })();
 
@@ -63,15 +66,16 @@ class GatewayProcessManager {
   }
 
   async restartManaged(): Promise<void> {
+    const port = getConfiguredGatewayPort();
     if (!this.child) {
       this.startManagedGateway();
-      await this.waitForHealthy();
+      await this.waitForHealthy(port);
       return;
     }
 
     this.child.kill("SIGTERM");
     this.startManagedGateway();
-    await this.waitForHealthy();
+    await this.waitForHealthy(port);
   }
 
   async stopManaged(): Promise<void> {
@@ -89,8 +93,18 @@ class GatewayProcessManager {
   }
 
   private startManagedGateway(): void {
+    if (this.child) {
+      this.child.kill("SIGTERM");
+      this.child = undefined;
+    }
+
+    const port = getConfiguredGatewayPort();
     const child = spawn("node", [gatewayEntrypoint], {
       cwd: join(__dirname, "../../.."),
+      env: {
+        ...process.env,
+        LOCAL_AI_GATEWAY_PORT: String(port),
+      },
       stdio: "ignore",
     });
     child.unref();
@@ -107,24 +121,53 @@ class GatewayProcessManager {
     this.managed = true;
   }
 
-  private async waitForHealthy(): Promise<void> {
+  private async waitForHealthy(port: number): Promise<void> {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
-      if (await this.isHealthy()) {
+      if (await this.isHealthy(port)) {
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
+
+    if (await this.isPortOccupied(port)) {
+      throw new Error(
+        `本地端口 ${port} 已被其他进程占用，网关无法启动。请在系统配置中更换网关端口或释放该端口后重试。`,
+      );
+    }
+
     throw new Error("Gateway did not become healthy within 15 seconds.");
   }
 
-  private async isHealthy(): Promise<boolean> {
+  private async isHealthy(port: number): Promise<boolean> {
     try {
-      const response = await fetch(`${DEFAULT_BASE_URL}/healthz`);
+      const response = await fetch(`${buildGatewayBaseUrl(port)}/healthz`);
       return response.ok;
     } catch {
       return false;
     }
+  }
+
+  private async isPortOccupied(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = new Socket();
+      let done = false;
+
+      const finish = (value: boolean) => {
+        if (done) {
+          return;
+        }
+        done = true;
+        socket.destroy();
+        resolve(value);
+      };
+
+      socket.setTimeout(600);
+      socket.once("connect", () => finish(true));
+      socket.once("timeout", () => finish(false));
+      socket.once("error", () => finish(false));
+      socket.connect(port, DEFAULT_HOST);
+    });
   }
 }
 
@@ -135,6 +178,23 @@ function normalizeAutoRefreshIntervalSeconds(value?: number): number {
     return 120;
   }
   return Math.max(30, Math.min(1_800, Math.round(value)));
+}
+
+function normalizeGatewayPort(value?: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_PORT;
+  }
+
+  const rounded = Math.round(value);
+  if (rounded < 1 || rounded > 65_535) {
+    return DEFAULT_PORT;
+  }
+
+  return rounded;
+}
+
+function buildGatewayBaseUrl(port: number): string {
+  return `http://${DEFAULT_HOST}:${port}`;
 }
 
 function readGatewayConfig(): Partial<GatewayStoredConfig> {
@@ -161,7 +221,12 @@ function getStoredDesktopSystemSettings(): DesktopSystemSettings {
   return {
     launchAtLogin: Boolean(settings.launchAtLogin),
     autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds),
+    gatewayPort: normalizeGatewayPort(settings.gatewayPort),
   };
+}
+
+function getConfiguredGatewayPort(): number {
+  return normalizeGatewayPort(getStoredDesktopSystemSettings().gatewayPort);
 }
 
 function applyLoginItemSetting(launchAtLogin: boolean): void {
@@ -190,6 +255,7 @@ function getDesktopSystemSettings(): DesktopSystemSettings {
   return {
     ...stored,
     launchAtLogin: loginItemSettings.openAtLogin,
+    gatewayPort: normalizeGatewayPort(stored.gatewayPort),
   };
 }
 
@@ -200,11 +266,12 @@ function readAdminToken(): string {
 
 async function callAdmin(path: string, init?: RequestInit): Promise<unknown> {
   const token = readAdminToken();
+  const baseUrl = buildGatewayBaseUrl(getConfiguredGatewayPort());
   if (!token) {
     throw new Error("Admin token is not available yet. Start the gateway first.");
   }
 
-  const response = await fetch(`${DEFAULT_BASE_URL}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -218,7 +285,7 @@ async function callAdmin(path: string, init?: RequestInit): Promise<unknown> {
     const message =
       typeof payload?.error === "object" && payload.error && "message" in payload.error
         ? String(payload.error.message)
-        : `Admin request failed (${response.status})`;
+        : `Admin request failed (${response.status}) @ ${baseUrl}${path}`;
     throw new Error(message);
   }
 
@@ -234,8 +301,9 @@ async function buildOpenClawSnippet(): Promise<string> {
     };
   };
 
+  const baseUrl = buildGatewayBaseUrl(getConfiguredGatewayPort());
   return [
-    `baseUrl=${payload.openclaw?.baseUrl ?? `${DEFAULT_BASE_URL}/v1`}`,
+    `baseUrl=${payload.openclaw?.baseUrl ?? `${baseUrl}/v1`}`,
     `provider=${payload.openclaw?.provider ?? "openai"}`,
     `model=${payload.openclaw?.model ?? "codex-default"}`,
   ].join("\n");
@@ -549,14 +617,23 @@ ipcMain.handle("gateway:get-system-settings", async () => {
 });
 
 ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSystemSettings) => {
+  const previous = getStoredDesktopSystemSettings();
   const next: DesktopSystemSettings = {
     launchAtLogin: Boolean(payload?.launchAtLogin),
     autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(payload?.autoRefreshIntervalSeconds),
+    gatewayPort: normalizeGatewayPort(payload?.gatewayPort),
   };
   writeGatewayConfig({
     desktopSettings: next,
   });
   applyLoginItemSetting(next.launchAtLogin ?? false);
+
+  if ((previous.gatewayPort ?? DEFAULT_PORT) !== (next.gatewayPort ?? DEFAULT_PORT)) {
+    if (gatewayManager.isManaged()) {
+      await gatewayManager.restartManaged();
+    }
+  }
+
   return {
     ok: true,
     data: getDesktopSystemSettings(),

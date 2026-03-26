@@ -154,7 +154,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 ### 3.1 OpenClaw 到 Codex 的主链路
 
-1. OpenClaw 调用 `http://127.0.0.1:8787/v1/chat/completions`
+1. OpenClaw 调用 `http://127.0.0.1:<gateway-port>/v1/chat/completions`（默认端口 `8787`，可在桌面端系统配置中修改）
 2. gateway 在 `openai-compat` 中解析请求并转换为内部上下文
 3. `ModelRegistry` 解析模型别名，例如 `codex-default`
 4. `ProviderRegistry` 根据模型所属 provider 选择 `ProviderAdapter`
@@ -166,7 +166,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 ### 3.2 Electron 控制流
 
-1. Electron 启动时检查 gateway 健康状态
+1. Electron 启动时按系统配置中的网关端口检查 gateway 健康状态
 2. 若服务未运行，则自动拉起本地 gateway 进程
 3. Electron 读取 App Support 中的 `config.json` 获取 Admin token
 4. 通过 Admin API 获取健康状态、provider 列表、会话列表
@@ -205,7 +205,7 @@ v1 采用单活动会话模型：
 - 会话结构依赖 OpenClaw 当前认证文件格式
 - 不支持多账号池化与自动切换
 - 不对外网暴露服务
-- 桌面端中的 Codex 额度与重置时间仍未接入真实数据源
+- 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
 
 ## 7. 后续架构演进建议
 

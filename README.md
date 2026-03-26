@@ -58,6 +58,8 @@ export LOCAL_AI_GATEWAY_DEFAULT_MODEL_ALIAS="ollama-default"
 
 如果你不想走终端，也可以直接启动桌面端，在 `Provider 配置` 区块中填写 OpenAI-compatible / Ollama 参数并保存。保存后桌面端会自动重启 gateway。
 
+你也可以在桌面端 `诊断 -> 系统配置` 中调整网关端口（默认 `8787`）。保存后，托管网关会按新端口自动重启。
+
 当前桌面端支持两类 Codex 接入对象：
 
 - 桌面端自己的 Codex 账号

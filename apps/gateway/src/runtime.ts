@@ -11,7 +11,6 @@ import {
   APP_NAME,
   APP_VERSION,
   DEFAULT_HOST,
-  DEFAULT_OPENAI_BASE_URL,
   DEFAULT_PORT,
   GatewayHealth,
   GatewayPaths,
@@ -39,6 +38,8 @@ export class GatewayRuntime {
     readonly modelRegistry: ModelRegistry,
     sessionSource?: SessionSource,
     providerRegistry?: ProviderRegistry,
+    readonly serverHost = DEFAULT_HOST,
+    readonly serverPort = DEFAULT_PORT,
   ) {
     const bootstrapped = bootstrapProvidersFromEnvironment(
       process.env,
@@ -95,8 +96,8 @@ export class GatewayRuntime {
       ok: true,
       service: APP_NAME,
       version: APP_VERSION,
-      host: DEFAULT_HOST,
-      port: DEFAULT_PORT,
+      host: this.serverHost,
+      port: this.serverPort,
       provider: defaultModel.provider,
       defaultModel: defaultModel.alias,
       activeSessionId: this.getActiveSessionId(),
@@ -124,7 +125,7 @@ export class GatewayRuntime {
   getOpenClawSnippet(): Record<string, string> {
     return {
       provider: "openai",
-      baseUrl: DEFAULT_OPENAI_BASE_URL,
+      baseUrl: `http://${this.serverHost}:${this.serverPort}/v1`,
       model: this.modelRegistry.getDefault().alias,
     };
   }
