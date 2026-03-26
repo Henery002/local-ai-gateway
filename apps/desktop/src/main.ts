@@ -12,6 +12,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   type SessionActivitySnapshot,
+  type SessionUsageRefreshSummary,
   resolveGatewayPaths,
   toIsoNow,
   type DesktopSystemSettings,
@@ -420,8 +421,68 @@ ipcMain.handle("gateway:set-active-session", async (_event, sessionId: string) =
   });
 });
 
+async function refreshDesktopManagedUsage(
+  sessionId?: string,
+): Promise<SessionUsageRefreshSummary> {
+  const sessions = desktopSessionSource
+    .listSessions()
+    .filter(
+      (session) =>
+        session.status !== "invalid" && session.sourceKind === "local-import",
+    );
+
+  if (sessionId) {
+    const target = sessions.find((session) => session.id === sessionId);
+    if (!target) {
+      throw new Error(
+        `会话 ${sessionId} 不是桌面端账号或当前不可用。请先导入为桌面端账号后再刷新。`,
+      );
+    }
+    return desktopSessionSource.refreshUsage(target.id);
+  }
+
+  if (sessions.length === 0) {
+    return {
+      ok: true,
+      refreshed: 0,
+      failed: 0,
+      data: [],
+      errors: [],
+    };
+  }
+
+  const representativeIds = new Map<string, string>();
+  for (const session of sessions) {
+    const key = session.accountId ?? session.id;
+    if (!representativeIds.has(key)) {
+      representativeIds.set(key, session.id);
+    }
+  }
+
+  const partialResults = await Promise.all(
+    Array.from(representativeIds.values()).map((id) =>
+      desktopSessionSource.refreshUsage(id),
+    ),
+  );
+
+  const data: SessionUsageRefreshSummary["data"] = [];
+  const errors: SessionUsageRefreshSummary["errors"] = [];
+  for (const result of partialResults) {
+    data.push(...result.data);
+    errors.push(...result.errors);
+  }
+
+  return {
+    ok: errors.length === 0,
+    refreshed: data.length,
+    failed: errors.length,
+    data,
+    errors,
+  };
+}
+
 ipcMain.handle("gateway:refresh-session-usage", async (_event, sessionId?: string) => {
-  return desktopSessionSource.refreshUsage(sessionId);
+  return refreshDesktopManagedUsage(sessionId);
 });
 
 ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string) => {

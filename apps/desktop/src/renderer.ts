@@ -1473,6 +1473,8 @@ function bindActions(): void {
       const summary = await refreshWithLiveUsage();
       if (!summary) {
         setBanner("状态已刷新。当前桌面主进程尚未启用实时额度刷新。", "info");
+      } else if (summary.refreshed === 0 && summary.failed === 0) {
+        setBanner("状态已刷新。当前没有可刷新的桌面端账号。", "info");
       } else if (summary.failed > 0) {
         setBanner(
           `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项刷新失败。`,
@@ -1587,6 +1589,8 @@ function bindActions(): void {
         const summary = await refreshWithLiveUsage();
         if (!summary) {
           setBanner("账号状态已刷新。", "success");
+        } else if (summary.refreshed === 0 && summary.failed === 0) {
+          setBanner("账号状态已刷新。当前没有可刷新的桌面端账号。", "info");
         } else if (summary.failed > 0) {
           setBanner(
             `账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项失败。`,
@@ -1732,6 +1736,8 @@ function bindActions(): void {
         const summary = await refreshWithLiveUsage(button.dataset.sessionId);
         if (!summary) {
           setBanner("账号状态已刷新。", "success");
+        } else if (summary.refreshed === 0 && summary.failed === 0) {
+          setBanner("账号状态已刷新。当前会话暂无可更新额度。", "info");
         } else if (summary.failed > 0) {
           setBanner(
             `账号状态已刷新，但仍有 ${summary.failed} 项失败。`,
@@ -1919,6 +1925,8 @@ async function triggerBackgroundLiveUsageRefresh(
     if (source === "init") {
       if (!summary) {
         setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
+      } else if (summary.refreshed === 0 && summary.failed === 0) {
+        setBanner("控制台已就绪。当前没有可刷新的桌面端账号。", "info");
       } else if (summary.failed > 0) {
         setBanner(
           `控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`,
