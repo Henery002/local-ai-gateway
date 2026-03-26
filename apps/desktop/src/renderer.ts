@@ -1,4 +1,14 @@
 import { buildCodexAccountGroups } from "./account-groups.js";
+import {
+  formatQuotaWindowLabel,
+  getAvatarToneIndex,
+  getQuotaPercentage,
+  getQuotaToneClass,
+  getSessionTitle,
+  sortAccountGroups,
+  type AccountSortDirection,
+  type AccountSortKey,
+} from "./account-view-model.js";
 
 const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.4",
@@ -213,9 +223,6 @@ type SystemSettingsResponse = {
 };
 
 type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
-type AccountSortKey = "default" | "name" | "quota" | "resetAt";
-type AccountSortDirection = "asc" | "desc";
-
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
@@ -395,59 +402,6 @@ function clearAutoRefreshTimer(): void {
   }
 }
 
-function getSessionTitle(session: DashboardSessions["data"][number]): string {
-  return (
-    session.email ??
-    session.displayName ??
-    session.accountId ??
-    session.profileId
-  );
-}
-
-function getQuotaPercentage(
-  session: DashboardSessions["data"][number],
-): number | undefined {
-  const value = session.quota?.percentage;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return Math.max(0, Math.min(100, value));
-}
-
-function formatQuotaWindowLabel(
-  session: DashboardSessions["data"][number],
-): string {
-  const quota = session.quota;
-  if (!quota) {
-    return "剩余额度";
-  }
-
-  if (typeof quota.windowMinutes === "number") {
-    if (quota.windowMinutes >= 60 * 24 * 6) {
-      return "剩余额度（7天）";
-    }
-    if (quota.windowMinutes >= 60) {
-      return `剩余额度（${Math.round(quota.windowMinutes / 60)}小时）`;
-    }
-    return `剩余额度（${quota.windowMinutes}分钟）`;
-  }
-
-  return quota.scope === "weekly" ? "剩余额度（周）" : "剩余额度（小时）";
-}
-
-function getQuotaToneClass(percentage?: number): string {
-  if (typeof percentage !== "number") {
-    return "quota-unknown";
-  }
-  if (percentage <= 20) {
-    return "quota-low";
-  }
-  if (percentage <= 50) {
-    return "quota-medium";
-  }
-  return "quota-high";
-}
-
 function statusLabel(status: "available" | "expired" | "invalid"): string {
   if (status === "available") {
     return "可用";
@@ -500,94 +454,6 @@ function getAccountGroups() {
     state.sessions?.data ?? [],
     state.sessions?.activeSessionId,
   );
-}
-
-function compareOptionalNumbers(
-  left: number | undefined,
-  right: number | undefined,
-  direction: AccountSortDirection,
-): number {
-  if (left === undefined && right === undefined) {
-    return 0;
-  }
-  if (left === undefined) {
-    return 1;
-  }
-  if (right === undefined) {
-    return -1;
-  }
-  return direction === "asc" ? left - right : right - left;
-}
-
-function matchesAccountSearch(
-  group: ReturnType<typeof getAccountGroups>["groups"][number],
-  query: string,
-): boolean {
-  if (!query) {
-    return true;
-  }
-
-  const haystack = [
-    getSessionTitle(group.representative),
-    group.representative.email,
-    group.representative.accountId,
-    group.representative.profileId,
-    ...group.sessions.map((session) => session.email),
-    ...group.sessions.map((session) => session.accountId),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(query);
-}
-
-function sortAccountGroups(
-  groups: ReturnType<typeof getAccountGroups>["groups"],
-): ReturnType<typeof getAccountGroups>["groups"] {
-  const query = state.accountSearch.trim().toLowerCase();
-  const filtered = groups.filter((group) => matchesAccountSearch(group, query));
-
-  if (state.accountSortKey === "default") {
-    return filtered;
-  }
-
-  return [...filtered].sort((left, right) => {
-    let delta = 0;
-
-    if (state.accountSortKey === "name") {
-      delta =
-        getSessionTitle(left.representative).localeCompare(
-          getSessionTitle(right.representative),
-          "zh-CN",
-        ) * (state.accountSortDirection === "asc" ? 1 : -1);
-    }
-
-    if (state.accountSortKey === "quota") {
-      delta = compareOptionalNumbers(
-        left.representative.quota?.percentage,
-        right.representative.quota?.percentage,
-        state.accountSortDirection,
-      );
-    }
-
-    if (state.accountSortKey === "resetAt") {
-      delta = compareOptionalNumbers(
-        left.representative.quota?.resetAt,
-        right.representative.quota?.resetAt,
-        state.accountSortDirection,
-      );
-    }
-
-    if (delta === 0) {
-      delta = getSessionTitle(left.representative).localeCompare(
-        getSessionTitle(right.representative),
-        "zh-CN",
-      );
-    }
-
-    return delta;
-  });
 }
 
 function updateAccountToolbarState(): void {
@@ -678,15 +544,6 @@ function renderOverview(): void {
   );
 }
 
-function getAvatarToneIndex(id: string): number {
-  const toneCount = 12;
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = id.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash) % toneCount;
-}
-
 function renderCodexAccounts(): void {
   const container = document.getElementById("codex-accounts");
   if (!container) {
@@ -706,6 +563,11 @@ function renderCodexAccounts(): void {
         accountGroups.groups.filter(
           (group) => group.sourceKind === "local-import",
         ),
+        {
+          search: state.accountSearch,
+          sortKey: state.accountSortKey,
+          sortDirection: state.accountSortDirection,
+        },
       ),
     },
     {
@@ -717,6 +579,11 @@ function renderCodexAccounts(): void {
       emptyText: "当前没有从 OpenClaw 检测到可复用的 Codex 授权会话。",
       accounts: sortAccountGroups(
         accountGroups.groups.filter((group) => group.sourceKind === "openclaw"),
+        {
+          search: state.accountSearch,
+          sortKey: state.accountSortKey,
+          sortDirection: state.accountSortDirection,
+        },
       ),
     },
   ];
