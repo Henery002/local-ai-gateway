@@ -11,6 +11,7 @@ import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gate
 import {
   DEFAULT_HOST,
   DEFAULT_PORT,
+  type SessionActivitySnapshot,
   resolveGatewayPaths,
   toIsoNow,
   type DesktopSystemSettings,
@@ -388,11 +389,26 @@ ipcMain.handle("gateway:get-sessions", async () => {
   await gatewayManager.ensureRunning();
   const payload = (await callAdmin("/admin/sessions")) as {
     activeSessionId?: string;
+    data?: Array<{
+      id?: string;
+      activity?: SessionActivitySnapshot;
+    }>;
   };
+  const activityBySessionId = new Map<string, SessionActivitySnapshot | undefined>();
+  for (const item of payload.data ?? []) {
+    if (typeof item?.id === "string") {
+      activityBySessionId.set(item.id, item.activity);
+    }
+  }
+
+  const mergedSessions = desktopSessionSource.listSessions().map((session) => ({
+    ...session,
+    activity: activityBySessionId.get(session.id) ?? session.activity,
+  }));
 
   return {
     activeSessionId: payload.activeSessionId,
-    data: desktopSessionSource.listSessions(),
+    data: mergedSessions,
   };
 });
 

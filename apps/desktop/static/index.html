@@ -743,10 +743,23 @@
         box-shadow: 0 0 0 1px var(--accent-color), var(--shadow-md);
       }
 
+      .account-item.live {
+        border-color: var(--success);
+        box-shadow: 0 0 0 1px var(--success), var(--shadow-md);
+      }
+
       .acc-header {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
+      }
+
+      .acc-status-group {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .acc-title-group {

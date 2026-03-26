@@ -77,52 +77,100 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.post("/v1/chat/completions", async (request, reply) => {
     const parsed = parseChatCompletionsRequest(request.body);
+    const startedAt = Date.now();
+    let usedSessionId = runtime.getActiveSessionId();
+    let hasRecordedResult = false;
     const resolved = runtime.getProviderAdapterForModel(parsed.model);
     if (!resolved) {
       throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
     }
 
-    const controller = new AbortController();
-    request.raw.on("aborted", () => controller.abort());
+    try {
+      const controller = new AbortController();
+      request.raw.on("aborted", () => controller.abort());
 
-    const result = await resolved.adapter.createStream(
-      resolved.model,
-      toGatewayConversationContext(parsed),
-      {
-        sessionId: runtime.getActiveSessionId(),
-        temperature: parsed.temperature,
-        maxTokens: parsed.max_tokens,
-        topP: parsed.top_p,
-        toolChoice: parsed.tool_choice,
-        signal: controller.signal,
-      },
-    );
+      const result = await resolved.adapter.createStream(
+        resolved.model,
+        toGatewayConversationContext(parsed),
+        {
+          sessionId: runtime.getActiveSessionId(),
+          temperature: parsed.temperature,
+          maxTokens: parsed.max_tokens,
+          topP: parsed.top_p,
+          toolChoice: parsed.tool_choice,
+          signal: controller.signal,
+        },
+      );
+      usedSessionId = result.session.id;
 
-    if (parsed.stream) {
-      reply.raw.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      });
+      if (parsed.stream) {
+        reply.raw.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        });
 
-      for await (const chunk of streamChatCompletionChunks(result.stream, parsed.model)) {
-        reply.raw.write(chunk);
+        for await (const chunk of streamChatCompletionChunks(result.stream, parsed.model)) {
+          reply.raw.write(chunk);
+        }
+
+        reply.raw.end();
+        if (usedSessionId) {
+          runtime.recordInferenceResult({
+            sessionId: usedSessionId,
+            ok: true,
+            stream: true,
+            happenedAt: Date.now(),
+          });
+          hasRecordedResult = true;
+        }
+        return reply;
       }
 
-      reply.raw.end();
-      return reply;
-    }
+      const finalMessage = await result.stream.result();
+      if (finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
+        if (usedSessionId) {
+          runtime.recordInferenceResult({
+            sessionId: usedSessionId,
+            ok: false,
+            stream: false,
+            happenedAt: Date.now(),
+            errorMessage: finalMessage.errorMessage ?? "upstream_error",
+          });
+          hasRecordedResult = true;
+        }
+        throw new GatewayError(
+          502,
+          "upstream_error",
+          finalMessage.errorMessage ?? "Codex request failed.",
+        );
+      }
 
-    const finalMessage = await result.stream.result();
-    if (finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
-      throw new GatewayError(
-        502,
-        "upstream_error",
-        finalMessage.errorMessage ?? "Codex request failed.",
-      );
+      if (usedSessionId) {
+        runtime.recordInferenceResult({
+          sessionId: usedSessionId,
+          ok: true,
+          stream: false,
+          happenedAt: Date.now(),
+        });
+        hasRecordedResult = true;
+      }
+      return buildChatCompletionResponse(finalMessage, parsed.model);
+    } catch (error) {
+      if (usedSessionId && !hasRecordedResult) {
+        runtime.recordInferenceResult({
+          sessionId: usedSessionId,
+          ok: false,
+          stream: Boolean(parsed.stream),
+          happenedAt: Date.now(),
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : `request_failed_after_${Date.now() - startedAt}ms`,
+        });
+      }
+      throw error;
     }
-
-    return buildChatCompletionResponse(finalMessage, parsed.model);
   });
 
   app.get("/admin/health", async (request) => {

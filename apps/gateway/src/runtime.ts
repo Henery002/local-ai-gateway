@@ -17,6 +17,7 @@ import {
   DefaultModelSelectionSummary,
   ProviderConfigurationSummary,
   ProviderSummary,
+  SessionActivitySnapshot,
   SessionSource,
   SessionSummary,
   SessionUsageRefreshSummary,
@@ -29,6 +30,7 @@ export class GatewayRuntime {
   readonly sessionSource: SessionSource;
   readonly providerRegistry: ProviderRegistry;
   readonly providerConfigurations: ProviderConfigurationSummary[];
+  private readonly sessionActivity = new Map<string, SessionActivitySnapshot>();
 
   constructor(
     readonly paths: GatewayPaths,
@@ -56,10 +58,44 @@ export class GatewayRuntime {
   }
 
   listSessions(): SessionSummary[] {
-    const activeSessionId = this.getActiveSessionId();
-    return this.sessionSource.listSessions().map((session) =>
-      session.id === activeSessionId ? { ...session } : session,
-    );
+    return this.sessionSource.listSessions().map((session) => ({
+      ...session,
+      activity: this.sessionActivity.get(session.id),
+    }));
+  }
+
+  recordInferenceResult(input: {
+    sessionId: string;
+    ok: boolean;
+    stream: boolean;
+    errorMessage?: string;
+    happenedAt?: number;
+  }): void {
+    const happenedAt = input.happenedAt ?? Date.now();
+    const current = this.sessionActivity.get(input.sessionId) ?? {
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      streamCount: 0,
+      nonStreamCount: 0,
+    };
+
+    const next: SessionActivitySnapshot = {
+      ...current,
+      requestCount: current.requestCount + 1,
+      successCount: input.ok ? current.successCount + 1 : current.successCount,
+      failureCount: input.ok ? current.failureCount : current.failureCount + 1,
+      streamCount: input.stream ? current.streamCount + 1 : current.streamCount,
+      nonStreamCount: input.stream
+        ? current.nonStreamCount
+        : current.nonStreamCount + 1,
+      lastRequestAt: happenedAt,
+      lastSuccessAt: input.ok ? happenedAt : current.lastSuccessAt,
+      lastFailureAt: input.ok ? current.lastFailureAt : happenedAt,
+      lastError: input.ok ? current.lastError : input.errorMessage,
+    };
+
+    this.sessionActivity.set(input.sessionId, next);
   }
 
   getActiveSessionId(): string | undefined {

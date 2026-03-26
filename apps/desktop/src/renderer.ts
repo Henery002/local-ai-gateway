@@ -131,6 +131,17 @@ type DashboardSessions = {
       windowMinutes?: number;
       updatedAt?: number;
     };
+    activity?: {
+      requestCount: number;
+      successCount: number;
+      failureCount: number;
+      streamCount: number;
+      nonStreamCount: number;
+      lastRequestAt?: number;
+      lastSuccessAt?: number;
+      lastFailureAt?: number;
+      lastError?: string;
+    };
     status: "available" | "expired" | "invalid";
     expiresAt?: number;
     sourceKind?: "openclaw" | "local-import";
@@ -237,6 +248,7 @@ const state: {
   accountSortKey: AccountSortKey;
   accountSortDirection: AccountSortDirection;
   backgroundRefreshInFlight?: boolean;
+  sessionPulseInFlight?: boolean;
 } = {
   activeView: "overview",
   accountSearch: "",
@@ -245,6 +257,7 @@ const state: {
 };
 
 let autoRefreshTimer: number | undefined;
+let sessionActivityTimer: number | undefined;
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -381,6 +394,24 @@ function formatCountdown(value?: number): string {
   return `${minutes}分钟`;
 }
 
+function formatRecentCall(value?: number): string {
+  if (!value) {
+    return "暂无调用";
+  }
+
+  const deltaMs = Date.now() - value;
+  if (deltaMs < 60_000) {
+    return "刚刚";
+  }
+  if (deltaMs < 3_600_000) {
+    return `${Math.floor(deltaMs / 60_000)} 分钟前`;
+  }
+  if (deltaMs < 86_400_000) {
+    return `${Math.floor(deltaMs / 3_600_000)} 小时前`;
+  }
+  return new Date(value).toLocaleString("zh-CN");
+}
+
 function normalizeAutoRefreshIntervalSeconds(value?: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return 120;
@@ -411,6 +442,13 @@ function clearAutoRefreshTimer(): void {
   if (autoRefreshTimer) {
     window.clearInterval(autoRefreshTimer);
     autoRefreshTimer = undefined;
+  }
+}
+
+function clearSessionActivityTimer(): void {
+  if (sessionActivityTimer) {
+    window.clearInterval(sessionActivityTimer);
+    sessionActivityTimer = undefined;
   }
 }
 
@@ -617,11 +655,17 @@ function renderCodexAccounts(): void {
             "quota-",
             "",
           );
+          const activity = account.representative.activity;
+          const requestCount = activity?.requestCount ?? 0;
+          const recentCallLabel = formatRecentCall(activity?.lastRequestAt);
+          const isLive =
+            typeof activity?.lastRequestAt === "number" &&
+            Date.now() - activity.lastRequestAt <= 90_000;
           const quotaUpdatedAt = account.representative.quota?.updatedAt
             ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
             : "尚未同步";
           return `
-        <div class="account-item${account.isActive ? " active" : ""}">
+        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}">
           <div class="acc-header">
             <div class="acc-title-group">
               <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
@@ -630,11 +674,18 @@ function renderCodexAccounts(): void {
                 <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
               </div>
             </div>
-            <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
+            <div class="acc-status-group">
+              ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
+              <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
+            </div>
           </div>
           <div class="acc-meta">
             <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
             <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+          </div>
+          <div class="acc-meta">
+            <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
+            <span>请求数: ${requestCount}</span>
           </div>
           <div style="margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 12px;">
@@ -1023,6 +1074,13 @@ function configureAutoRefreshTimer(): void {
   autoRefreshTimer = window.setInterval(() => {
     void triggerBackgroundLiveUsageRefresh("auto");
   }, seconds * 1_000);
+}
+
+function configureSessionActivityTimer(): void {
+  clearSessionActivityTimer();
+  sessionActivityTimer = window.setInterval(() => {
+    void syncSessionActivitySilently();
+  }, 15_000);
 }
 
 function collectSettingsFromForm(): ProviderSettings {
@@ -1552,6 +1610,7 @@ function bindActions(): void {
 
   window.addEventListener("beforeunload", () => {
     clearAutoRefreshTimer();
+    clearSessionActivityTimer();
   });
 
   document.addEventListener("click", async (event) => {
@@ -1684,6 +1743,7 @@ async function refresh(): Promise<void> {
   applySettingsToForm();
   applySystemSettingsToForm();
   configureAutoRefreshTimer();
+  configureSessionActivityTimer();
   setOAuthBusyState(Boolean(state.oauthInFlight));
 }
 
@@ -1757,6 +1817,20 @@ async function triggerBackgroundLiveUsageRefresh(
     return undefined;
   } finally {
     state.backgroundRefreshInFlight = false;
+  }
+}
+
+async function syncSessionActivitySilently(): Promise<void> {
+  if (state.sessionPulseInFlight || state.backgroundRefreshInFlight) {
+    return;
+  }
+  state.sessionPulseInFlight = true;
+  try {
+    await refreshSessionsOnly();
+  } catch {
+    // 静默轮询不弹错误，避免打扰正常交互
+  } finally {
+    state.sessionPulseInFlight = false;
   }
 }
 

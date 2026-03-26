@@ -126,6 +126,19 @@ export interface SessionSummary {
   sourceKind?: SessionSourceKind;
   sourceLabel?: string;
   sourcePath: string;
+  activity?: SessionActivitySnapshot;
+}
+
+export interface SessionActivitySnapshot {
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  streamCount: number;
+  nonStreamCount: number;
+  lastRequestAt?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  lastError?: string;
 }
 
 export interface ResolvedSession extends SessionSummary {

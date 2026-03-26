@@ -411,6 +411,23 @@ describe("gateway app", () => {
         temperature: 0.1,
         maxTokens: 128,
       });
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const sessions = await app.inject({
+        method: "GET",
+        url: "/admin/sessions",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(sessions.statusCode).toBe(200);
+      expect(sessions.json().data[0]?.activity).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        nonStreamCount: 1,
+      });
+      expect(typeof sessions.json().data[0]?.activity?.lastRequestAt).toBe("number");
     } finally {
       await app.close();
       database.close();
