@@ -270,10 +270,6 @@ function getSessionTitle(session: DashboardSessions["data"][number]): string {
   return session.email ?? session.displayName ?? session.accountId ?? session.profileId;
 }
 
-function getSessionSubtitle(session: DashboardSessions["data"][number]): string {
-  return session.id;
-}
-
 function getQuotaPercentage(session: DashboardSessions["data"][number]): number | undefined {
   const value = session.quota?.percentage;
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -407,25 +403,23 @@ function renderCodexAccounts(): void {
           .map((account) => `
         ${(() => {
           const title = getSessionTitle(account.representative);
-          const subtitle = getSessionSubtitle(account.representative);
           const quotaPercentage = getQuotaPercentage(account.representative);
           const quotaScope = formatQuotaWindowLabel(account.representative);
           const quotaUpdatedAt = account.representative.quota?.updatedAt
-            ? `实时快照：${formatDate(account.representative.quota?.updatedAt)}`
-            : "";
+            ? `最近同步：${formatDate(account.representative.quota?.updatedAt)}`
+            : "最近同步：尚无实时快照";
           return `
         <article class="account-card${account.isActive ? " active" : ""}">
           <div class="account-head">
             <div>
               <strong>${escapeHtml(title)}</strong>
-              <small>${escapeHtml(subtitle)}</small>
             </div>
             <span class="pill ${account.representative.status}">${statusLabel(account.representative.status)}</span>
           </div>
           <div class="account-meta">
             <span>套餐类型：${escapeHtml(account.representative.planType ?? "待同步")}</span>
             <span>OAuth 过期：${escapeHtml(formatDate(account.representative.expiresAt))}</span>
-            ${quotaUpdatedAt ? `<span>${escapeHtml(quotaUpdatedAt)}</span>` : ""}
+            <span>${escapeHtml(quotaUpdatedAt)}</span>
           </div>
           <div class="account-usage">
             <div>
