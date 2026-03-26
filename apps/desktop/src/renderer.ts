@@ -16,6 +16,8 @@ declare global {
       getProviders: () => Promise<DashboardProviders>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (payload: ProviderSettings) => Promise<{ ok: boolean; requiresRestart: boolean }>;
+      getSystemSettings: () => Promise<SystemSettingsResponse>;
+      saveSystemSettings: (payload: SystemSettings) => Promise<SystemSettingsResponse>;
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
       refreshSessionUsage: (sessionId?: string) => Promise<SessionUsageRefreshResponse>;
@@ -181,6 +183,16 @@ type SessionUsageRefreshResponse = {
   }>;
 };
 
+type SystemSettings = {
+  launchAtLogin?: boolean;
+  autoRefreshIntervalSeconds?: number;
+};
+
+type SystemSettingsResponse = {
+  ok: boolean;
+  data: SystemSettings;
+};
+
 type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
 type AccountSortKey = "default" | "name" | "quota" | "resetAt";
 type AccountSortDirection = "asc" | "desc";
@@ -190,18 +202,22 @@ const state: {
   providers?: DashboardProviders;
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
+  systemSettings?: SystemSettings;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
   activeView: DashboardView;
   accountSearch: string;
   accountSortKey: AccountSortKey;
   accountSortDirection: AccountSortDirection;
+  backgroundRefreshInFlight?: boolean;
 } = {
   activeView: "overview",
   accountSearch: "",
   accountSortKey: "default",
   accountSortDirection: "desc",
 };
+
+let autoRefreshTimer: number | undefined;
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -320,6 +336,21 @@ function formatCountdown(value?: number): string {
   return `${minutes}分钟`;
 }
 
+function normalizeAutoRefreshIntervalSeconds(value?: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 120;
+  }
+  return Math.max(30, Math.min(1_800, Math.round(value)));
+}
+
+function formatAutoRefreshInterval(value?: number): string {
+  const seconds = normalizeAutoRefreshIntervalSeconds(value);
+  if (seconds % 60 === 0) {
+    return `${seconds / 60} 分钟`;
+  }
+  return `${seconds} 秒`;
+}
+
 function getSessionTitle(session: DashboardSessions["data"][number]): string {
   return session.email ?? session.displayName ?? session.accountId ?? session.profileId;
 }
@@ -349,6 +380,19 @@ function formatQuotaWindowLabel(session: DashboardSessions["data"][number]): str
   }
 
   return quota.scope === "weekly" ? "剩余额度（周）" : "剩余额度（小时）";
+}
+
+function getQuotaToneClass(percentage?: number): string {
+  if (typeof percentage !== "number") {
+    return "quota-unknown";
+  }
+  if (percentage <= 20) {
+    return "quota-low";
+  }
+  if (percentage <= 50) {
+    return "quota-medium";
+  }
+  return "quota-high";
 }
 
 function statusLabel(status: "available" | "expired" | "invalid"): string {
@@ -579,6 +623,7 @@ function renderCodexAccounts(): void {
           const title = getSessionTitle(account.representative);
           const quotaPercentage = getQuotaPercentage(account.representative);
           const quotaScope = formatQuotaWindowLabel(account.representative);
+          const quotaToneClass = getQuotaToneClass(quotaPercentage);
           const quotaUpdatedAt = account.representative.quota?.updatedAt
             ? `最近同步：${formatDate(account.representative.quota?.updatedAt)}`
             : "最近同步：尚无实时快照";
@@ -601,7 +646,7 @@ function renderCodexAccounts(): void {
               <strong>${escapeHtml(quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入")}</strong>
               ${
                 quotaPercentage !== undefined
-                  ? `<div class="quota-meter"><span style="width: ${quotaPercentage}%;"></span></div>`
+                  ? `<div class="quota-meter ${quotaToneClass}"><span style="width: ${quotaPercentage}%;"></span></div>`
                   : ""
               }
             </div>
@@ -898,6 +943,37 @@ function applySettingsToForm(): void {
   (document.getElementById("ollama-display-name") as HTMLInputElement | null)!.value = ollama.displayName ?? "";
 }
 
+function applySystemSettingsToForm(): void {
+  const settings = state.systemSettings ?? {};
+  const launchAtLogin = document.getElementById("launch-at-login") as HTMLInputElement | null;
+  const autoRefreshInterval = document.getElementById("auto-refresh-interval") as HTMLSelectElement | null;
+  const autoRefreshHint = document.getElementById("auto-refresh-hint") as HTMLElement | null;
+
+  if (launchAtLogin) {
+    launchAtLogin.checked = Boolean(settings.launchAtLogin);
+  }
+
+  if (autoRefreshInterval) {
+    autoRefreshInterval.value = String(normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds));
+  }
+
+  if (autoRefreshHint) {
+    autoRefreshHint.textContent = `当前将每 ${formatAutoRefreshInterval(settings.autoRefreshIntervalSeconds)} 自动刷新一次账号额度与状态。`;
+  }
+}
+
+function configureAutoRefreshTimer(): void {
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer);
+    autoRefreshTimer = undefined;
+  }
+
+  const seconds = normalizeAutoRefreshIntervalSeconds(state.systemSettings?.autoRefreshIntervalSeconds);
+  autoRefreshTimer = window.setInterval(() => {
+    void triggerBackgroundLiveUsageRefresh("auto");
+  }, seconds * 1_000);
+}
+
 function collectSettingsFromForm(): ProviderSettings {
   return {
     defaultModelAlias: (document.getElementById("default-model-alias") as HTMLSelectElement | null)?.value || undefined,
@@ -932,6 +1008,21 @@ async function saveSettingsAndRestart(): Promise<void> {
   await api.restartGateway();
   setBanner("配置已保存，服务已重启。", "success");
   await refresh();
+}
+
+async function saveSystemSettings(): Promise<void> {
+  const api = getGatewayApi();
+  const payload: SystemSettings = {
+    launchAtLogin: (document.getElementById("launch-at-login") as HTMLInputElement | null)?.checked ?? false,
+    autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(
+      Number((document.getElementById("auto-refresh-interval") as HTMLSelectElement | null)?.value ?? "120"),
+    ),
+  };
+
+  const response = await api.saveSystemSettings(payload);
+  state.systemSettings = response.data;
+  applySystemSettingsToForm();
+  configureAutoRefreshTimer();
 }
 
 function openAccountModal(tab = "import"): void {
@@ -1138,6 +1229,20 @@ function bindActions(): void {
     }
   });
 
+  document.getElementById("save-system-settings")?.addEventListener("click", async () => {
+    const button = document.getElementById("save-system-settings") as HTMLButtonElement | null;
+    try {
+      setButtonLoading(button, true, "保存中");
+      setBanner("正在保存系统配置...", "info");
+      await saveSystemSettings();
+      setBanner("系统配置已保存。", "success");
+    } catch (error) {
+      setBanner(`保存系统配置失败：${String(error)}`, "error");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
+
   document.getElementById("open-account-modal")?.addEventListener("click", () => {
     openAccountModal("oauth");
   });
@@ -1318,17 +1423,19 @@ function bindActions(): void {
 
 async function refresh(): Promise<void> {
   const api = getGatewayApi();
-  const [health, providers, sessions, settingsResponse] = await Promise.all([
+  const [health, providers, sessions, settingsResponse, systemSettingsResponse] = await Promise.all([
     api.getHealth(),
     api.getProviders(),
     api.getSessions(),
     api.getProviderSettings(),
+    api.getSystemSettings(),
   ]);
 
   state.health = health;
   state.providers = providers;
   state.sessions = sessions;
   state.settings = settingsResponse.data;
+  state.systemSettings = systemSettingsResponse.data;
 
   renderOverview();
   renderTopSummary();
@@ -1338,6 +1445,8 @@ async function refresh(): Promise<void> {
   renderErrors();
   renderGuide();
   applySettingsToForm();
+  applySystemSettingsToForm();
+  configureAutoRefreshTimer();
   setOAuthBusyState(Boolean(state.oauthInFlight));
 }
 
@@ -1363,6 +1472,40 @@ async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRef
   return summary;
 }
 
+async function triggerBackgroundLiveUsageRefresh(
+  source: "init" | "auto",
+): Promise<SessionUsageRefreshResponse | undefined> {
+  if (state.backgroundRefreshInFlight) {
+    return undefined;
+  }
+
+  state.backgroundRefreshInFlight = true;
+  try {
+    const summary = await refreshWithLiveUsage();
+    if (source === "init") {
+      if (!summary) {
+        setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
+      } else if (summary.failed > 0) {
+        setBanner(`控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`, "error");
+      } else {
+        setBanner("控制台已就绪。实时额度已完成后台同步。", "success");
+      }
+    } else if (summary?.failed) {
+      setBanner(`自动刷新完成，但有 ${summary.failed} 项额度同步失败。`, "error");
+    }
+    return summary;
+  } catch (error) {
+    if (source === "init") {
+      setBanner(`控制台已就绪，但后台额度同步失败：${String(error)}`, "error");
+    } else {
+      setBanner(`自动刷新失败：${String(error)}`, "error");
+    }
+    return undefined;
+  } finally {
+    state.backgroundRefreshInFlight = false;
+  }
+}
+
 void (async () => {
   try {
     state.activeView = loadPersistedView();
@@ -1372,14 +1515,9 @@ void (async () => {
     setOAuthStatus("浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。", "info");
     setOAuthBusyState(false);
     setBanner("正在加载 Local AI Gateway 控制台...", "info");
-    const summary = await refreshWithLiveUsage();
-    if (!summary) {
-      setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
-    } else if (summary.failed > 0) {
-      setBanner(`控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`, "error");
-    } else {
-      setBanner("控制台已就绪。", "success");
-    }
+    await refresh();
+    setBanner("控制台已就绪，正在后台同步实时额度...", "info");
+    void triggerBackgroundLiveUsageRefresh("init");
   } catch (error) {
     setBanner(`初始化失败：${String(error)}`, "error");
   }

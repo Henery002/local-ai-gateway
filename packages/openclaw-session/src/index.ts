@@ -16,6 +16,8 @@ import {
   resolveGatewayPaths,
 } from "@local-ai-gateway/shared";
 
+const SESSION_USAGE_REFRESH_CONCURRENCY = 4;
+
 interface RawProfile {
   type?: string;
   provider?: string;
@@ -836,41 +838,53 @@ export class OpenClawSessionSource {
     const errors: SessionUsageRefreshSummary["errors"] = [];
     let refreshed = 0;
 
-    for (const sessionsForAccount of groups.values()) {
-      const representative = sessionsForAccount[0];
+    const groupedSessions = Array.from(groups.values());
+    const workerCount = Math.min(SESSION_USAGE_REFRESH_CONCURRENCY, groupedSessions.length || 1);
 
-      try {
-        const resolved = await this.resolveSession(representative.id);
-        const snapshot = await fetchCodexUsageSnapshot(resolved.apiKey, resolved.accountId);
-        const patch = {
-          displayName: representative.displayName ?? representative.email,
-          email: representative.email,
-          planType: snapshot.planType ?? representative.planType,
-          quota: snapshot.quota ?? representative.quota,
-        } satisfies Pick<RawProfile, "displayName" | "email" | "planType" | "quota">;
-
-        for (const session of sessionsForAccount) {
-          this.usageCache.set(session.id, patch);
-          if (session.sourceKind === "local-import" && this.importedStore) {
-            this.importedStore.updateProfileMetadata(session.profileId, patch);
+    await Promise.all(
+      Array.from({ length: workerCount }, async (_unused, workerIndex) => {
+        for (let index = workerIndex; index < groupedSessions.length; index += workerCount) {
+          const sessionsForAccount = groupedSessions[index];
+          if (!sessionsForAccount) {
+            continue;
           }
 
-          data.push({
-            sessionId: session.id,
-            accountId: session.accountId,
-            sourceKind: session.sourceKind,
-            planType: patch.planType,
-            quota: patch.quota,
-          });
-          refreshed += 1;
+          const representative = sessionsForAccount[0];
+
+          try {
+            const resolved = await this.resolveSession(representative.id);
+            const snapshot = await fetchCodexUsageSnapshot(resolved.apiKey, resolved.accountId);
+            const patch = {
+              displayName: representative.displayName ?? representative.email,
+              email: representative.email,
+              planType: snapshot.planType ?? representative.planType,
+              quota: snapshot.quota ?? representative.quota,
+            } satisfies Pick<RawProfile, "displayName" | "email" | "planType" | "quota">;
+
+            for (const session of sessionsForAccount) {
+              this.usageCache.set(session.id, patch);
+              if (session.sourceKind === "local-import" && this.importedStore) {
+                this.importedStore.updateProfileMetadata(session.profileId, patch);
+              }
+
+              data.push({
+                sessionId: session.id,
+                accountId: session.accountId,
+                sourceKind: session.sourceKind,
+                planType: patch.planType,
+                quota: patch.quota,
+              });
+              refreshed += 1;
+            }
+          } catch (error) {
+            errors.push({
+              sessionId: representative.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
-      } catch (error) {
-        errors.push({
-          sessionId: representative.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+      }),
+    );
 
     return {
       ok: errors.length === 0,

@@ -1,13 +1,19 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, shell } from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
 
-import { DEFAULT_BASE_URL, resolveGatewayPaths } from "@local-ai-gateway/shared";
+import {
+  DEFAULT_BASE_URL,
+  resolveGatewayPaths,
+  toIsoNow,
+  type DesktopSystemSettings,
+  type GatewayStoredConfig,
+} from "@local-ai-gateway/shared";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gatewayEntrypoint = join(__dirname, "../../gateway/dist/cli.js");
@@ -28,19 +34,32 @@ let codexOAuthInProgress = false;
 class GatewayProcessManager {
   private child?: ChildProcess;
   private managed = false;
+  private ensuring?: Promise<{ managed: boolean }>;
 
   async ensureRunning(): Promise<{ managed: boolean }> {
+    if (this.ensuring) {
+      return this.ensuring;
+    }
+
     if (await this.isHealthy()) {
       return { managed: this.managed };
     }
 
-    if (!existsSync(gatewayEntrypoint)) {
-      throw new Error("Gateway build output was not found. Run `npm run build` first.");
-    }
+    this.ensuring = (async () => {
+      if (!existsSync(gatewayEntrypoint)) {
+        throw new Error("Gateway build output was not found. Run `npm run build` first.");
+      }
 
-    this.startManagedGateway();
-    await this.waitForHealthy();
-    return { managed: this.managed };
+      this.startManagedGateway();
+      await this.waitForHealthy();
+      return { managed: this.managed };
+    })();
+
+    try {
+      return await this.ensuring;
+    } finally {
+      this.ensuring = undefined;
+    }
   }
 
   async restartManaged(): Promise<void> {
@@ -111,11 +130,71 @@ class GatewayProcessManager {
 
 const gatewayManager = new GatewayProcessManager();
 
-function readAdminToken(): string {
-  if (!existsSync(gatewayPaths.configPath)) {
-    return "";
+function normalizeAutoRefreshIntervalSeconds(value?: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 120;
   }
-  const config = JSON.parse(readFileSync(gatewayPaths.configPath, "utf8")) as { adminToken?: string };
+  return Math.max(30, Math.min(1_800, Math.round(value)));
+}
+
+function readGatewayConfig(): Partial<GatewayStoredConfig> {
+  if (!existsSync(gatewayPaths.configPath)) {
+    return {};
+  }
+
+  return JSON.parse(readFileSync(gatewayPaths.configPath, "utf8")) as Partial<GatewayStoredConfig>;
+}
+
+function writeGatewayConfig(patch: Partial<GatewayStoredConfig>): Partial<GatewayStoredConfig> {
+  const current = readGatewayConfig();
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: toIsoNow(),
+  };
+  writeFileSync(gatewayPaths.configPath, `${JSON.stringify(next, null, 2)}\n`);
+  return next;
+}
+
+function getStoredDesktopSystemSettings(): DesktopSystemSettings {
+  const settings = readGatewayConfig().desktopSettings ?? {};
+  return {
+    launchAtLogin: Boolean(settings.launchAtLogin),
+    autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds),
+  };
+}
+
+function applyLoginItemSetting(launchAtLogin: boolean): void {
+  if (app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: launchAtLogin,
+    });
+    return;
+  }
+
+  app.setLoginItemSettings({
+    openAtLogin: launchAtLogin,
+    path: process.execPath,
+    args: [app.getAppPath()],
+  });
+}
+
+function getDesktopSystemSettings(): DesktopSystemSettings {
+  const stored = getStoredDesktopSystemSettings();
+  const loginItemSettings = app.isPackaged
+    ? app.getLoginItemSettings()
+    : app.getLoginItemSettings({
+        path: process.execPath,
+        args: [app.getAppPath()],
+      });
+  return {
+    ...stored,
+    launchAtLogin: loginItemSettings.openAtLogin,
+  };
+}
+
+function readAdminToken(): string {
+  const config = readGatewayConfig();
   return config.adminToken ?? "";
 }
 
@@ -462,7 +541,32 @@ ipcMain.handle("gateway:import-openclaw-session", async (_event, sessionId: stri
   };
 });
 
-app.whenReady().then(() => void createWindow());
+ipcMain.handle("gateway:get-system-settings", async () => {
+  return {
+    ok: true,
+    data: getDesktopSystemSettings(),
+  };
+});
+
+ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSystemSettings) => {
+  const next: DesktopSystemSettings = {
+    launchAtLogin: Boolean(payload?.launchAtLogin),
+    autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(payload?.autoRefreshIntervalSeconds),
+  };
+  writeGatewayConfig({
+    desktopSettings: next,
+  });
+  applyLoginItemSetting(next.launchAtLogin ?? false);
+  return {
+    ok: true,
+    data: getDesktopSystemSettings(),
+  };
+});
+
+app.whenReady().then(() => {
+  applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
+  void createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

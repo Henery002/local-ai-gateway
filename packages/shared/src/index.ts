@@ -52,6 +52,7 @@ export interface GatewayStoredConfig {
   adminToken: string;
   activeSessionId?: string;
   providerSettings?: GatewayProviderSettings;
+  desktopSettings?: DesktopSystemSettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +91,11 @@ export interface GatewayProviderSettings {
   codex?: CodexProviderSettings;
   openAICompatible?: OpenAICompatibleProviderSettings;
   ollama?: OllamaProviderSettings;
+}
+
+export interface DesktopSystemSettings {
+  launchAtLogin?: boolean;
+  autoRefreshIntervalSeconds?: number;
 }
 
 export type SessionStatus = "available" | "expired" | "invalid";

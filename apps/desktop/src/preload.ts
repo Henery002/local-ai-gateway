@@ -6,6 +6,9 @@ const api = {
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),
+  getSystemSettings: () => ipcRenderer.invoke("gateway:get-system-settings"),
+  saveSystemSettings: (payload: unknown) =>
+    ipcRenderer.invoke("gateway:save-system-settings", payload),
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId: string) =>
     ipcRenderer.invoke("gateway:set-active-session", sessionId),
@@ -17,6 +20,7 @@ const api = {
     ipcRenderer.invoke("gateway:submit-codex-oauth-input", input),
   cancelCodexOAuth: () => ipcRenderer.invoke("gateway:cancel-codex-oauth"),
   importCodexJson: () => ipcRenderer.invoke("gateway:import-codex-json"),
+  importAccountConfig: () => ipcRenderer.invoke("gateway:import-account-config"),
   importOpenClawSession: (sessionId: string) =>
     ipcRenderer.invoke("gateway:import-openclaw-session", sessionId),
 };

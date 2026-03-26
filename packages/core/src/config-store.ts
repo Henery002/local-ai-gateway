@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import {
+  DesktopSystemSettings,
   GatewayProviderSettings,
   GatewayStoredConfig,
   GatewayPaths,
@@ -60,6 +61,20 @@ export class ConfigStore {
     const next = {
       ...current,
       providerSettings,
+      updatedAt: toIsoNow(),
+    };
+    return this.save(next);
+  }
+
+  getDesktopSettings(): DesktopSystemSettings {
+    return this.load().desktopSettings ?? {};
+  }
+
+  setDesktopSettings(desktopSettings: DesktopSystemSettings): GatewayStoredConfig {
+    const current = this.load();
+    const next = {
+      ...current,
+      desktopSettings,
       updatedAt: toIsoNow(),
     };
     return this.save(next);
