@@ -351,6 +351,13 @@ function formatAutoRefreshInterval(value?: number): string {
   return `${seconds} 秒`;
 }
 
+function clearAutoRefreshTimer(): void {
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer);
+    autoRefreshTimer = undefined;
+  }
+}
+
 function getSessionTitle(session: DashboardSessions["data"][number]): string {
   return session.email ?? session.displayName ?? session.accountId ?? session.profileId;
 }
@@ -642,18 +649,28 @@ function renderCodexAccounts(): void {
           </div>
           <div class="account-usage">
             <div class="usage-item">
-              <small>${quotaScope}</small>
-              <strong>${escapeHtml(quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入")}</strong>
+              <div class="usage-item-head">
+                <small>${quotaScope}</small>
+              </div>
               ${
                 quotaPercentage !== undefined
-                  ? `<div class="quota-meter ${quotaToneClass}"><span style="width: ${quotaPercentage}%;"></span></div>`
-                  : ""
+                  ? `<div class="quota-progress-row">
+                      <div class="quota-meter ${quotaToneClass}"><span style="width: ${quotaPercentage}%;"></span></div>
+                      <strong class="quota-inline-value">${escapeHtml(`${quotaPercentage}%`)}</strong>
+                    </div>`
+                  : `<strong>待接入</strong>`
               }
             </div>
             <div class="usage-item">
-              <small>重置时间</small>
-              <strong>${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</strong>
-              <small class="subtle-date">${escapeHtml(formatDate(account.representative.quota?.resetAt))}</small>
+              <div class="usage-item-head">
+                <small>重置时间</small>
+                <strong>${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</strong>
+              </div>
+              ${
+                account.representative.quota?.resetAt
+                  ? `<small class="subtle-date">${escapeHtml(formatDate(account.representative.quota?.resetAt))}</small>`
+                  : ""
+              }
             </div>
           </div>
           <div class="account-actions">
@@ -963,10 +980,7 @@ function applySystemSettingsToForm(): void {
 }
 
 function configureAutoRefreshTimer(): void {
-  if (autoRefreshTimer) {
-    window.clearInterval(autoRefreshTimer);
-    autoRefreshTimer = undefined;
-  }
+  clearAutoRefreshTimer();
 
   const seconds = normalizeAutoRefreshIntervalSeconds(state.systemSettings?.autoRefreshIntervalSeconds);
   autoRefreshTimer = window.setInterval(() => {
@@ -1346,6 +1360,10 @@ function bindActions(): void {
     }
   });
 
+  window.addEventListener("beforeunload", () => {
+    clearAutoRefreshTimer();
+  });
+
   document.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement | null;
     const button = target?.closest<HTMLElement>("[data-action]");
@@ -1450,6 +1468,15 @@ async function refresh(): Promise<void> {
   setOAuthBusyState(Boolean(state.oauthInFlight));
 }
 
+async function refreshSessionsOnly(): Promise<void> {
+  const api = getGatewayApi();
+  state.sessions = await api.getSessions();
+  renderOverview();
+  renderTopSummary();
+  renderCodexAccounts();
+  renderErrors();
+}
+
 async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRefreshResponse | undefined> {
   const api = getGatewayApi();
   if (typeof api.refreshSessionUsage !== "function") {
@@ -1468,7 +1495,7 @@ async function refreshWithLiveUsage(sessionId?: string): Promise<SessionUsageRef
   }
 
   state.lastUsageRefresh = summary;
-  await refresh();
+  await refreshSessionsOnly();
   return summary;
 }
 

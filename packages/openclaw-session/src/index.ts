@@ -656,6 +656,12 @@ export class OpenClawSessionSource {
 
   listSessions(): SessionSummary[] {
     const records = this.collectSessionRecords();
+    const validSessionIds = new Set(records.map((record) => `${record.agentId}:${record.profileId}`));
+    for (const sessionId of this.usageCache.keys()) {
+      if (!validSessionIds.has(sessionId)) {
+        this.usageCache.delete(sessionId);
+      }
+    }
 
     return records
       .map((record) => {
