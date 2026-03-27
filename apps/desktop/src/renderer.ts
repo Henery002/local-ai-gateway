@@ -658,6 +658,9 @@ function renderCodexAccounts(): void {
   if (!container) {
     return;
   }
+  const refreshErrorBySessionId = new Map(
+    (state.lastUsageRefresh?.errors ?? []).map((item) => [item.sessionId, item.message]),
+  );
 
   const accountGroups = getAccountGroups();
   const accounts = sortAccountGroups(
@@ -691,6 +694,9 @@ function renderCodexAccounts(): void {
           const isLive =
             typeof activity?.lastRequestAt === "number" &&
             Date.now() - activity.lastRequestAt <= 90_000;
+          const refreshErrorMessage = account.sessions
+            .map((session) => refreshErrorBySessionId.get(session.id))
+            .find((value) => typeof value === "string");
           const quotaUpdatedAt = account.representative.quota?.updatedAt
             ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
             : "尚未同步";
@@ -706,6 +712,7 @@ function renderCodexAccounts(): void {
             </div>
             <div class="acc-status-group">
               ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
+              ${refreshErrorMessage ? `<span class="badge incomplete">额度同步失败</span>` : ""}
               <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
             </div>
           </div>
@@ -730,6 +737,7 @@ function renderCodexAccounts(): void {
               <span>${escapeHtml(quotaUpdatedAt)}</span>
             </div>
           </div>
+          ${refreshErrorMessage ? `<div style="font-size: 12px; color: var(--warning); background: var(--warning-bg); border-radius: 6px; padding: 6px 8px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
           <div class="acc-actions">
             <button class="btn ${account.isActive ? "primary" : "secondary"} mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
               ${account.isActive ? "当前活动" : "设为活动"}
@@ -1477,7 +1485,7 @@ function bindActions(): void {
         setBanner("状态已刷新。当前没有可刷新的桌面端账号。", "info");
       } else if (summary.failed > 0) {
         setBanner(
-          `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项刷新失败。`,
+          `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项额度同步失败（账号仍可能可用）。`,
           "error",
         );
       } else {
@@ -1593,7 +1601,7 @@ function bindActions(): void {
           setBanner("账号状态已刷新。当前没有可刷新的桌面端账号。", "info");
         } else if (summary.failed > 0) {
           setBanner(
-            `账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项失败。`,
+            `账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项额度同步失败（账号仍可能可用）。`,
             "error",
           );
         } else {
@@ -1929,7 +1937,7 @@ async function triggerBackgroundLiveUsageRefresh(
         setBanner("控制台已就绪。当前没有可刷新的桌面端账号。", "info");
       } else if (summary.failed > 0) {
         setBanner(
-          `控制台已就绪，但实时额度刷新有 ${summary.failed} 项失败。`,
+          `控制台已就绪，但实时额度同步有 ${summary.failed} 项失败（不代表账号不可用）。`,
           "error",
         );
       } else {
