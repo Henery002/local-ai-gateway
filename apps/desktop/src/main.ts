@@ -228,6 +228,11 @@ function getStoredDesktopSystemSettings(): DesktopSystemSettings {
     launchAtLogin: Boolean(settings.launchAtLogin),
     autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds),
     gatewayPort: normalizeGatewayPort(settings.gatewayPort),
+    pinnedSessionId:
+      typeof settings.pinnedSessionId === "string" &&
+      settings.pinnedSessionId.trim().length > 0
+        ? settings.pinnedSessionId.trim()
+        : undefined,
   };
 }
 
@@ -755,9 +760,23 @@ ipcMain.handle("gateway:get-system-settings", async () => {
 ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSystemSettings) => {
   const previous = getStoredDesktopSystemSettings();
   const next: DesktopSystemSettings = {
-    launchAtLogin: Boolean(payload?.launchAtLogin),
-    autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(payload?.autoRefreshIntervalSeconds),
-    gatewayPort: normalizeGatewayPort(payload?.gatewayPort),
+    launchAtLogin:
+      typeof payload?.launchAtLogin === "boolean"
+        ? payload.launchAtLogin
+        : previous.launchAtLogin,
+    autoRefreshIntervalSeconds:
+      typeof payload?.autoRefreshIntervalSeconds === "number"
+        ? normalizeAutoRefreshIntervalSeconds(payload.autoRefreshIntervalSeconds)
+        : previous.autoRefreshIntervalSeconds,
+    gatewayPort:
+      typeof payload?.gatewayPort === "number"
+        ? normalizeGatewayPort(payload.gatewayPort)
+        : previous.gatewayPort,
+    pinnedSessionId:
+      typeof payload?.pinnedSessionId === "string" &&
+      payload.pinnedSessionId.trim().length > 0
+        ? payload.pinnedSessionId.trim()
+        : undefined,
   };
   writeGatewayConfig({
     desktopSettings: next,

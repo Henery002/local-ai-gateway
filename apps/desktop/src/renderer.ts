@@ -368,6 +368,7 @@ type SystemSettings = {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;
   gatewayPort?: number;
+  pinnedSessionId?: string;
 };
 
 type SystemSettingsResponse = {
@@ -855,6 +856,10 @@ function getAccountGroups() {
   );
 }
 
+function isPinnedAccountSession(sessionId: string): boolean {
+  return state.systemSettings?.pinnedSessionId === sessionId;
+}
+
 function updateAccountToolbarState(): void {
   const searchInput = document.getElementById(
     "account-search",
@@ -1113,6 +1118,7 @@ function renderCodexAccounts(): void {
       search: state.accountSearch,
       sortKey: state.accountSortKey,
       sortDirection: state.accountSortDirection,
+      pinnedSessionId: state.systemSettings?.pinnedSessionId,
     },
   );
 
@@ -1145,6 +1151,7 @@ function renderCodexAccounts(): void {
           const isLive =
             typeof activity?.lastRequestAt === "number" &&
             Date.now() - activity.lastRequestAt <= 90_000;
+          const isPinned = isPinnedAccountSession(account.representative.id);
           const refreshErrorMessage = account.sessions
             .map((session) => refreshErrorBySessionId.get(session.id))
             .find((value) => typeof value === "string");
@@ -1152,7 +1159,7 @@ function renderCodexAccounts(): void {
             ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
             : "尚未同步";
           return `
-        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}">
+        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}">
           <div class="acc-header">
             <div class="acc-title-group">
               <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
@@ -1162,6 +1169,7 @@ function renderCodexAccounts(): void {
               </div>
             </div>
             <div class="acc-status-group">
+              ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
               ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
               ${refreshErrorMessage ? `<span class="badge incomplete">额度同步失败</span>` : ""}
               <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
@@ -1200,6 +1208,9 @@ function renderCodexAccounts(): void {
           <div class="acc-actions">
             <button class="btn ${account.isActive ? "primary" : "secondary"} mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
               ${account.isActive ? "当前活动" : "设为活动"}
+            </button>
+            <button class="btn secondary mini" data-action="toggle-pin-session" data-session-id="${escapeHtml(account.representative.id)}">
+              ${isPinned ? "取消置顶" : "置顶"}
             </button>
             <button class="btn secondary mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
             <button class="btn ghost danger-ghost mini" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>
@@ -2095,12 +2106,31 @@ async function saveSystemSettings(): Promise<void> {
         )?.value ?? "8787",
       ),
     ),
+    pinnedSessionId: state.systemSettings?.pinnedSessionId,
   };
 
   const response = await api.saveSystemSettings(payload);
   state.systemSettings = response.data;
   applySystemSettingsToForm();
   configureAutoRefreshTimer();
+}
+
+async function togglePinnedSession(sessionId: string): Promise<void> {
+  const api = getGatewayApi();
+  const nextPinnedSessionId = isPinnedAccountSession(sessionId)
+    ? undefined
+    : sessionId;
+  const response = await api.saveSystemSettings({
+    pinnedSessionId: nextPinnedSessionId,
+  });
+  state.systemSettings = response.data;
+  renderCodexAccounts();
+  setBanner(
+    nextPinnedSessionId
+      ? "账号已置顶，后续排序将固定显示在最前。"
+      : "已取消账号置顶。",
+    "success",
+  );
 }
 
 async function saveSecuritySettings(): Promise<void> {
@@ -2799,6 +2829,24 @@ function bindActions(): void {
         setBanner(`账号刷新失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(refreshButton, false);
+      }
+    }
+
+    if (action === "toggle-pin-session" && button.dataset.sessionId) {
+      const pinButton = button as HTMLButtonElement;
+      try {
+        setButtonLoading(
+          pinButton,
+          true,
+          isPinnedAccountSession(button.dataset.sessionId)
+            ? "取消中"
+            : "置顶中",
+        );
+        await togglePinnedSession(button.dataset.sessionId);
+      } catch (error) {
+        setBanner(`置顶操作失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(pinButton, false);
       }
     }
 

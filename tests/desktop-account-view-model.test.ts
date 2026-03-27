@@ -140,6 +140,38 @@ describe("desktop account view model", () => {
     ).toEqual(["acct-mid", "acct-high", "acct-none"]);
   });
 
+  it("keeps pinned account group fixed at the front regardless of sorting", () => {
+    const groups = [
+      createGroup({
+        id: "acct-high",
+        profileId: "acct-high",
+        email: "high@example.com",
+        quota: { percentage: 90, resetAt: 300 },
+      }),
+      createGroup({
+        id: "acct-mid",
+        profileId: "acct-mid",
+        email: "mid@example.com",
+        quota: { percentage: 55, resetAt: 100 },
+      }),
+      createGroup({
+        id: "acct-low",
+        profileId: "acct-low",
+        email: "low@example.com",
+        quota: { percentage: 10, resetAt: 50 },
+      }),
+    ];
+
+    expect(
+      sortAccountGroups(groups, {
+        search: "",
+        sortKey: "quota",
+        sortDirection: "desc",
+        pinnedSessionId: "acct-low",
+      }).map((group) => group.representative.id),
+    ).toEqual(["acct-low", "acct-high", "acct-mid"]);
+  });
+
   it("keeps avatar tone indices stable and bounded", () => {
     const first = getAvatarToneIndex("session_alpha");
     const second = getAvatarToneIndex("session_alpha");

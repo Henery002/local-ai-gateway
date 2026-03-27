@@ -122,16 +122,15 @@ export function sortAccountGroups<TSession extends AccountSessionViewLike>(
     search: string;
     sortKey: AccountSortKey;
     sortDirection: AccountSortDirection;
+    pinnedSessionId?: string;
   },
 ): CodexAccountGroup<TSession>[] {
   const query = options.search.trim().toLowerCase();
   const filtered = groups.filter((group) => matchesAccountSearch(group, query));
-
-  if (options.sortKey === "default") {
-    return filtered;
-  }
-
-  return [...filtered].sort((left, right) => {
+  const sorted =
+    options.sortKey === "default"
+      ? [...filtered]
+      : [...filtered].sort((left, right) => {
     let delta = 0;
 
     if (options.sortKey === "name") {
@@ -167,4 +166,25 @@ export function sortAccountGroups<TSession extends AccountSessionViewLike>(
 
     return delta;
   });
+
+  const pinnedSessionId = options.pinnedSessionId?.trim();
+  if (!pinnedSessionId) {
+    return sorted;
+  }
+
+  const pinned: CodexAccountGroup<TSession>[] = [];
+  const regular: CodexAccountGroup<TSession>[] = [];
+
+  for (const group of sorted) {
+    const isPinned = group.sessions.some(
+      (session) => session.id === pinnedSessionId,
+    );
+    if (isPinned) {
+      pinned.push(group);
+      continue;
+    }
+    regular.push(group);
+  }
+
+  return [...pinned, ...regular];
 }

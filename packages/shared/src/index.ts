@@ -202,6 +202,7 @@ export interface DesktopSystemSettings {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;
   gatewayPort?: number;
+  pinnedSessionId?: string;
 }
 
 export type SessionStatus = "available" | "expired" | "invalid";
