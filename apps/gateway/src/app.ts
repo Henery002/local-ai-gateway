@@ -12,6 +12,8 @@ import {
 import {
   GatewayError,
   GatewayProviderSettings,
+  GatewayRoutingPreviewInput,
+  GatewayRoutingSettings,
   SessionSummary,
 } from "@local-ai-gateway/shared";
 
@@ -209,6 +211,36 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       ok: true,
       requiresRestart: true,
       data: saved.providerSettings ?? {},
+    };
+  });
+
+  app.get("/admin/config/routing", async (request) => {
+    requireAdminAuth(runtime, request);
+    return {
+      data: runtime.getRoutingSettings(),
+    };
+  });
+
+  app.put("/admin/config/routing", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as GatewayRoutingSettings;
+    const saved = runtime.configStore.setRoutingSettings(body);
+    runtime.logger.info("routing_settings_saved", {
+      enabled: Boolean(body.enabled),
+      ruleCount: body.rules?.length ?? 0,
+    });
+    return {
+      ok: true,
+      data: saved.routingSettings ?? {},
+    };
+  });
+
+  app.post("/admin/config/routing/preview", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as GatewayRoutingPreviewInput;
+    return {
+      ok: true,
+      data: runtime.previewRouting(body),
     };
   });
 

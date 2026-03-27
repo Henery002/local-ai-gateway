@@ -278,6 +278,71 @@ describe("gateway app", () => {
         usesSessions: false,
       });
 
+      const routingSettings = await app.inject({
+        method: "GET",
+        url: "/admin/config/routing",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(routingSettings.statusCode).toBe(200);
+      expect(routingSettings.json()).toMatchObject({
+        data: {},
+      });
+
+      const savedRouting = await app.inject({
+        method: "PUT",
+        url: "/admin/config/routing",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          enabled: true,
+          rules: [
+            {
+              id: "rule-1",
+              name: "localraghub-route",
+              enabled: true,
+              priority: 10,
+              when: {
+                clientTag: "localraghub",
+              },
+              target: {
+                modelAlias: "fake-default",
+                sessionId: "main:fake:default",
+              },
+            },
+          ],
+        },
+      });
+      expect(savedRouting.statusCode).toBe(200);
+      expect(savedRouting.json().data.rules).toHaveLength(1);
+
+      const previewRouting = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "localraghub",
+          requestedModelAlias: "codex-default",
+        },
+      });
+      expect(previewRouting.statusCode).toBe(200);
+      expect(previewRouting.json()).toMatchObject({
+        ok: true,
+        data: {
+          enabled: true,
+          matchedRuleId: "rule-1",
+          resolvedModelAlias: "fake-default",
+          resolvedSessionId: "main:fake:default",
+          reason: "rule_matched",
+        },
+      });
+
       const setActive = await app.inject({
         method: "PUT",
         url: "/admin/sessions/active",

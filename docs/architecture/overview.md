@@ -175,6 +175,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 7. 用户也可将某个 OpenClaw 已登录授权导入为桌面端账号
 8. 用户保存图形化配置后，Electron 调用 `PUT /admin/config/providers`
 9. 用户选择活动会话后，Electron 调用 `PUT /admin/sessions/active`
+10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果（当前仅配置与预览，不影响实时推理链路）
 
 ## 4. 会话模型
 
@@ -206,6 +207,7 @@ v1 采用单活动会话模型：
 - 不支持多账号池化与自动切换
 - 不对外网暴露服务
 - 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
+- 二期路由策略层当前仅完成配置与预览 API，尚未接入请求时真实路由决策
 
 ## 7. 后续架构演进建议
 

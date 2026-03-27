@@ -15,6 +15,10 @@ import {
   GatewayHealth,
   GatewayPaths,
   DefaultModelSelectionSummary,
+  GatewayRoutingPreviewInput,
+  GatewayRoutingPreviewResult,
+  GatewayRoutingRule,
+  GatewayRoutingSettings,
   ProviderConfigurationSummary,
   ProviderSummary,
   SessionActivitySnapshot,
@@ -166,6 +170,66 @@ export class GatewayRuntime {
     };
   }
 
+  getRoutingSettings(): GatewayRoutingSettings {
+    return this.configStore.getRoutingSettings();
+  }
+
+  previewRouting(input: GatewayRoutingPreviewInput = {}): GatewayRoutingPreviewResult {
+    const baseModelAlias = input.currentModelAlias ?? this.modelRegistry.getDefault().alias;
+    const baseSessionId = input.currentSessionId ?? this.getActiveSessionId();
+    const settings = this.configStore.getRoutingSettings();
+    const warnings: string[] = [];
+
+    if (!settings.enabled) {
+      return {
+        enabled: false,
+        resolvedModelAlias: baseModelAlias,
+        resolvedSessionId: baseSessionId,
+        reason: "routing_disabled",
+        warnings,
+      };
+    }
+
+    const rules = [...(settings.rules ?? [])]
+      .filter((rule) => rule && rule.enabled !== false)
+      .sort((left, right) => (left.priority ?? 1000) - (right.priority ?? 1000));
+    const matched = rules.find((rule) => this.matchRoutingRule(rule, input));
+
+    if (!matched) {
+      return {
+        enabled: true,
+        resolvedModelAlias: baseModelAlias,
+        resolvedSessionId: baseSessionId,
+        reason: "no_rule_matched",
+        warnings,
+      };
+    }
+
+    const resolvedModelAlias = matched.target?.modelAlias ?? baseModelAlias;
+    const resolvedSessionId = matched.target?.sessionId ?? baseSessionId;
+
+    if (!this.modelRegistry.resolve(resolvedModelAlias)) {
+      warnings.push(`模型别名 ${resolvedModelAlias} 未在当前模型注册表中找到。`);
+    }
+
+    if (resolvedSessionId) {
+      const hasSession = this.listSessions().some((session) => session.id === resolvedSessionId);
+      if (!hasSession) {
+        warnings.push(`会话 ${resolvedSessionId} 未在当前本地会话列表中找到。`);
+      }
+    }
+
+    return {
+      enabled: true,
+      matchedRuleId: matched.id,
+      matchedRuleName: matched.name,
+      resolvedModelAlias,
+      resolvedSessionId,
+      reason: "rule_matched",
+      warnings,
+    };
+  }
+
   getProviderAdapterForModel(alias: string) {
     const model = this.modelRegistry.resolve(alias);
     if (!model) {
@@ -201,5 +265,30 @@ export class GatewayRuntime {
       reason: "使用模型注册表首位模型作为默认值",
       overridden: false,
     };
+  }
+
+  private matchRoutingRule(
+    rule: GatewayRoutingRule,
+    input: GatewayRoutingPreviewInput,
+  ): boolean {
+    const condition = rule.when ?? {};
+
+    if (condition.clientTag) {
+      const expected = condition.clientTag.trim().toLowerCase();
+      const actual = (input.clientTag ?? "").trim().toLowerCase();
+      if (!actual || actual !== expected) {
+        return false;
+      }
+    }
+
+    if (condition.requestedModelAlias) {
+      const expected = condition.requestedModelAlias.trim();
+      const actual = input.requestedModelAlias?.trim();
+      if (!actual || actual !== expected) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }

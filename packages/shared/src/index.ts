@@ -52,6 +52,7 @@ export interface GatewayStoredConfig {
   adminToken: string;
   activeSessionId?: string;
   providerSettings?: GatewayProviderSettings;
+  routingSettings?: GatewayRoutingSettings;
   desktopSettings?: DesktopSystemSettings;
   createdAt: string;
   updatedAt: string;
@@ -91,6 +92,47 @@ export interface GatewayProviderSettings {
   codex?: CodexProviderSettings;
   openAICompatible?: OpenAICompatibleProviderSettings;
   ollama?: OllamaProviderSettings;
+}
+
+export interface GatewayRoutingRuleCondition {
+  clientTag?: string;
+  requestedModelAlias?: string;
+}
+
+export interface GatewayRoutingRuleTarget {
+  modelAlias?: string;
+  sessionId?: string;
+}
+
+export interface GatewayRoutingRule {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  when?: GatewayRoutingRuleCondition;
+  target?: GatewayRoutingRuleTarget;
+}
+
+export interface GatewayRoutingSettings {
+  enabled?: boolean;
+  rules?: GatewayRoutingRule[];
+}
+
+export interface GatewayRoutingPreviewInput {
+  clientTag?: string;
+  requestedModelAlias?: string;
+  currentModelAlias?: string;
+  currentSessionId?: string;
+}
+
+export interface GatewayRoutingPreviewResult {
+  enabled: boolean;
+  matchedRuleId?: string;
+  matchedRuleName?: string;
+  resolvedModelAlias: string;
+  resolvedSessionId?: string;
+  reason: string;
+  warnings: string[];
 }
 
 export interface DesktopSystemSettings {

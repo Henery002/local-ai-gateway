@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   DesktopSystemSettings,
   GatewayProviderSettings,
+  GatewayRoutingSettings,
   GatewayStoredConfig,
   GatewayPaths,
   toIsoNow,
@@ -61,6 +62,20 @@ export class ConfigStore {
     const next = {
       ...current,
       providerSettings,
+      updatedAt: toIsoNow(),
+    };
+    return this.save(next);
+  }
+
+  getRoutingSettings(): GatewayRoutingSettings {
+    return this.load().routingSettings ?? {};
+  }
+
+  setRoutingSettings(routingSettings: GatewayRoutingSettings): GatewayStoredConfig {
+    const current = this.load();
+    const next = {
+      ...current,
+      routingSettings,
       updatedAt: toIsoNow(),
     };
     return this.save(next);
