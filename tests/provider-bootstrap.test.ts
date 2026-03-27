@@ -13,6 +13,10 @@ describe("provider bootstrap", () => {
 
     expect(bootstrapped.models.map((model) => model.alias)).toEqual([
       "codex-default",
+      "codex-5.4",
+      "codex-5.4-mini",
+      "codex-5.3",
+      "codex-5.2",
       "openai-compatible-default",
       "ollama-default",
     ]);
@@ -77,6 +81,7 @@ describe("provider bootstrap", () => {
       providerModelId: "gpt-5.4-mini",
       displayName: "Codex gpt-5.4-mini",
     });
+    expect(bootstrapped.models.map((model) => model.alias)).toContain("codex-5.4-mini");
     expect(bootstrapped.configurations[0]?.notes).toContain("当前上游模型：gpt-5.4-mini");
   });
 
@@ -91,5 +96,27 @@ describe("provider bootstrap", () => {
     );
 
     expect(bootstrapped.models[0]?.providerModelId).toBe("gpt-5.4");
+  });
+
+  it("supports codex multi-alias subset from saved settings", () => {
+    const bootstrapped = bootstrapProvidersFromEnvironment(
+      {},
+      {
+        codex: {
+          upstreamModel: "gpt-5.4",
+          exposedModels: ["gpt-5.4-mini", "gpt-5.2-codex"],
+        },
+      },
+    );
+
+    expect(bootstrapped.models.map((model) => model.alias)).toEqual([
+      "codex-default",
+      "codex-5.4-mini",
+      "codex-5.2",
+    ]);
+    expect(bootstrapped.models.find((model) => model.alias === "codex-5.2"))
+      .toMatchObject({
+        providerModelId: "gpt-5.2-codex",
+      });
   });
 });

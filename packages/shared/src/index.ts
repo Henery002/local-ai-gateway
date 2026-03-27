@@ -18,6 +18,17 @@ export const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.3-codex",
   "gpt-5.2-codex",
 ] as const;
+export type SupportedCodexUpstreamModel =
+  (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number];
+export const CODEX_MODEL_ALIAS_PRESETS: Record<
+  SupportedCodexUpstreamModel,
+  string
+> = {
+  "gpt-5.4": "codex-5.4",
+  "gpt-5.4-mini": "codex-5.4-mini",
+  "gpt-5.3-codex": "codex-5.3",
+  "gpt-5.2-codex": "codex-5.2",
+};
 export const OPENAI_COMPAT_PROVIDER_ID = "openai-compatible";
 export const OLLAMA_PROVIDER_ID = "ollama";
 export const DEFAULT_OPENCLAW_ROOT = join(homedir(), ".openclaw");
@@ -53,6 +64,7 @@ export interface GatewayStoredConfig {
   activeSessionId?: string;
   providerSettings?: GatewayProviderSettings;
   routingSettings?: GatewayRoutingSettings;
+  inferenceAuthSettings?: GatewayInferenceAuthSettings;
   desktopSettings?: DesktopSystemSettings;
   createdAt: string;
   updatedAt: string;
@@ -60,6 +72,7 @@ export interface GatewayStoredConfig {
 
 export interface CodexProviderSettings {
   upstreamModel?: string;
+  exposedModels?: string[];
 }
 
 export interface OpenAICompatibleProviderSettings {
@@ -118,6 +131,19 @@ export interface GatewayRoutingSettings {
   rules?: GatewayRoutingRule[];
 }
 
+export type GatewayInferenceAuthMode = "none" | "api-key";
+
+export interface GatewayInferenceAuthSettings {
+  mode?: GatewayInferenceAuthMode;
+  apiKey?: string;
+}
+
+export interface GatewayInferenceAuthPublicSettings {
+  mode: GatewayInferenceAuthMode;
+  enabled: boolean;
+  hasApiKey: boolean;
+}
+
 export interface GatewayRoutingPreviewInput {
   clientTag?: string;
   requestedModelAlias?: string;
@@ -133,6 +159,43 @@ export interface GatewayRoutingPreviewResult {
   resolvedSessionId?: string;
   reason: string;
   warnings: string[];
+}
+
+export interface GatewayRoutingHitEvent {
+  timestamp: number;
+  clientTag?: string;
+  requestedModelAlias: string;
+  resolvedModelAlias: string;
+  resolvedSessionId?: string;
+  matchedRuleId: string;
+  matchedRuleName: string;
+  modelApplied: boolean;
+  sessionApplied: boolean;
+  warnings?: string[];
+}
+
+export interface GatewayRoutingHitByRule {
+  ruleId: string;
+  ruleName: string;
+  hits: number;
+  lastMatchedAt?: number;
+}
+
+export interface GatewayRoutingHitByClient {
+  clientTag: string;
+  hits: number;
+  lastMatchedAt?: number;
+}
+
+export interface GatewayRoutingObservability {
+  totalMatched: number;
+  matchedLast5m: number;
+  matchedLast1h: number;
+  matchedLast24h: number;
+  lastMatchedAt?: number;
+  byRule: GatewayRoutingHitByRule[];
+  byClientTag: GatewayRoutingHitByClient[];
+  recent: GatewayRoutingHitEvent[];
 }
 
 export interface DesktopSystemSettings {
@@ -177,10 +240,21 @@ export interface SessionActivitySnapshot {
   failureCount: number;
   streamCount: number;
   nonStreamCount: number;
+  byClientTag?: SessionClientTagActivitySnapshot[];
+  recentRequestCount5m?: number;
+  recentByClientTag5m?: SessionClientTagActivitySnapshot[];
   lastRequestAt?: number;
   lastSuccessAt?: number;
   lastFailureAt?: number;
   lastError?: string;
+}
+
+export interface SessionClientTagActivitySnapshot {
+  clientTag: string;
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  lastRequestAt?: number;
 }
 
 export interface ResolvedSession extends SessionSummary {
@@ -282,6 +356,8 @@ export interface GatewayHealth {
   startedAt: string;
   providerConfigurations?: ProviderConfigurationSummary[];
   defaultSelection?: DefaultModelSelectionSummary;
+  routingObservability?: GatewayRoutingObservability;
+  inferenceAuth?: GatewayInferenceAuthPublicSettings;
 }
 
 export interface GatewayLogRecord {
@@ -368,6 +444,23 @@ export function resolveGatewayPaths(rootDir = DEFAULT_APP_SUPPORT_DIR): GatewayP
     logsDir: join(rootDir, "logs"),
     logFilePath: join(rootDir, "logs", "gateway.log"),
   };
+}
+
+export function isSupportedCodexUpstreamModel(
+  value: string,
+): value is SupportedCodexUpstreamModel {
+  return SUPPORTED_CODEX_UPSTREAM_MODELS.includes(
+    value as SupportedCodexUpstreamModel,
+  );
+}
+
+export function getCodexAliasForUpstreamModel(
+  modelId: string,
+): string | undefined {
+  if (!isSupportedCodexUpstreamModel(modelId)) {
+    return undefined;
+  }
+  return CODEX_MODEL_ALIAS_PRESETS[modelId];
 }
 
 export function redactSensitiveValue(value: unknown): unknown {

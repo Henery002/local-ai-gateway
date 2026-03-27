@@ -22,8 +22,19 @@ const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.3-codex",
   "gpt-5.2-codex",
 ] as const;
+const CODEX_ALIAS_PRESETS: Record<
+  (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number],
+  string
+> = {
+  "gpt-5.4": "codex-5.4",
+  "gpt-5.4-mini": "codex-5.4-mini",
+  "gpt-5.3-codex": "codex-5.3",
+  "gpt-5.2-codex": "codex-5.2",
+};
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
+const COLLAPSED_GROUPS_STORAGE_KEY =
+  "local-ai-gateway.desktop.collapsed-groups";
 
 declare global {
   interface Window {
@@ -34,6 +45,17 @@ declare global {
       saveProviderSettings: (
         payload: ProviderSettings,
       ) => Promise<{ ok: boolean; requiresRestart: boolean }>;
+      getRoutingSettings: () => Promise<RoutingSettingsResponse>;
+      saveRoutingSettings: (
+        payload: RoutingSettings,
+      ) => Promise<{ ok: boolean; data: RoutingSettings }>;
+      previewRouting: (
+        payload: RoutingPreviewInput,
+      ) => Promise<RoutingPreviewResponse>;
+      getSecuritySettings: () => Promise<SecuritySettingsResponse>;
+      saveSecuritySettings: (
+        payload: SecuritySettingsInput,
+      ) => Promise<SecuritySettingsResponse>;
       getSystemSettings: () => Promise<SystemSettingsResponse>;
       saveSystemSettings: (
         payload: SystemSettings,
@@ -43,12 +65,14 @@ declare global {
       refreshSessionUsage: (
         sessionId?: string,
       ) => Promise<SessionUsageRefreshResponse>;
+      resetTelemetry?: () => Promise<{ ok: boolean; reset: boolean }>;
       deleteCodexAccount: (sessionId: string) => Promise<{
         ok: boolean;
         data: { removed: boolean; profileId: string; filePath: string };
       }>;
       restartGateway: () => Promise<any>;
       copyOpenClawSnippet: () => Promise<any>;
+      copyText?: (text: string) => Promise<{ ok: boolean }>;
       openLogs: () => Promise<any>;
       loginCodexOAuth: () => Promise<{
         ok: boolean;
@@ -118,6 +142,41 @@ type DashboardHealth = {
     reason: string;
     overridden: boolean;
   };
+  inferenceAuth?: {
+    mode: "none" | "api-key";
+    enabled: boolean;
+    hasApiKey: boolean;
+  };
+  routingObservability?: {
+    totalMatched: number;
+    matchedLast5m: number;
+    matchedLast1h: number;
+    matchedLast24h: number;
+    lastMatchedAt?: number;
+    byRule: Array<{
+      ruleId: string;
+      ruleName: string;
+      hits: number;
+      lastMatchedAt?: number;
+    }>;
+    byClientTag: Array<{
+      clientTag: string;
+      hits: number;
+      lastMatchedAt?: number;
+    }>;
+    recent: Array<{
+      timestamp: number;
+      clientTag?: string;
+      requestedModelAlias: string;
+      resolvedModelAlias: string;
+      resolvedSessionId?: string;
+      matchedRuleId: string;
+      matchedRuleName: string;
+      modelApplied: boolean;
+      sessionApplied: boolean;
+      warnings?: string[];
+    }>;
+  };
 };
 
 type DashboardSessions = {
@@ -143,6 +202,21 @@ type DashboardSessions = {
       failureCount: number;
       streamCount: number;
       nonStreamCount: number;
+      byClientTag?: Array<{
+        clientTag: string;
+        requestCount: number;
+        successCount: number;
+        failureCount: number;
+        lastRequestAt?: number;
+      }>;
+      recentRequestCount5m?: number;
+      recentByClientTag5m?: Array<{
+        clientTag: string;
+        requestCount: number;
+        successCount: number;
+        failureCount: number;
+        lastRequestAt?: number;
+      }>;
       lastRequestAt?: number;
       lastSuccessAt?: number;
       lastFailureAt?: number;
@@ -182,6 +256,7 @@ type ProviderSettings = {
   defaultModelAlias?: string;
   codex?: {
     upstreamModel?: string;
+    exposedModels?: string[];
   };
   openAICompatible?: {
     enabled?: boolean;
@@ -204,6 +279,66 @@ type ProviderSettings = {
 
 type ProviderSettingsResponse = {
   data: ProviderSettings;
+};
+
+type RoutingRule = {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  when?: {
+    clientTag?: string;
+    requestedModelAlias?: string;
+  };
+  target?: {
+    modelAlias?: string;
+    sessionId?: string;
+  };
+};
+
+type RoutingSettings = {
+  enabled?: boolean;
+  rules?: RoutingRule[];
+};
+
+type RoutingSettingsResponse = {
+  data: RoutingSettings;
+};
+
+type RoutingPreviewInput = {
+  clientTag?: string;
+  requestedModelAlias?: string;
+  currentModelAlias?: string;
+  currentSessionId?: string;
+};
+
+type RoutingPreviewResponse = {
+  ok: boolean;
+  data: {
+    enabled: boolean;
+    matchedRuleId?: string;
+    matchedRuleName?: string;
+    resolvedModelAlias: string;
+    resolvedSessionId?: string;
+    reason: string;
+    warnings: string[];
+  };
+};
+
+type SecuritySettingsInput = {
+  mode?: "none" | "api-key";
+  apiKey?: string;
+};
+
+type SecuritySettings = {
+  mode: "none" | "api-key";
+  enabled: boolean;
+  hasApiKey: boolean;
+};
+
+type SecuritySettingsResponse = {
+  ok: boolean;
+  data: SecuritySettings;
 };
 
 type SessionUsageRefreshResponse = {
@@ -241,11 +376,15 @@ type SystemSettingsResponse = {
 };
 
 type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
+type IntegrationTemplateKey = "openclaw" | "localraghub" | "curl";
+type RoutingObserveWindow = "5m" | "1h" | "24h";
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
+  routingSettings?: RoutingSettings;
+  securitySettings?: SecuritySettings;
   systemSettings?: SystemSettings;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
@@ -256,12 +395,16 @@ const state: {
   backgroundRefreshInFlight?: boolean;
   sessionPulseInFlight?: boolean;
   runtimeDiagnostics: RuntimeDiagnostic[];
+  routingClientFilter: string;
+  routingObserveWindow: RoutingObserveWindow;
 } = {
   activeView: "overview",
   accountSearch: "",
   accountSortKey: "quota",
   accountSortDirection: "desc",
   runtimeDiagnostics: [],
+  routingClientFilter: "all",
+  routingObserveWindow: "5m",
 };
 
 let autoRefreshTimer: number | undefined;
@@ -284,6 +427,84 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function getClientTagToneIndex(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash) % 12;
+}
+
+function normalizeClientTagLabel(clientTag: string): string {
+  return clientTag === "unknown" ? "未标记" : clientTag;
+}
+
+function routingWindowLabel(window: RoutingObserveWindow): string {
+  if (window === "1h") {
+    return "1 小时命中";
+  }
+  if (window === "24h") {
+    return "24 小时命中";
+  }
+  return "5 分钟命中";
+}
+
+function getRoutingWindowCount(
+  routing: DashboardHealth["routingObservability"],
+  window: RoutingObserveWindow,
+): number {
+  if (!routing) {
+    return 0;
+  }
+  if (window === "1h") {
+    return routing.matchedLast1h ?? routing.matchedLast5m;
+  }
+  if (window === "24h") {
+    return routing.matchedLast24h ?? routing.matchedLast1h ?? routing.matchedLast5m;
+  }
+  return routing.matchedLast5m;
+}
+
+function renderClientTagBadges(
+  rows: Array<{ clientTag: string; requestCount: number }>,
+): string {
+  if (!rows.length) {
+    return `<span style="font-size: 13px; color: var(--text-tertiary);">暂无来源明细</span>`;
+  }
+
+  return rows
+    .slice(0, 4)
+    .map((item) => {
+      const label = normalizeClientTagLabel(item.clientTag);
+      const tone = getClientTagToneIndex(label);
+      return `<span class="client-tag-chip" data-tone="${tone}">${escapeHtml(label)} <em>${item.requestCount}次</em></span>`;
+    })
+    .join("");
+}
+
+function renderRecentClientTagBadges(
+  rows: Array<{ clientTag: string; requestCount: number }>,
+  total: number,
+): string {
+  if (!rows.length || total <= 0) {
+    return `<span style="font-size: 13px; color: var(--text-tertiary);">最近 5 分钟暂无请求</span>`;
+  }
+
+  return rows
+    .slice(0, 4)
+    .map((item) => {
+      const label = normalizeClientTagLabel(item.clientTag);
+      const tone = getClientTagToneIndex(label);
+      const percentage = Math.max(
+        1,
+        Math.round((item.requestCount / total) * 100),
+      );
+      return `<span class="client-tag-chip recent" data-tone="${tone}">${escapeHtml(label)} <em>${percentage}%</em></span>`;
+    })
+    .join("");
 }
 
 function setText(id: string, value: string): void {
@@ -320,6 +541,77 @@ function loadPersistedView(): DashboardView {
     // ignore
   }
   return "overview";
+}
+
+function loadCollapsedGroupIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((item) => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedGroupIds(collapsedIds: Set<string>): void {
+  try {
+    localStorage.setItem(
+      COLLAPSED_GROUPS_STORAGE_KEY,
+      JSON.stringify(Array.from(collapsedIds)),
+    );
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function initCollapsibleSettingsGroups(): void {
+  const groups = Array.from(
+    document.querySelectorAll<HTMLElement>(".settings-group"),
+  );
+  const collapsedIds = loadCollapsedGroupIds();
+
+  groups.forEach((group, index) => {
+    const header = group.querySelector<HTMLElement>(".settings-header");
+    const body = group.querySelector<HTMLElement>(".settings-body");
+    if (!header || !body) {
+      return;
+    }
+
+    const groupId =
+      group.dataset.collapsibleId || `settings-group-${index + 1}`;
+    group.dataset.collapsibleId = groupId;
+    group.classList.add("collapsible");
+
+    if (collapsedIds.has(groupId)) {
+      group.classList.add("collapsed");
+    }
+
+    if (header.dataset.collapsibleBound === "true") {
+      return;
+    }
+
+    header.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("button, input, select, textarea, label, a")) {
+        return;
+      }
+      group.classList.toggle("collapsed");
+      const nextCollapsed = loadCollapsedGroupIds();
+      if (group.classList.contains("collapsed")) {
+        nextCollapsed.add(groupId);
+      } else {
+        nextCollapsed.delete(groupId);
+      }
+      saveCollapsedGroupIds(nextCollapsed);
+    });
+    header.dataset.collapsibleBound = "true";
+  });
 }
 
 function setActiveView(view: DashboardView): void {
@@ -548,6 +840,14 @@ function getActiveProviderLabel(): string {
   return matched?.label ?? providers.data[0]?.label ?? "OpenAI Codex";
 }
 
+function getCodexAliasPreset(modelId: string): string {
+  return (
+    CODEX_ALIAS_PRESETS[
+      modelId as (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number]
+    ] ?? "codex-custom"
+  );
+}
+
 function getAccountGroups() {
   return buildCodexAccountGroups(
     state.sessions?.data ?? [],
@@ -598,6 +898,7 @@ function renderTopSummary(): void {
     (session) => session.id === sessions.activeSessionId,
   );
   const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
+  const routing = health.routingObservability;
 
   setText(
     "top-summary-status",
@@ -614,12 +915,26 @@ function renderTopSummary(): void {
     health.openclaw?.model ?? health.defaultModel ?? "codex-default",
   );
   setText(
+    "top-summary-routing-hit",
+    routing
+      ? `${routingWindowLabel(state.routingObserveWindow).replace("命中", "")} ${getRoutingWindowCount(routing, state.routingObserveWindow)} 次 / 累计 ${routing.totalMatched} 次`
+      : "暂无命中",
+  );
+  setText(
     "top-summary-session",
     activeSession ? getSessionTitle(activeSession) : "未选择活动会话",
   );
   setText(
     "top-summary-providers",
     `${providers.data.length} 个 Provider / ${groups.total} 个授权对象`,
+  );
+  setText(
+    "top-summary-auth",
+    (state.securitySettings?.enabled ?? health.inferenceAuth?.enabled)
+      ? (state.securitySettings?.hasApiKey ?? health.inferenceAuth?.hasApiKey)
+        ? "API Key 鉴权"
+        : "鉴权缺少密钥"
+      : "无鉴权",
   );
 }
 
@@ -651,6 +966,135 @@ function renderOverview(): void {
     "snippet-model",
     health.openclaw?.model ?? health.defaultModel ?? "codex-default",
   );
+  renderRoutingObservability();
+}
+
+function renderRoutingObservability(): void {
+  const routing = state.health?.routingObservability;
+  const recentContainer = document.getElementById("routing-observe-recent");
+  const filterSelect = document.getElementById(
+    "routing-observe-client-filter",
+  ) as HTMLSelectElement | null;
+  const windowSelect = document.getElementById(
+    "routing-observe-window",
+  ) as HTMLSelectElement | null;
+  const windowLabelNode = document.getElementById(
+    "routing-observe-window-label",
+  );
+  if (!routing) {
+    setText("routing-observe-window-count", "0");
+    if (windowLabelNode) {
+      windowLabelNode.textContent = routingWindowLabel(state.routingObserveWindow);
+    }
+    setText("routing-observe-total", "0");
+    setText("routing-observe-last-hit", "暂无");
+    setText("routing-observe-top-rule", "暂无");
+    setText("routing-observe-top-client", "暂无");
+    if (filterSelect) {
+      filterSelect.innerHTML = `<option value="all">全部客户端</option>`;
+      filterSelect.value = "all";
+      state.routingClientFilter = "all";
+    }
+    if (windowSelect) {
+      windowSelect.value = state.routingObserveWindow;
+    }
+    if (recentContainer) {
+      recentContainer.innerHTML =
+        "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>";
+    }
+    return;
+  }
+
+  const topRule = routing.byRule[0];
+  const topClient = routing.byClientTag[0];
+  if (windowLabelNode) {
+    windowLabelNode.textContent = routingWindowLabel(state.routingObserveWindow);
+  }
+  if (windowSelect) {
+    windowSelect.value = state.routingObserveWindow;
+  }
+  setText(
+    "routing-observe-window-count",
+    String(getRoutingWindowCount(routing, state.routingObserveWindow)),
+  );
+  setText("routing-observe-total", String(routing.totalMatched));
+  setText(
+    "routing-observe-last-hit",
+    routing.lastMatchedAt ? formatRecentCall(routing.lastMatchedAt) : "暂无",
+  );
+  setText(
+    "routing-observe-top-rule",
+    topRule ? `${topRule.ruleName} (${topRule.hits})` : "暂无",
+  );
+  setText(
+    "routing-observe-top-client",
+    topClient
+      ? `${normalizeClientTagLabel(topClient.clientTag)} (${topClient.hits})`
+      : "暂无",
+  );
+
+  const clientOptions = routing.byClientTag.map((item) => item.clientTag);
+  if (
+    state.routingClientFilter !== "all" &&
+    !clientOptions.includes(state.routingClientFilter)
+  ) {
+    state.routingClientFilter = "all";
+  }
+  if (filterSelect) {
+    const options = [
+      `<option value="all">全部客户端</option>`,
+      ...clientOptions.map((clientTag) => {
+        const selected =
+          clientTag === state.routingClientFilter ? " selected" : "";
+        return `<option value="${escapeHtml(clientTag)}"${selected}>${escapeHtml(normalizeClientTagLabel(clientTag))}</option>`;
+      }),
+    ].join("");
+    filterSelect.innerHTML = options;
+    filterSelect.value = state.routingClientFilter;
+  }
+
+  const filteredRecent =
+    state.routingClientFilter === "all"
+      ? routing.recent
+      : routing.recent.filter(
+          (event) =>
+            (event.clientTag ?? "unknown").toLowerCase() ===
+            state.routingClientFilter.toLowerCase(),
+        );
+
+  if (!recentContainer) {
+    return;
+  }
+
+  if (!filteredRecent.length) {
+    recentContainer.innerHTML =
+      state.routingClientFilter === "all"
+        ? "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>"
+        : "<div class='empty-state'>当前筛选客户端暂无命中记录。</div>";
+    return;
+  }
+
+  recentContainer.innerHTML = filteredRecent
+    .map((event) => {
+      const warnings = event.warnings?.length
+        ? `<span class="badge incomplete">回退告警 ${event.warnings.length}</span>`
+        : "";
+      return `
+        <div class="routing-event-item">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <strong style="font-size: 14px;">${escapeHtml(event.matchedRuleName)}</strong>
+            <span style="font-size: 13px; color: var(--text-secondary);">${escapeHtml(formatRecentCall(event.timestamp))}</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+            <span class="badge neutral">客户端 ${escapeHtml(normalizeClientTagLabel(event.clientTag ?? "unknown"))}</span>
+            <span class="badge neutral">模型 ${escapeHtml(event.requestedModelAlias)} → ${escapeHtml(event.resolvedModelAlias)}</span>
+            ${event.sessionApplied && event.resolvedSessionId ? `<span class="badge active">会话切换 ${escapeHtml(event.resolvedSessionId)}</span>` : ""}
+            ${warnings}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderCodexAccounts(): void {
@@ -691,6 +1135,13 @@ function renderCodexAccounts(): void {
           const activity = account.representative.activity;
           const requestCount = activity?.requestCount ?? 0;
           const recentCallLabel = formatRecentCall(activity?.lastRequestAt);
+          const clientTagBadges = renderClientTagBadges(
+            activity?.byClientTag ?? [],
+          );
+          const recentClientTagBadges = renderRecentClientTagBadges(
+            activity?.recentByClientTag5m ?? [],
+            activity?.recentRequestCount5m ?? 0,
+          );
           const isLive =
             typeof activity?.lastRequestAt === "number" &&
             Date.now() - activity.lastRequestAt <= 90_000;
@@ -723,6 +1174,14 @@ function renderCodexAccounts(): void {
           <div class="acc-meta">
             <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
             <span>请求数: ${requestCount}</span>
+          </div>
+          <div class="acc-meta" style="align-items: center;">
+            <span>来源分布:</span>
+            <span class="client-tag-list">${clientTagBadges}</span>
+          </div>
+          <div class="acc-meta" style="align-items: center;">
+            <span>近5分钟:</span>
+            <span class="client-tag-list">${recentClientTagBadges}</span>
           </div>
           <div style="margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 13px;">
@@ -762,7 +1221,7 @@ function renderCodexAccounts(): void {
         </div>
         <span class="badge neutral">${accounts.length} 个账号</span>
       </div>
-      <div class="grid-layout grid-3">${cards}</div>
+      <div class="grid-layout accounts-grid">${cards}</div>
     `;
   container.appendChild(section);
 
@@ -893,6 +1352,50 @@ function renderDiagnostics(): void {
   }
 }
 
+function buildIntegrationSnippets(health: DashboardHealth): Record<IntegrationTemplateKey, string> {
+  const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
+  const model = health.openclaw?.model ?? "codex-default";
+  const provider = health.openclaw?.provider ?? "openai";
+  const requiresApiKey =
+    (state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
+    (state.securitySettings?.hasApiKey ?? health.inferenceAuth?.hasApiKey);
+
+  const openclaw = [
+    `provider=${provider}`,
+    `baseUrl=${baseUrl}`,
+    `model=${model}`,
+    "clientTag=<你的客户端标识>",
+    ...(requiresApiKey ? ["apiKey=<你的 Local AI Gateway API Key>"] : []),
+  ].join("\n");
+
+  const localraghub = [
+    "provider=openai-compatible",
+    `baseUrl=${baseUrl}`,
+    `model=${model}`,
+    "clientTag=localraghub",
+    ...(requiresApiKey ? ["apiKey=<你的 Local AI Gateway API Key>"] : []),
+  ].join("\n");
+
+  const curlHeaders = [
+    `-H "Content-Type: application/json"`,
+    `-H "x-client-tag: localraghub"`,
+    ...(requiresApiKey
+      ? [`-H "Authorization: Bearer <你的 Local AI Gateway API Key>"`]
+      : []),
+  ];
+  const curl = [
+    `curl ${baseUrl}/chat/completions \\`,
+    ...curlHeaders.map((header) => `  ${header} \\`),
+    `  -d '{"model":"${model}","messages":[{"role":"user","content":"ping"}]}'`,
+  ].join("\n");
+
+  return {
+    openclaw,
+    localraghub,
+    curl,
+  };
+}
+
 function renderGuide(): void {
   const container = document.getElementById("guide-cards");
   if (!container) {
@@ -906,11 +1409,28 @@ function renderGuide(): void {
 
   const openAI = getProviderConfiguration("openai-compatible");
   const ollama = getProviderConfiguration("ollama");
-  const snippet = [
-    `provider=${health.openclaw?.provider ?? "openai"}`,
-    `baseUrl=${health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1"}`,
-    `model=${health.openclaw?.model ?? "codex-default"}`,
-  ].join("\n");
+  const snippets = buildIntegrationSnippets(health);
+  const snippetRows: Array<{
+    key: IntegrationTemplateKey;
+    title: string;
+    subtitle: string;
+  }> = [
+    {
+      key: "openclaw",
+      title: "OpenClaw 模板",
+      subtitle: "适用于 OpenClaw provider 配置文件",
+    },
+    {
+      key: "localraghub",
+      title: "localRagHub 模板",
+      subtitle: "适用于支持 OpenAI-compatible 的 RAG 客户端",
+    },
+    {
+      key: "curl",
+      title: "通用 cURL 模板",
+      subtitle: "用于快速联通验证与故障排查",
+    },
+  ];
 
   container.innerHTML = `
     <div class="card">
@@ -918,9 +1438,32 @@ function renderGuide(): void {
       <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及本机可复用授权的导入与复用。</p>
     </div>
     <div class="card">
-      <h3 style="margin: 0 0 8px 0; font-size: 15px;">如何接入</h3>
-      <p style="margin: 0 0 8px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在配置页完成 provider 设定并重启服务，然后将客户端指向下方本地地址：</p>
-      <pre style="margin: 0; padding: 12px; background: var(--bg-surface); border-radius: 8px; font-size: 14px; border: 1px solid var(--border-light); overflow-x: auto;">${escapeHtml(snippet)}</pre>
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">第三方接入模板</h3>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在配置页完成 provider 设定并重启服务，然后把客户端指向本地网关。每个模板都支持一键复制。</p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        ${snippetRows
+          .map((row) => {
+            const snippet =
+              row.key === "openclaw"
+                ? snippets.openclaw
+                : row.key === "localraghub"
+                  ? snippets.localraghub
+                  : snippets.curl;
+            return `
+              <section style="border: 1px solid var(--border-light); border-radius: 10px; padding: 10px; background: var(--bg-surface);">
+                <div style="display: flex; justify-content: space-between; gap: 8px; align-items: flex-start;">
+                  <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <strong style="font-size: 14px;">${escapeHtml(row.title)}</strong>
+                    <span style="font-size: 13px; color: var(--text-secondary);">${escapeHtml(row.subtitle)}</span>
+                  </div>
+                  <button class="btn secondary" data-action="copy-template" data-template-key="${row.key}" title="复制 ${escapeHtml(row.title)}">复制</button>
+                </div>
+                <pre style="margin: 8px 0 0 0; padding: 10px; background: #fff; border-radius: 8px; font-size: 13px; border: 1px solid var(--border-light); overflow-x: auto;">${escapeHtml(snippet)}</pre>
+              </section>
+            `;
+          })
+          .join("")}
+      </div>
     </div>
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">OpenAI-Compatible</h3>
@@ -941,6 +1484,14 @@ function renderGuide(): void {
             ? `配置还不完整：${ollama.missingEnvKeys?.join(", ") ?? "缺少关键字段"}`
             : "尚未启用。请在配置页填写本地 Ollama 地址和模型名。",
       )}</p>
+    </div>
+    <div class="card">
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">错误码速查</h3>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--text-secondary);">
+        <span><strong>401</strong>：未携带 API Key（鉴权模式为 API Key 时）</span>
+        <span><strong>403</strong>：API Key 错误</span>
+        <span><strong>503</strong>：网关已启用 API Key 鉴权，但尚未配置有效密钥</span>
+      </div>
     </div>
   `;
 }
@@ -1009,6 +1560,9 @@ function applySettingsToForm(): void {
   const codexSelect = document.getElementById(
     "codex-upstream-model",
   ) as HTMLSelectElement | null;
+  const codexExposeContainer = document.getElementById(
+    "codex-exposed-models",
+  ) as HTMLElement | null;
 
   if (codexSelect) {
     codexSelect.replaceChildren();
@@ -1021,10 +1575,37 @@ function applySettingsToForm(): void {
     codexSelect.value = codex.upstreamModel ?? "gpt-5.4";
   }
 
+  if (codexExposeContainer) {
+    const selectedModels =
+      codex.exposedModels === undefined
+        ? [...SUPPORTED_CODEX_UPSTREAM_MODELS]
+        : codex.exposedModels;
+    codexExposeContainer.innerHTML = SUPPORTED_CODEX_UPSTREAM_MODELS.map(
+      (modelId) => {
+        const alias = getCodexAliasPreset(modelId);
+        const checked = selectedModels.includes(modelId) ? "checked" : "";
+        return `
+          <label class="chip-check">
+            <input type="checkbox" data-codex-exposed-model value="${escapeHtml(modelId)}" ${checked} />
+            <span>${escapeHtml(alias)} → ${escapeHtml(modelId)}</span>
+          </label>
+        `;
+      },
+    ).join("");
+  }
+
   if (defaultSelect) {
+    const codexExposedAliases = (
+      codex.exposedModels === undefined
+        ? [...SUPPORTED_CODEX_UPSTREAM_MODELS]
+        : codex.exposedModels
+    )
+      .map((modelId) => getCodexAliasPreset(modelId))
+      .filter((alias) => alias !== "codex-custom");
     defaultSelect.replaceChildren();
     const aliasSet = new Set<string>([
       "codex-default",
+      ...codexExposedAliases,
       ...(state.providers?.data.flatMap((provider) =>
         provider.models.map((model) => model.alias),
       ) ?? []),
@@ -1081,6 +1662,221 @@ function applySettingsToForm(): void {
   (document.getElementById(
     "ollama-display-name",
   ) as HTMLInputElement | null)!.value = ollama.displayName ?? "";
+}
+
+function createRoutingRuleId(): string {
+  return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getRoutingRulesContainer(): HTMLElement | null {
+  return document.getElementById("routing-rules-list");
+}
+
+function renderRoutingRules(): void {
+  const container = getRoutingRulesContainer();
+  if (!container) {
+    return;
+  }
+
+  const rules = state.routingSettings?.rules ?? [];
+  if (rules.length === 0) {
+    container.innerHTML =
+      "<div class='empty-state'>当前还没有路由规则。你可以新增规则用于按客户端或模型做策略预演。</div>";
+    return;
+  }
+
+  container.innerHTML = rules
+    .map(
+      (rule) => `
+      <div class="card" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}">
+        <div class="routing-rule-grid">
+          <div class="form-field">
+            <label>规则名称</label>
+            <input class="input-field" data-field="name" value="${escapeHtml(rule.name ?? "")}" />
+          </div>
+          <div class="form-field">
+            <label>优先级（越小越优先）</label>
+            <input class="input-field" data-field="priority" type="number" step="1" value="${typeof rule.priority === "number" ? rule.priority : 100}" />
+          </div>
+          <div class="form-field">
+            <label>按客户端标签匹配</label>
+            <input class="input-field" data-field="when-client-tag" placeholder="例如 localraghub" value="${escapeHtml(rule.when?.clientTag ?? "")}" />
+          </div>
+          <div class="form-field">
+            <label>按请求模型别名匹配</label>
+            <input class="input-field" data-field="when-requested-model" placeholder="例如 codex-default" value="${escapeHtml(rule.when?.requestedModelAlias ?? "")}" />
+          </div>
+          <div class="form-field">
+            <label>目标模型别名</label>
+            <input class="input-field" data-field="target-model-alias" placeholder="例如 openai-compatible-default" value="${escapeHtml(rule.target?.modelAlias ?? "")}" />
+          </div>
+          <div class="form-field">
+            <label>目标会话 ID（可选）</label>
+            <input class="input-field" data-field="target-session-id" placeholder="例如 local-import:openai-codex-xxx" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+          <label class="switch-label" style="font-size: 14px;">
+            <input type="checkbox" data-field="enabled" ${rule.enabled === false ? "" : "checked"} />
+            启用规则
+          </label>
+          <button class="btn ghost danger-ghost mini" data-action="routing-remove-rule" data-rule-id="${escapeHtml(rule.id)}">删除规则</button>
+        </div>
+      </div>
+    `,
+    )
+    .join("");
+}
+
+function applyRoutingSettingsToForm(): void {
+  const settings = state.routingSettings ?? {};
+  const enabledInput = document.getElementById(
+    "routing-enabled",
+  ) as HTMLInputElement | null;
+  if (enabledInput) {
+    enabledInput.checked = Boolean(settings.enabled);
+  }
+  renderRoutingRules();
+}
+
+function collectRoutingSettingsFromForm(): RoutingSettings {
+  const enabled =
+    (document.getElementById("routing-enabled") as HTMLInputElement | null)
+      ?.checked ?? false;
+  const rows = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-routing-rule-row]"),
+  );
+  const rules: RoutingRule[] = rows
+    .map((row) => {
+      const id = row.dataset.ruleId || createRoutingRuleId();
+      const name =
+        (row.querySelector<HTMLInputElement>('[data-field="name"]')?.value ?? "")
+          .trim() || "未命名规则";
+      const priorityValue = Number(
+        row.querySelector<HTMLInputElement>('[data-field="priority"]')?.value ??
+          "100",
+      );
+      const enabledValue =
+        row.querySelector<HTMLInputElement>('[data-field="enabled"]')?.checked ??
+        true;
+      const clientTag =
+        row
+          .querySelector<HTMLInputElement>(
+            '[data-field="when-client-tag"]',
+          )
+          ?.value.trim() || undefined;
+      const requestedModelAlias =
+        row
+          .querySelector<HTMLInputElement>(
+            '[data-field="when-requested-model"]',
+          )
+          ?.value.trim() || undefined;
+      const modelAlias =
+        row
+          .querySelector<HTMLInputElement>(
+            '[data-field="target-model-alias"]',
+          )
+          ?.value.trim() || undefined;
+      const sessionId =
+        row
+          .querySelector<HTMLInputElement>('[data-field="target-session-id"]')
+          ?.value.trim() || undefined;
+
+      return {
+        id,
+        name,
+        enabled: enabledValue,
+        priority: Number.isFinite(priorityValue)
+          ? Math.max(-10_000, Math.min(10_000, Math.round(priorityValue)))
+          : 100,
+        when: {
+          clientTag,
+          requestedModelAlias,
+        },
+        target: {
+          modelAlias,
+          sessionId,
+        },
+      } satisfies RoutingRule;
+    })
+    .filter(
+      (rule) =>
+        Boolean(rule.when?.clientTag || rule.when?.requestedModelAlias) &&
+        Boolean(rule.target?.modelAlias || rule.target?.sessionId),
+    );
+
+  return {
+    enabled,
+    rules,
+  };
+}
+
+function renderRoutingPreviewResult(
+  payload: RoutingPreviewResponse["data"],
+): void {
+  const node = document.getElementById("routing-preview-result");
+  if (!node) {
+    return;
+  }
+  const warnings = payload.warnings?.length
+    ? `<div style="margin-top: 8px; font-size: 13px; color: var(--warning);">告警：${escapeHtml(payload.warnings.join("；"))}</div>`
+    : "";
+  const matched = payload.matchedRuleName
+    ? `${payload.matchedRuleName} (${payload.matchedRuleId ?? "unknown"})`
+    : "未命中";
+  node.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <strong style="font-size: 14px;">预演结果：${escapeHtml(payload.reason)}</strong>
+        <span style="font-size: 13px; color: var(--text-secondary);">命中规则：${escapeHtml(matched)}</span>
+        <span style="font-size: 13px; color: var(--text-secondary);">解析模型：${escapeHtml(payload.resolvedModelAlias)}</span>
+        <span style="font-size: 13px; color: var(--text-secondary);">解析会话：${escapeHtml(payload.resolvedSessionId ?? "沿用当前活动会话")}</span>
+      </div>
+      <span class="badge ${payload.enabled ? "active" : "neutral"}">${payload.enabled ? "已启用" : "未启用"}</span>
+    </div>
+    ${warnings}
+  `;
+}
+
+function resetRoutingPreviewResult(): void {
+  const node = document.getElementById("routing-preview-result");
+  if (!node) {
+    return;
+  }
+  node.innerHTML = "<span style='font-size: 13px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span>";
+}
+
+function applySecuritySettingsToForm(): void {
+  const settings = state.securitySettings;
+  const modeNode = document.getElementById(
+    "gateway-auth-mode",
+  ) as HTMLSelectElement | null;
+  const statusNode = document.getElementById(
+    "gateway-auth-status",
+  ) as HTMLElement | null;
+  const keyNode = document.getElementById(
+    "gateway-auth-api-key",
+  ) as HTMLInputElement | null;
+
+  const mode = settings?.mode === "api-key" ? "api-key" : "none";
+  if (modeNode) {
+    modeNode.value = mode;
+  }
+  if (statusNode) {
+    if (mode === "api-key") {
+      statusNode.textContent = settings?.hasApiKey
+        ? "当前已启用 API Key 鉴权，外部请求需携带有效密钥。"
+        : "当前已启用 API Key 鉴权，但尚未保存有效密钥。";
+    } else {
+      statusNode.textContent = "当前未启用推理接口鉴权，适合本机单用户场景。";
+    }
+  }
+  if (keyNode) {
+    keyNode.value = "";
+    keyNode.placeholder = settings?.hasApiKey
+      ? "如需更新密钥，请在此输入新值"
+      : "请输入新的 API Key";
+  }
 }
 
 function applySystemSettingsToForm(): void {
@@ -1198,6 +1994,13 @@ function collectSettingsFromForm(): ProviderSettings {
             "codex-upstream-model",
           ) as HTMLSelectElement | null
         )?.value || undefined,
+      exposedModels: Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          '[data-codex-exposed-model]:checked',
+        ),
+      )
+        .map((node) => node.value.trim())
+        .filter((value) => value.length > 0),
     },
     openAICompatible: {
       enabled:
@@ -1300,6 +2103,69 @@ async function saveSystemSettings(): Promise<void> {
   configureAutoRefreshTimer();
 }
 
+async function saveSecuritySettings(): Promise<void> {
+  const api = getGatewayApi();
+  const mode =
+    (
+      document.getElementById("gateway-auth-mode") as HTMLSelectElement | null
+    )?.value === "api-key"
+      ? "api-key"
+      : "none";
+  const apiKey =
+    (
+      document.getElementById("gateway-auth-api-key") as HTMLInputElement | null
+    )?.value.trim() || undefined;
+
+  const payload: SecuritySettingsInput = {
+    mode,
+    apiKey,
+  };
+  const response = await api.saveSecuritySettings(payload);
+  state.securitySettings = response.data;
+  applySecuritySettingsToForm();
+}
+
+async function saveRoutingSettings(): Promise<void> {
+  const api = getGatewayApi();
+  const payload = collectRoutingSettingsFromForm();
+  const response = await api.saveRoutingSettings(payload);
+  state.routingSettings = response.data;
+  applyRoutingSettingsToForm();
+}
+
+async function previewRoutingSettings(): Promise<void> {
+  const api = getGatewayApi();
+  const payload: RoutingPreviewInput = {
+    clientTag:
+      (
+        document.getElementById(
+          "routing-preview-client-tag",
+        ) as HTMLInputElement | null
+      )?.value.trim() || undefined,
+    requestedModelAlias:
+      (
+        document.getElementById(
+          "routing-preview-requested-model",
+        ) as HTMLInputElement | null
+      )?.value.trim() || undefined,
+    currentModelAlias:
+      (
+        document.getElementById(
+          "routing-preview-current-model",
+        ) as HTMLInputElement | null
+      )?.value.trim() || undefined,
+    currentSessionId:
+      (
+        document.getElementById(
+          "routing-preview-current-session",
+        ) as HTMLInputElement | null
+      )?.value.trim() || undefined,
+  };
+
+  const response = await api.previewRouting(payload);
+  renderRoutingPreviewResult(response.data);
+}
+
 function openAccountModal(tab = "import"): void {
   const modal = document.getElementById("account-modal");
   if (!modal) {
@@ -1351,6 +2217,55 @@ function bindNavigation(): void {
 async function copySnippetWithFeedback(): Promise<void> {
   await getGatewayApi().copyOpenClawSnippet();
   setBanner("接入片段已复制。", "success");
+}
+
+async function copyTextWithFallback(text: string): Promise<void> {
+  const api = getGatewayApi();
+  if (typeof api.copyText === "function") {
+    try {
+      await api.copyText(text);
+      return;
+    } catch (error) {
+      const message = String(error);
+      if (!message.includes("No handler registered")) {
+        throw error;
+      }
+    }
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error("当前环境不支持复制，请手动复制。");
+  }
+}
+
+async function copyTemplateWithFeedback(key: IntegrationTemplateKey): Promise<void> {
+  const health = state.health;
+  if (!health) {
+    throw new Error("控制台尚未完成初始化，请稍后重试。");
+  }
+  const snippets = buildIntegrationSnippets(health);
+  const labels: Record<IntegrationTemplateKey, string> = {
+    openclaw: "OpenClaw 模板",
+    localraghub: "localRagHub 模板",
+    curl: "通用 cURL 模板",
+  };
+  await copyTextWithFallback(snippets[key]);
+  setBanner(`${labels[key]}已复制。`, "success");
 }
 
 function setOAuthStatus(
@@ -1552,6 +2467,63 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("save-routing-settings")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "save-routing-settings",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "保存中");
+        setBanner("正在保存路由策略配置...", "info");
+        await saveRoutingSettings();
+        setBanner("路由策略配置已保存。启用后将参与实时推理路由。", "success");
+      } catch (error) {
+        setBanner(`保存路由策略失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
+    .getElementById("add-routing-rule")
+    ?.addEventListener("click", () => {
+      const settings = state.routingSettings ?? {};
+      const rules = settings.rules ?? [];
+      state.routingSettings = {
+        ...settings,
+        rules: [
+          ...rules,
+          {
+            id: createRoutingRuleId(),
+            name: `规则-${rules.length + 1}`,
+            enabled: true,
+            priority: 100 + rules.length,
+            when: {},
+            target: {},
+          },
+        ],
+      };
+      applyRoutingSettingsToForm();
+    });
+
+  document
+    .getElementById("preview-routing-settings")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "preview-routing-settings",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "预演中");
+        await previewRoutingSettings();
+        setBanner("路由预演完成。", "success");
+      } catch (error) {
+        setBanner(`路由预演失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
     .getElementById("save-system-settings")
     ?.addEventListener("click", async () => {
       const button = document.getElementById(
@@ -1564,6 +2536,24 @@ function bindActions(): void {
         setBanner("系统配置已保存。", "success");
       } catch (error) {
         setBanner(`保存系统配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
+    .getElementById("save-security-settings")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "save-security-settings",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "保存中");
+        setBanner("正在保存客户端接入鉴权配置...", "info");
+        await saveSecuritySettings();
+        setBanner("客户端接入鉴权配置已保存。", "success");
+      } catch (error) {
+        setBanner(`保存鉴权配置失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }
@@ -1638,6 +2628,57 @@ function bindActions(): void {
       state.accountSortDirection =
         state.accountSortDirection === "asc" ? "desc" : "asc";
       renderCodexAccounts();
+    });
+
+  document
+    .getElementById("routing-observe-client-filter")
+    ?.addEventListener("change", (event) => {
+      state.routingClientFilter = (
+        event.target as HTMLSelectElement
+      ).value.trim() || "all";
+      renderRoutingObservability();
+      renderTopSummary();
+    });
+
+  document
+    .getElementById("routing-observe-window")
+    ?.addEventListener("change", (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      state.routingObserveWindow =
+        value === "1h" || value === "24h" ? value : "5m";
+      renderRoutingObservability();
+      renderTopSummary();
+    });
+
+  document
+    .getElementById("reset-telemetry")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "reset-telemetry",
+      ) as HTMLButtonElement | null;
+      try {
+        const confirmed = window.confirm(
+          "将清空路由命中与账号调用统计（不影响账号、配置和授权）。是否继续？",
+        );
+        if (!confirmed) {
+          return;
+        }
+        const api = getGatewayApi();
+        if (typeof api.resetTelemetry !== "function") {
+          throw new Error(
+            "当前桌面主进程版本暂不支持清空统计，请重启桌面端后重试。",
+          );
+        }
+        setButtonLoading(button, true, "清理中");
+        setBanner("正在清空统计数据...", "info");
+        await api.resetTelemetry();
+        await refresh();
+        setBanner("统计数据已清空。", "success");
+      } catch (error) {
+        setBanner(`清空统计失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
     });
 
   document
@@ -1769,6 +2810,15 @@ function bindActions(): void {
       }
     }
 
+    if (action === "copy-template" && button.dataset.templateKey) {
+      const templateKey = button.dataset.templateKey as IntegrationTemplateKey;
+      try {
+        await copyTemplateWithFeedback(templateKey);
+      } catch (error) {
+        setBanner(`模板复制失败：${String(error)}`, "error");
+      }
+    }
+
     if (action === "delete-codex-account" && button.dataset.sessionId) {
       try {
         const confirmed = window.confirm(
@@ -1795,6 +2845,19 @@ function bindActions(): void {
         setBanner(`删除失败：${String(error)}`, "error");
       }
     }
+
+    if (action === "routing-remove-rule" && button.dataset.ruleId) {
+      const settings = state.routingSettings ?? {};
+      const rules = (settings.rules ?? []).filter(
+        (rule) => rule.id !== button.dataset.ruleId,
+      );
+      state.routingSettings = {
+        ...settings,
+        rules,
+      };
+      applyRoutingSettingsToForm();
+      resetRoutingPreviewResult();
+    }
   });
 }
 
@@ -1805,12 +2868,16 @@ async function refresh(): Promise<void> {
     providersResult,
     sessionsResult,
     settingsResult,
+    routingSettingsResult,
+    securitySettingsResult,
     systemSettingsResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
     api.getSessions(),
     api.getProviderSettings(),
+    api.getRoutingSettings(),
+    api.getSecuritySettings(),
     api.getSystemSettings(),
   ]);
   const loadFailures: RuntimeDiagnosticLoadFailure[] = [];
@@ -1869,6 +2936,33 @@ async function refresh(): Promise<void> {
     state.settings = {};
   }
 
+  if (routingSettingsResult.status === "fulfilled") {
+    state.routingSettings = routingSettingsResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "routing-settings",
+      message: normalizeErrorMessage(routingSettingsResult.reason),
+    });
+    state.routingSettings = {
+      enabled: false,
+      rules: [],
+    };
+  }
+
+  if (securitySettingsResult.status === "fulfilled") {
+    state.securitySettings = securitySettingsResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "security-settings",
+      message: normalizeErrorMessage(securitySettingsResult.reason),
+    });
+    state.securitySettings = {
+      mode: "none",
+      enabled: false,
+      hasApiKey: false,
+    };
+  }
+
   updateRuntimeDiagnostics(loadFailures);
 
   renderOverview();
@@ -1879,6 +2973,9 @@ async function refresh(): Promise<void> {
   renderErrors();
   renderGuide();
   applySettingsToForm();
+  applyRoutingSettingsToForm();
+  resetRoutingPreviewResult();
+  applySecuritySettingsToForm();
   applySystemSettingsToForm();
   configureAutoRefreshTimer();
   configureSessionActivityTimer();
@@ -1981,6 +3078,7 @@ void (async () => {
     state.activeView = loadPersistedView();
     bindNavigation();
     setActiveView(state.activeView);
+    initCollapsibleSettingsGroups();
     bindActions();
     setOAuthStatus(
       "浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。",

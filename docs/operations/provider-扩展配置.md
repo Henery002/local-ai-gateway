@@ -22,6 +22,7 @@ npm run dev:desktop
 
 在 `Provider 配置` 区块中可以直接填写：
 
+- Codex 默认上游模型与并行暴露模型别名（多别名并存）
 - OpenAI-compatible 的 `Base URL`、`API Key`、模型名、模型别名
 - Ollama 的 `Base URL`、模型名、模型别名
 - 默认模型别名
@@ -65,6 +66,32 @@ export LOCAL_AI_GATEWAY_OPENAI_ALIAS="relay-default"
 ```
 
 启用后，gateway 会新增一个 `openai-compatible` provider，并在 `/v1/models` 中暴露对应模型别名。
+
+## Codex 多别名并存
+
+默认行为：
+
+- `codex-default` 始终存在，并指向当前选中的 Codex 上游模型
+- 额外可并行暴露多个固定别名（例如 `codex-5.4`、`codex-5.4-mini`、`codex-5.3`、`codex-5.2`）
+
+可选环境变量：
+
+- `LOCAL_AI_GATEWAY_CODEX_MODEL`：设置 `codex-default` 对应的上游模型
+- `LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS`：设置并行暴露模型列表（逗号分隔）
+
+示例：
+
+```bash
+export LOCAL_AI_GATEWAY_CODEX_MODEL="gpt-5.4-mini"
+export LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS="gpt-5.4,gpt-5.4-mini,gpt-5.3-codex"
+```
+
+此时 `/v1/models` 中将同时包含：
+
+- `codex-default`（指向 `gpt-5.4-mini`）
+- `codex-5.4`
+- `codex-5.4-mini`
+- `codex-5.3`
 
 ## Ollama
 

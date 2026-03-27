@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   DesktopSystemSettings,
+  GatewayInferenceAuthSettings,
   GatewayProviderSettings,
   GatewayRoutingSettings,
   GatewayStoredConfig,
@@ -76,6 +77,22 @@ export class ConfigStore {
     const next = {
       ...current,
       routingSettings,
+      updatedAt: toIsoNow(),
+    };
+    return this.save(next);
+  }
+
+  getInferenceAuthSettings(): GatewayInferenceAuthSettings {
+    return this.load().inferenceAuthSettings ?? {};
+  }
+
+  setInferenceAuthSettings(
+    inferenceAuthSettings: GatewayInferenceAuthSettings,
+  ): GatewayStoredConfig {
+    const current = this.load();
+    const next = {
+      ...current,
+      inferenceAuthSettings,
       updatedAt: toIsoNow(),
     };
     return this.save(next);

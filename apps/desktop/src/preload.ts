@@ -6,14 +6,28 @@ const api = {
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),
+  getRoutingSettings: () => ipcRenderer.invoke("gateway:get-routing-settings"),
+  saveRoutingSettings: (payload: unknown) =>
+    ipcRenderer.invoke("gateway:save-routing-settings", payload),
+  previewRouting: (payload: unknown) =>
+    ipcRenderer.invoke("gateway:preview-routing", payload),
+  getSecuritySettings: () => ipcRenderer.invoke("gateway:get-security-settings"),
+  saveSecuritySettings: (payload: unknown) =>
+    ipcRenderer.invoke("gateway:save-security-settings", payload),
   getSystemSettings: () => ipcRenderer.invoke("gateway:get-system-settings"),
   saveSystemSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-system-settings", payload),
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId: string) =>
     ipcRenderer.invoke("gateway:set-active-session", sessionId),
+  refreshSessionUsage: (sessionId?: string) =>
+    ipcRenderer.invoke("gateway:refresh-session-usage", sessionId),
+  resetTelemetry: () => ipcRenderer.invoke("gateway:reset-telemetry"),
+  deleteCodexAccount: (sessionId: string) =>
+    ipcRenderer.invoke("gateway:delete-codex-account", sessionId),
   restartGateway: () => ipcRenderer.invoke("gateway:restart"),
   copyOpenClawSnippet: () => ipcRenderer.invoke("gateway:copy-openclaw-snippet"),
+  copyText: (text: string) => ipcRenderer.invoke("gateway:copy-text", text),
   openLogs: () => ipcRenderer.invoke("gateway:open-logs"),
   loginCodexOAuth: () => ipcRenderer.invoke("gateway:login-codex-oauth"),
   submitCodexOAuthInput: (input: string) =>

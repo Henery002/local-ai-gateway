@@ -11,6 +11,7 @@ import {
 } from "@local-ai-gateway/openai-compat";
 import {
   GatewayError,
+  GatewayInferenceAuthSettings,
   GatewayProviderSettings,
   GatewayRoutingPreviewInput,
   GatewayRoutingSettings,
@@ -62,6 +63,95 @@ function ensureSessionExists(sessions: SessionSummary[], sessionId: string): Ses
   return session;
 }
 
+function getFirstHeaderValue(
+  request: FastifyRequest,
+  key: string,
+): string | undefined {
+  const value = request.headers[key];
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (Array.isArray(value)) {
+    const first = value.find((item) => typeof item === "string" && item.trim().length > 0);
+    return typeof first === "string" ? first.trim() : undefined;
+  }
+  return undefined;
+}
+
+function resolveClientTag(request: FastifyRequest): string | undefined {
+  const explicit =
+    getFirstHeaderValue(request, "x-local-ai-client-tag") ??
+    getFirstHeaderValue(request, "x-client-tag") ??
+    getFirstHeaderValue(request, "x-source-app");
+  if (explicit) {
+    return explicit.trim().toLowerCase();
+  }
+
+  const userAgent = getFirstHeaderValue(request, "user-agent")?.toLowerCase();
+  if (!userAgent) {
+    return undefined;
+  }
+  if (userAgent.includes("localraghub") || userAgent.includes("raghub")) {
+    return "localraghub";
+  }
+  if (userAgent.includes("openclaw")) {
+    return "openclaw";
+  }
+  if (userAgent.includes("curl")) {
+    return "curl";
+  }
+  return undefined;
+}
+
+function readClientApiKey(request: FastifyRequest): string | undefined {
+  const auth = getFirstHeaderValue(request, "authorization");
+  if (auth?.startsWith("Bearer ")) {
+    const value = auth.slice("Bearer ".length).trim();
+    if (value) {
+      return value;
+    }
+  }
+  return getFirstHeaderValue(request, "x-api-key");
+}
+
+function requireInferenceAuth(
+  runtime: GatewayRuntime,
+  request: FastifyRequest,
+): void {
+  const settings = runtime.configStore.getInferenceAuthSettings();
+  const mode = settings.mode === "api-key" ? "api-key" : "none";
+  if (mode !== "api-key") {
+    return;
+  }
+
+  const expectedKey = settings.apiKey?.trim();
+  if (!expectedKey) {
+    throw new GatewayError(
+      503,
+      "gateway_api_key_not_configured",
+      "Gateway API key auth is enabled but key is not configured.",
+    );
+  }
+
+  const incomingKey = readClientApiKey(request);
+  if (!incomingKey) {
+    throw new GatewayError(
+      401,
+      "gateway_api_key_required",
+      "Missing API key for gateway inference endpoint.",
+    );
+  }
+
+  if (incomingKey !== expectedKey) {
+    throw new GatewayError(
+      403,
+      "gateway_api_key_invalid",
+      "Invalid API key for gateway inference endpoint.",
+    );
+  }
+}
+
 export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   const app = Fastify({
     logger: false,
@@ -75,14 +165,90 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.get("/healthz", async () => runtime.getHealth());
 
-  app.get("/v1/models", async () => buildModelsResponse(runtime.modelRegistry.list()));
+  app.get("/v1/models", async (request) => {
+    requireInferenceAuth(runtime, request);
+    return buildModelsResponse(runtime.modelRegistry.list());
+  });
 
   app.post("/v1/chat/completions", async (request, reply) => {
+    requireInferenceAuth(runtime, request);
     const parsed = parseChatCompletionsRequest(request.body);
     const startedAt = Date.now();
-    let usedSessionId = runtime.getActiveSessionId();
+    const currentSessionId = runtime.getActiveSessionId();
+    const clientTag = resolveClientTag(request);
+    const routingPreview = runtime.previewRouting({
+      clientTag,
+      requestedModelAlias: parsed.model,
+      currentModelAlias: parsed.model,
+      currentSessionId,
+    });
+
+    let resolvedModelAlias = parsed.model;
+    let resolvedSessionId = currentSessionId;
+    const routingWarnings = [...routingPreview.warnings];
+
+    if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
+      const routedModel = runtime.getProviderAdapterForModel(routingPreview.resolvedModelAlias);
+      if (routedModel) {
+        resolvedModelAlias = routingPreview.resolvedModelAlias;
+      } else {
+        runtime.logger.error("routing_model_fallback", {
+          requestedModel: parsed.model,
+          routedModel: routingPreview.resolvedModelAlias,
+          reason: "model_not_found",
+          matchedRuleId: routingPreview.matchedRuleId,
+        });
+        routingWarnings.push(`目标模型 ${routingPreview.resolvedModelAlias} 未找到，已回退原模型。`);
+      }
+
+      if (routingPreview.resolvedSessionId) {
+        const hasTargetSession = runtime
+          .listSessions()
+          .some((session) => session.id === routingPreview.resolvedSessionId);
+        if (hasTargetSession) {
+          resolvedSessionId = routingPreview.resolvedSessionId;
+        } else {
+          runtime.logger.error("routing_session_fallback", {
+            requestedSession: routingPreview.resolvedSessionId,
+            reason: "session_not_found",
+            matchedRuleId: routingPreview.matchedRuleId,
+          });
+          routingWarnings.push(`目标会话 ${routingPreview.resolvedSessionId} 未找到，已回退当前活动会话。`);
+        }
+      }
+    }
+
+    if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
+      const modelApplied = resolvedModelAlias !== parsed.model;
+      const sessionApplied = Boolean(
+        resolvedSessionId && resolvedSessionId !== currentSessionId,
+      );
+      runtime.recordRoutingHit({
+        timestamp: Date.now(),
+        clientTag,
+        requestedModelAlias: parsed.model,
+        resolvedModelAlias,
+        resolvedSessionId,
+        matchedRuleId: routingPreview.matchedRuleId ?? "unknown-rule",
+        matchedRuleName: routingPreview.matchedRuleName ?? "未命名规则",
+        modelApplied,
+        sessionApplied,
+        warnings: routingWarnings.length ? routingWarnings : undefined,
+      });
+      runtime.logger.info("routing_applied", {
+        matchedRuleId: routingPreview.matchedRuleId,
+        matchedRuleName: routingPreview.matchedRuleName,
+        clientTag,
+        requestedModel: parsed.model,
+        resolvedModelAlias,
+        resolvedSessionId,
+        warnings: routingWarnings,
+      });
+    }
+
+    let usedSessionId = resolvedSessionId;
     let hasRecordedResult = false;
-    const resolved = runtime.getProviderAdapterForModel(parsed.model);
+    const resolved = runtime.getProviderAdapterForModel(resolvedModelAlias);
     if (!resolved) {
       throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
     }
@@ -95,7 +261,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         resolved.model,
         toGatewayConversationContext(parsed),
         {
-          sessionId: runtime.getActiveSessionId(),
+          sessionId: resolvedSessionId,
           temperature: parsed.temperature,
           maxTokens: parsed.max_tokens,
           topP: parsed.top_p,
@@ -112,7 +278,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           Connection: "keep-alive",
         });
 
-        for await (const chunk of streamChatCompletionChunks(result.stream, parsed.model)) {
+        for await (const chunk of streamChatCompletionChunks(result.stream, resolvedModelAlias)) {
           reply.raw.write(chunk);
         }
 
@@ -122,6 +288,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             sessionId: usedSessionId,
             ok: true,
             stream: true,
+            clientTag,
             happenedAt: Date.now(),
           });
           hasRecordedResult = true;
@@ -136,6 +303,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             sessionId: usedSessionId,
             ok: false,
             stream: false,
+            clientTag,
             happenedAt: Date.now(),
             errorMessage: finalMessage.errorMessage ?? "upstream_error",
           });
@@ -153,17 +321,19 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           sessionId: usedSessionId,
           ok: true,
           stream: false,
+          clientTag,
           happenedAt: Date.now(),
         });
         hasRecordedResult = true;
       }
-      return buildChatCompletionResponse(finalMessage, parsed.model);
+      return buildChatCompletionResponse(finalMessage, resolvedModelAlias);
     } catch (error) {
       if (usedSessionId && !hasRecordedResult) {
         runtime.recordInferenceResult({
           sessionId: usedSessionId,
           ok: false,
           stream: Boolean(parsed.stream),
+          clientTag,
           happenedAt: Date.now(),
           errorMessage:
             error instanceof Error
@@ -244,6 +414,43 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.get("/admin/config/security", async (request) => {
+    requireAdminAuth(runtime, request);
+    return {
+      ok: true,
+      data: runtime.getInferenceAuthPublicSettings(),
+    };
+  });
+
+  app.put("/admin/config/security", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as GatewayInferenceAuthSettings;
+    const mode = body.mode === "api-key" ? "api-key" : "none";
+    const previous = runtime.configStore.getInferenceAuthSettings();
+    const nextApiKey = body.apiKey?.trim() || previous.apiKey?.trim() || "";
+
+    if (mode === "api-key" && !nextApiKey) {
+      throw new GatewayError(
+        400,
+        "invalid_request",
+        "启用 API Key 鉴权时必须提供至少一个有效密钥。",
+      );
+    }
+
+    runtime.configStore.setInferenceAuthSettings({
+      mode,
+      apiKey: nextApiKey || undefined,
+    });
+    runtime.logger.info("inference_auth_settings_saved", {
+      mode,
+      hasApiKey: Boolean(nextApiKey),
+    });
+    return {
+      ok: true,
+      data: runtime.getInferenceAuthPublicSettings(),
+    };
+  });
+
   app.get("/admin/sessions", async (request) => {
     requireAdminAuth(runtime, request);
     return {
@@ -273,6 +480,16 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     requireAdminAuth(runtime, request);
     const body = (request.body ?? {}) as { sessionId?: string };
     return runtime.refreshSessionUsage(body.sessionId);
+  });
+
+  app.post("/admin/telemetry/reset", async (request) => {
+    requireAdminAuth(runtime, request);
+    runtime.resetTelemetry();
+    runtime.logger.info("telemetry_reset");
+    return {
+      ok: true,
+      reset: true,
+    };
   });
 
   app.post("/admin/service/restart", async (request, reply) => {

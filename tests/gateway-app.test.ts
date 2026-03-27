@@ -185,8 +185,13 @@ class FakeProviderAdapter implements ProviderAdapter {
   }
 }
 
-function createTestRuntime(options?: { serverHost?: string; serverPort?: number }) {
-  const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+function createTestRuntime(options?: {
+  serverHost?: string;
+  serverPort?: number;
+  rootDir?: string;
+}) {
+  const rootDir =
+    options?.rootDir ?? mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
   const paths = ensureAppPaths(rootDir);
   const database = new GatewayDatabase(paths);
   const logger = new AppLogger(paths, database);
@@ -199,6 +204,16 @@ function createTestRuntime(options?: { serverHost?: string; serverPort?: number 
       displayName: "Fake Default",
       provider: "fake-provider",
       providerModelId: "fake-model-1",
+      contextWindow: 100_000,
+      maxTokens: 8_192,
+      input: ["text"],
+      reasoning: true,
+    },
+    {
+      alias: "fake-routed",
+      displayName: "Fake Routed",
+      provider: "fake-provider",
+      providerModelId: "fake-model-2",
       contextWindow: 100_000,
       maxTokens: 8_192,
       input: ["text"],
@@ -343,6 +358,45 @@ describe("gateway app", () => {
         },
       });
 
+      const securitySettings = await app.inject({
+        method: "GET",
+        url: "/admin/config/security",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(securitySettings.statusCode).toBe(200);
+      expect(securitySettings.json()).toMatchObject({
+        ok: true,
+        data: {
+          mode: "none",
+          enabled: false,
+          hasApiKey: false,
+        },
+      });
+
+      const savedSecurity = await app.inject({
+        method: "PUT",
+        url: "/admin/config/security",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          mode: "api-key",
+          apiKey: "gateway-test-key",
+        },
+      });
+      expect(savedSecurity.statusCode).toBe(200);
+      expect(savedSecurity.json()).toMatchObject({
+        ok: true,
+        data: {
+          mode: "api-key",
+          enabled: true,
+          hasApiKey: true,
+        },
+      });
+
       const setActive = await app.inject({
         method: "PUT",
         url: "/admin/sessions/active",
@@ -404,6 +458,11 @@ describe("gateway app", () => {
       expect(adminHealth.json().openclaw).toMatchObject({
         baseUrl: "http://127.0.0.1:8787/v1",
       });
+      expect(adminHealth.json().inferenceAuth).toMatchObject({
+        mode: "api-key",
+        enabled: true,
+        hasApiKey: true,
+      });
     } finally {
       await app.close();
       database.close();
@@ -448,6 +507,25 @@ describe("gateway app", () => {
     const { rootDir, runtime, database, adapter } = createTestRuntime();
     cleanupDirs.push(rootDir);
     runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-live-route",
+          name: "localraghub-live-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "localraghub",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            modelAlias: "fake-routed",
+            sessionId: "main:fake:default",
+          },
+        },
+      ],
+    });
     const app = createGatewayApp(runtime);
 
     try {
@@ -456,6 +534,7 @@ describe("gateway app", () => {
         url: "/v1/chat/completions",
         headers: {
           "content-type": "application/json",
+          "user-agent": "localRagHub/1.0",
         },
         payload: {
           model: "fake-default",
@@ -469,6 +548,7 @@ describe("gateway app", () => {
       });
 
       expect(response.statusCode).toBe(200);
+      expect(response.json().model).toBe("fake-routed");
       expect(response.json().choices[0]?.message?.content).toBe("OK");
       expect(adapter.lastContext?.systemPrompt).toBe("You are a test.");
       expect(adapter.lastOptions).toMatchObject({
@@ -491,8 +571,192 @@ describe("gateway app", () => {
         successCount: 1,
         failureCount: 0,
         nonStreamCount: 1,
+        recentRequestCount5m: 1,
+        byClientTag: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag5m: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
       });
       expect(typeof sessions.json().data[0]?.activity?.lastRequestAt).toBe("number");
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability).toMatchObject({
+        totalMatched: 1,
+        matchedLast5m: 1,
+        matchedLast1h: 1,
+        matchedLast24h: 1,
+      });
+      expect(adminHealth.json().routingObservability.byRule[0]).toMatchObject({
+        ruleId: "rule-live-route",
+        ruleName: "localraghub-live-route",
+        hits: 1,
+      });
+      expect(adminHealth.json().routingObservability.byClientTag[0]).toMatchObject({
+        clientTag: "localraghub",
+        hits: 1,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("persists routing and session activity telemetry across runtime restarts", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+
+    const first = createTestRuntime({ rootDir });
+    const firstApp = createGatewayApp(first.runtime);
+    try {
+      first.runtime.recordInferenceResult({
+        sessionId: "main:fake:default",
+        ok: true,
+        stream: false,
+        clientTag: "localraghub",
+        happenedAt: Date.now(),
+      });
+      first.runtime.recordRoutingHit({
+        timestamp: Date.now(),
+        clientTag: "localraghub",
+        requestedModelAlias: "fake-default",
+        resolvedModelAlias: "fake-routed",
+        resolvedSessionId: "main:fake:default",
+        matchedRuleId: "rule-persist",
+        matchedRuleName: "persist-rule",
+        modelApplied: true,
+        sessionApplied: false,
+      });
+    } finally {
+      await firstApp.close();
+      first.database.close();
+    }
+
+    const second = createTestRuntime({ rootDir });
+    const secondApp = createGatewayApp(second.runtime);
+    try {
+      const adminToken = second.runtime.configStore.getAdminToken();
+      const sessions = await secondApp.inject({
+        method: "GET",
+        url: "/admin/sessions",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(sessions.statusCode).toBe(200);
+      expect(sessions.json().data[0]?.activity).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        recentRequestCount5m: 1,
+        byClientTag: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag5m: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+      });
+
+      const adminHealth = await secondApp.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability).toMatchObject({
+        totalMatched: 1,
+      });
+      expect(adminHealth.json().routingObservability.byClientTag[0]).toMatchObject({
+        clientTag: "localraghub",
+        hits: 1,
+      });
+    } finally {
+      await secondApp.close();
+      second.database.close();
+    }
+  });
+
+  it("clears telemetry by admin endpoint without affecting sessions", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      runtime.recordInferenceResult({
+        sessionId: "main:fake:default",
+        ok: true,
+        stream: false,
+        clientTag: "localraghub",
+      });
+      runtime.recordRoutingHit({
+        timestamp: Date.now(),
+        clientTag: "localraghub",
+        requestedModelAlias: "fake-default",
+        resolvedModelAlias: "fake-routed",
+        resolvedSessionId: "main:fake:default",
+        matchedRuleId: "rule-reset",
+        matchedRuleName: "reset-rule",
+        modelApplied: true,
+        sessionApplied: false,
+      });
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const reset = await app.inject({
+        method: "POST",
+        url: "/admin/telemetry/reset",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(reset.statusCode).toBe(200);
+      expect(reset.json()).toMatchObject({ ok: true, reset: true });
+
+      const sessions = await app.inject({
+        method: "GET",
+        url: "/admin/sessions",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(sessions.statusCode).toBe(200);
+      expect(sessions.json().data[0]?.id).toBe("main:fake:default");
+      expect(sessions.json().data[0]?.activity).toBeUndefined();
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability).toMatchObject({
+        totalMatched: 0,
+        matchedLast5m: 0,
+        matchedLast1h: 0,
+        matchedLast24h: 0,
+      });
     } finally {
       await app.close();
       database.close();
@@ -540,6 +804,48 @@ describe("gateway app", () => {
       expect(streamResponse.body).toContain("\"role\":\"assistant\"");
       expect(streamResponse.body).toContain("\"get_weather\"");
       expect(streamResponse.body).toContain("data: [DONE]");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("enforces optional gateway inference api key auth", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      apiKey: "gateway-secret",
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const missingKey = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+      });
+      expect(missingKey.statusCode).toBe(401);
+      expect(missingKey.json().error.type).toBe("gateway_api_key_required");
+
+      const invalidKey = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer invalid",
+        },
+      });
+      expect(invalidKey.statusCode).toBe(403);
+      expect(invalidKey.json().error.type).toBe("gateway_api_key_invalid");
+
+      const validKey = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer gateway-secret",
+        },
+      });
+      expect(validKey.statusCode).toBe(200);
+      expect(validKey.json().data[0]?.id).toBe("fake-default");
     } finally {
       await app.close();
       database.close();

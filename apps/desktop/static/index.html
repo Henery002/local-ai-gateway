@@ -20,8 +20,8 @@
         --text-secondary: #4b5563;
         --text-tertiary: #9ca3af;
         
-        --border-light: rgba(0, 0, 0, 0.12);
-        --border-strong: rgba(0, 0, 0, 0.20);
+        --border-light: rgba(0, 0, 0, 0.18);
+        --border-strong: rgba(0, 0, 0, 0.28);
         
         --primary-btn-bg: #111827;
         --primary-btn-hover: #1f2937;
@@ -69,8 +69,8 @@
         --radius-lg: 14px;
         --radius-xl: 20px;
         
-        --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.06);
-        --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.08);
+        --shadow-sm: 0 4px 10px rgba(0, 0, 0, 0.10);
+        --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.14);
         --shadow-floating: 0 16px 40px rgba(0, 0, 0, 0.12);
 
         --space-1: 4px;
@@ -106,6 +106,14 @@
       button, input, select {
         font: inherit;
         outline: none;
+      }
+
+      .app-shell :is(p, span, label, small, strong, button, input, select, textarea) {
+        font-size: max(15px, 0.95em) !important;
+      }
+
+      .app-shell .acc-info span {
+        font-size: 14px !important;
       }
 
       /* App Shell */
@@ -353,6 +361,10 @@
         color: var(--success);
       }
 
+      .stat-value.routing-hit {
+        color: #0f766e;
+      }
+
       .stat-divider {
         width: 1px;
         background: var(--border-light);
@@ -401,6 +413,11 @@
       .grid-4 { grid-template-columns: repeat(4, 1fr); }
       .grid-3 { grid-template-columns: repeat(3, 1fr); }
       .grid-2 { grid-template-columns: repeat(2, 1fr); }
+
+      .accounts-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 28px;
+      }
 
       .card {
         background: var(--bg-main);
@@ -589,6 +606,26 @@
         align-items: center;
       }
 
+      .settings-group.collapsible .settings-header {
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .settings-group.collapsible .settings-header::after {
+        content: "▾";
+        color: var(--text-tertiary);
+        margin-left: 10px;
+        transition: transform 0.2s ease;
+      }
+
+      .settings-group.collapsible.collapsed .settings-header::after {
+        transform: rotate(-90deg);
+      }
+
+      .settings-group.collapsible.collapsed .settings-body {
+        display: none;
+      }
+
       .settings-header h3 {
         margin: 0 0 4px 0;
         font-size: 18px;
@@ -614,6 +651,31 @@
         gap: 16px;
       }
 
+      .routing-rule-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .routing-preview-panel {
+        border: 1px solid var(--border-light);
+        background: var(--bg-surface);
+        border-radius: var(--radius-md);
+        padding: 16px;
+      }
+
+      .routing-preview-panel h4 {
+        margin: 0 0 4px 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .routing-preview-panel p {
+        margin: 0 0 12px 0;
+        color: var(--text-secondary);
+        font-size: 14px;
+      }
+
       .form-field {
         display: flex;
         flex-direction: column;
@@ -628,6 +690,31 @@
         font-size: 15px;
         font-weight: 500;
         color: var(--text-primary);
+      }
+
+      .chip-check-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border-light);
+        background: var(--bg-surface);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 13px;
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+
+      .chip-check input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
       }
 
       .form-hint {
@@ -752,6 +839,8 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
       }
 
       .acc-status-group {
@@ -760,12 +849,20 @@
         align-items: center;
         flex-wrap: wrap;
         justify-content: flex-end;
+        flex: 0 1 188px;
+        min-width: 0;
+      }
+
+      .acc-status-group .badge {
+        max-width: 100%;
       }
 
       .acc-title-group {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 12px;
+        flex: 1 1 220px;
+        min-width: 0;
       }
 
       .acc-avatar {
@@ -793,16 +890,25 @@
       .acc-avatar[data-avatar-tone="10"] { background: var(--avatar-tone-10-bg); color: var(--avatar-tone-10-text); }
       .acc-avatar[data-avatar-tone="11"] { background: var(--avatar-tone-11-bg); color: var(--avatar-tone-11-text); }
 
+      .acc-info {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
       .acc-info h4 {
         margin: 0 0 2px 0;
         font-size: 16px;
         font-weight: 600;
         color: var(--text-primary);
+        overflow-wrap: anywhere;
       }
 
       .acc-info span {
         font-size: 14px;
         color: var(--text-tertiary);
+        overflow-wrap: anywhere;
       }
 
       .acc-meta {
@@ -811,6 +917,45 @@
         font-size: 14px;
         color: var(--text-secondary);
       }
+
+      .client-tag-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .client-tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .client-tag-chip em {
+        font-style: normal;
+        font-size: 12px;
+        opacity: 0.88;
+      }
+
+      .client-tag-chip.recent {
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+      }
+
+      .client-tag-chip[data-tone="0"] { background: var(--avatar-tone-0-bg); color: var(--avatar-tone-0-text); }
+      .client-tag-chip[data-tone="1"] { background: var(--avatar-tone-1-bg); color: var(--avatar-tone-1-text); }
+      .client-tag-chip[data-tone="2"] { background: var(--avatar-tone-2-bg); color: var(--avatar-tone-2-text); }
+      .client-tag-chip[data-tone="3"] { background: var(--avatar-tone-3-bg); color: var(--avatar-tone-3-text); }
+      .client-tag-chip[data-tone="4"] { background: var(--avatar-tone-4-bg); color: var(--avatar-tone-4-text); }
+      .client-tag-chip[data-tone="5"] { background: var(--avatar-tone-5-bg); color: var(--avatar-tone-5-text); }
+      .client-tag-chip[data-tone="6"] { background: var(--avatar-tone-6-bg); color: var(--avatar-tone-6-text); }
+      .client-tag-chip[data-tone="7"] { background: var(--avatar-tone-7-bg); color: var(--avatar-tone-7-text); }
+      .client-tag-chip[data-tone="8"] { background: var(--avatar-tone-8-bg); color: var(--avatar-tone-8-text); }
+      .client-tag-chip[data-tone="9"] { background: var(--avatar-tone-9-bg); color: var(--avatar-tone-9-text); }
+      .client-tag-chip[data-tone="10"] { background: var(--avatar-tone-10-bg); color: var(--avatar-tone-10-text); }
+      .client-tag-chip[data-tone="11"] { background: var(--avatar-tone-11-bg); color: var(--avatar-tone-11-text); }
 
       .acc-quota-bar {
         height: 6px;
@@ -873,6 +1018,66 @@
         font-size: 14px;
       }
 
+      .routing-observe-panel {
+        border: 1px solid rgba(15, 118, 110, 0.24);
+        box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+      }
+
+      .routing-observe-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .routing-observe-kpi {
+        border-radius: 10px;
+        border: 1px solid var(--border-light);
+        background: var(--bg-surface);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .routing-observe-kpi small {
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .routing-observe-kpi strong {
+        font-size: 16px;
+        color: var(--text-primary);
+      }
+
+      .routing-observe-kpi strong.hot {
+        color: #0f766e;
+      }
+
+      .routing-observe-recent {
+        display: grid;
+        gap: 10px;
+      }
+
+      .routing-observe-toolbar {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .routing-observe-toolbar label {
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .routing-event-item {
+        border: 1px solid var(--border-light);
+        background: var(--bg-surface);
+        border-radius: 10px;
+        padding: 12px;
+      }
+
       /* Utilities */
       .mt-4 { margin-top: 16px; }
       .mb-4 { margin-bottom: 16px; }
@@ -886,8 +1091,23 @@
         .main-window { border-radius: 0; border: none; box-shadow: none; }
         .grid-4 { grid-template-columns: repeat(2, 1fr); }
         .form-row { grid-template-columns: 1fr; }
+        .routing-rule-grid { grid-template-columns: 1fr; }
+        .routing-observe-grid { grid-template-columns: 1fr 1fr; }
         .header-stats { flex-wrap: wrap; }
         .stat-divider { display: none; }
+      }
+
+      @media (max-width: 1680px) {
+        .accounts-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+
+      @media (max-width: 1260px) {
+        .accounts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+
+      @media (max-width: 760px) {
+        .accounts-grid { grid-template-columns: 1fr; }
+        .routing-observe-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -961,6 +1181,11 @@
             </div>
             <div class="stat-divider"></div>
             <div class="stat-item">
+              <span class="stat-label">路由命中</span>
+              <span class="stat-value routing-hit" id="top-summary-routing-hit">加载中</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-item">
               <span class="stat-label">活动授权</span>
               <span class="stat-value" id="top-summary-session">加载中</span>
             </div>
@@ -968,6 +1193,11 @@
             <div class="stat-item">
               <span class="stat-label">Provider / 授权数</span>
               <span class="stat-value" id="top-summary-providers">加载中</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-item">
+              <span class="stat-label">接入鉴权</span>
+              <span class="stat-value" id="top-summary-auth">加载中</span>
             </div>
           </div>
         </header>
@@ -994,6 +1224,54 @@
                   <small>默认模型选择依据</small>
                   <strong id="default-selection">加载中</strong>
                 </div>
+              </div>
+
+              <div class="card routing-observe-panel mt-4">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <div>
+                    <strong style="font-size: 16px;">路由命中观测</strong>
+                    <div style="font-size: 13px; color: var(--text-secondary);">用于观察策略路由是否被真实第三方请求命中。</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="badge active">实时观测</span>
+                    <button id="reset-telemetry" class="btn secondary mini">清空统计</button>
+                  </div>
+                </div>
+                <div class="routing-observe-grid">
+                  <div class="routing-observe-kpi">
+                    <small id="routing-observe-window-label">5 分钟命中</small>
+                    <strong class="hot" id="routing-observe-window-count">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>累计命中</small>
+                    <strong id="routing-observe-total">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>最近命中</small>
+                    <strong id="routing-observe-last-hit">暂无</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>Top 规则</small>
+                    <strong id="routing-observe-top-rule">暂无</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>Top 客户端</small>
+                    <strong id="routing-observe-top-client">暂无</strong>
+                  </div>
+                </div>
+                <div class="routing-observe-toolbar">
+                  <label for="routing-observe-client-filter">筛选客户端</label>
+                  <select id="routing-observe-client-filter" class="input-field" style="width: auto; min-width: 180px;">
+                    <option value="all">全部客户端</option>
+                  </select>
+                  <label for="routing-observe-window">统计窗口</label>
+                  <select id="routing-observe-window" class="input-field" style="width: auto; min-width: 130px;">
+                    <option value="5m">5 分钟</option>
+                    <option value="1h">1 小时</option>
+                    <option value="24h">24 小时</option>
+                  </select>
+                </div>
+                <div class="routing-observe-recent mt-4" id="routing-observe-recent"></div>
               </div>
             </section>
 
@@ -1067,6 +1345,55 @@
               <div class="settings-group mb-4">
                 <div class="settings-header">
                   <div>
+                    <h3>策略路由（第二期）</h3>
+                    <p>按客户端标签或请求模型命中规则。建议先预演，再启用到实时推理链路。</p>
+                  </div>
+                  <label class="switch-label">
+                    <input id="routing-enabled" type="checkbox" /> 启用策略路由
+                  </label>
+                </div>
+                <div class="settings-body">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                    <button id="add-routing-rule" class="btn secondary">新增规则</button>
+                    <button id="save-routing-settings" class="btn primary">保存路由策略</button>
+                  </div>
+
+                  <div id="routing-rules-list" class="grid-layout grid-1"></div>
+
+                  <div class="routing-preview-panel">
+                    <h4>路由预演</h4>
+                    <p>输入模拟请求条件，查看当前策略将解析到哪个模型和账号。</p>
+                    <div class="form-row">
+                      <div class="form-field">
+                        <label>客户端标签（可选）</label>
+                        <input id="routing-preview-client-tag" class="input-field" placeholder="例如 localraghub / openclaw" />
+                      </div>
+                      <div class="form-field">
+                        <label>请求模型别名（可选）</label>
+                        <input id="routing-preview-requested-model" class="input-field" placeholder="例如 codex-default" />
+                      </div>
+                      <div class="form-field">
+                        <label>当前模型别名（可选）</label>
+                        <input id="routing-preview-current-model" class="input-field" placeholder="为空则使用当前默认模型" />
+                      </div>
+                      <div class="form-field">
+                        <label>当前会话 ID（可选）</label>
+                        <input id="routing-preview-current-session" class="input-field" placeholder="为空则使用当前活动账号" />
+                      </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
+                      <button id="preview-routing-settings" class="btn secondary">预演路由结果</button>
+                    </div>
+                    <div id="routing-preview-result" style="margin-top: 12px; padding: 12px; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-main);">
+                      <span style="font-size: 13px; color: var(--text-secondary);">填写条件后点击“预演路由结果”查看命中情况。</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-group mb-4">
+                <div class="settings-header">
+                  <div>
                     <h3>会话型 Provider (Codex)</h3>
                     <p>复用本地授权驱动，无需手动填写密钥。</p>
                   </div>
@@ -1088,6 +1415,11 @@
                     <div class="form-field">
                       <label>Codex 上游模型</label>
                       <select id="codex-upstream-model" class="input-field"></select>
+                    </div>
+                    <div class="form-field full">
+                      <label>并行暴露模型别名</label>
+                      <div id="codex-exposed-models" class="chip-check-list"></div>
+                      <div class="form-hint">可同时暴露多个 Codex 模型别名给第三方客户端，例如 `codex-5.4`、`codex-5.4-mini`。</div>
                     </div>
                   </div>
                 </div>
@@ -1155,6 +1487,28 @@
               <div class="settings-group mb-4">
                 <div class="settings-body">
                   <div class="form-row">
+                    <div class="form-field full" style="border-bottom: 1px solid var(--border-light); padding-bottom: 16px;">
+                      <label>第三方客户端接入鉴权</label>
+                      <div class="form-hint">控制 `/v1/models` 与 `/v1/chat/completions` 的访问策略。推荐本机联调用“无鉴权”，多应用共享时使用 API Key 鉴权。</div>
+                    </div>
+                    <div class="form-field">
+                      <label>鉴权模式</label>
+                      <select id="gateway-auth-mode" class="input-field" style="max-width: 300px;">
+                        <option value="none">无鉴权（本机单用户）</option>
+                        <option value="api-key">API Key 鉴权</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label>Gateway API Key</label>
+                      <input id="gateway-auth-api-key" class="input-field" type="password" placeholder="请输入新的 API Key" />
+                      <div class="form-hint">安全原因不会回显已有密钥。留空时保留已有密钥不变。</div>
+                    </div>
+                    <div class="form-field full">
+                      <div id="gateway-auth-status" class="form-hint">当前未启用推理接口鉴权，适合本机单用户场景。</div>
+                    </div>
+                    <div class="form-field full" style="display: flex; justify-content: flex-end;">
+                      <button id="save-security-settings" class="btn secondary">保存鉴权配置</button>
+                    </div>
                     <div class="form-field full" style="flex-direction: row; justify-content: space-between; align-items: center;">
                       <div>
                         <label>开机自启动</label>

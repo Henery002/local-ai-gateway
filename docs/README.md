@@ -8,6 +8,7 @@
 - [架构总览](./architecture/overview.md)
 - [概念地图](./architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
 - [OpenClaw 接入与运行说明](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
+- [第三方客户端接入模板与错误排查](./operations/%E7%AC%AC%E4%B8%89%E6%96%B9%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%8E%A5%E5%85%A5%E6%A8%A1%E6%9D%BF%E4%B8%8E%E9%94%99%E8%AF%AF%E6%8E%92%E6%9F%A5.md)
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [桌面控制台使用说明](./operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
 - [桌面端 UI 与交互重构交接说明](./operations/%E6%A1%8C%E9%9D%A2%E7%AB%AF-ui-%E4%BA%A4%E4%BA%92%E9%87%8D%E6%9E%84%E4%BA%A4%E6%8E%A5%E8%AF%B4%E6%98%8E.md)

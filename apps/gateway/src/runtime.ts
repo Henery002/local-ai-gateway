@@ -13,6 +13,9 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   GatewayHealth,
+  GatewayInferenceAuthPublicSettings,
+  GatewayRoutingHitEvent,
+  GatewayRoutingObservability,
   GatewayPaths,
   DefaultModelSelectionSummary,
   GatewayRoutingPreviewInput,
@@ -35,6 +38,9 @@ export class GatewayRuntime {
   readonly providerRegistry: ProviderRegistry;
   readonly providerConfigurations: ProviderConfigurationSummary[];
   private readonly sessionActivity = new Map<string, SessionActivitySnapshot>();
+  private readonly routingHits: GatewayRoutingHitEvent[] = [];
+  private sessionActivityInsertCount = 0;
+  private routingHitInsertCount = 0;
 
   constructor(
     readonly paths: GatewayPaths,
@@ -59,19 +65,48 @@ export class GatewayRuntime {
         new CodexAdapter(this.sessionSource),
         ...bootstrapped.adapters,
       ]);
+    this.restoreTelemetryFromDatabase();
   }
 
   listSessions(): SessionSummary[] {
-    return this.sessionSource.listSessions().map((session) => ({
-      ...session,
-      activity: this.sessionActivity.get(session.id),
-    }));
+    const sessions = this.sessionSource.listSessions();
+    const recentBySessionId = this.database.getRecentSessionClientActivity(
+      sessions.map((session) => session.id),
+      Date.now() - 5 * 60 * 1000,
+    );
+
+    return sessions.map((session) => {
+      const activity = this.sessionActivity.get(session.id);
+      const recent = recentBySessionId.get(session.id);
+      if (!activity && !recent) {
+        return session;
+      }
+
+      return {
+        ...session,
+        activity: {
+          requestCount: activity?.requestCount ?? 0,
+          successCount: activity?.successCount ?? 0,
+          failureCount: activity?.failureCount ?? 0,
+          streamCount: activity?.streamCount ?? 0,
+          nonStreamCount: activity?.nonStreamCount ?? 0,
+          byClientTag: activity?.byClientTag,
+          recentRequestCount5m: recent?.total ?? 0,
+          recentByClientTag5m: recent?.byClientTag,
+          lastRequestAt: activity?.lastRequestAt,
+          lastSuccessAt: activity?.lastSuccessAt,
+          lastFailureAt: activity?.lastFailureAt,
+          lastError: activity?.lastError,
+        },
+      };
+    });
   }
 
   recordInferenceResult(input: {
     sessionId: string;
     ok: boolean;
     stream: boolean;
+    clientTag?: string;
     errorMessage?: string;
     happenedAt?: number;
   }): void {
@@ -83,6 +118,36 @@ export class GatewayRuntime {
       streamCount: 0,
       nonStreamCount: 0,
     };
+    const normalizedClientTag =
+      input.clientTag?.trim().toLowerCase() || "unknown";
+    const currentClientTagRows = current.byClientTag ?? [];
+    const nextClientTagRows = [...currentClientTagRows];
+    const clientTagIndex = nextClientTagRows.findIndex(
+      (item) => item.clientTag === normalizedClientTag,
+    );
+    if (clientTagIndex >= 0) {
+      const row = nextClientTagRows[clientTagIndex]!;
+      nextClientTagRows[clientTagIndex] = {
+        ...row,
+        requestCount: row.requestCount + 1,
+        successCount: input.ok ? row.successCount + 1 : row.successCount,
+        failureCount: input.ok ? row.failureCount : row.failureCount + 1,
+        lastRequestAt: happenedAt,
+      };
+    } else {
+      nextClientTagRows.push({
+        clientTag: normalizedClientTag,
+        requestCount: 1,
+        successCount: input.ok ? 1 : 0,
+        failureCount: input.ok ? 0 : 1,
+        lastRequestAt: happenedAt,
+      });
+    }
+    nextClientTagRows.sort(
+      (left, right) =>
+        right.requestCount - left.requestCount ||
+        (right.lastRequestAt ?? 0) - (left.lastRequestAt ?? 0),
+    );
 
     const next: SessionActivitySnapshot = {
       ...current,
@@ -93,6 +158,7 @@ export class GatewayRuntime {
       nonStreamCount: input.stream
         ? current.nonStreamCount
         : current.nonStreamCount + 1,
+      byClientTag: nextClientTagRows.slice(0, 8),
       lastRequestAt: happenedAt,
       lastSuccessAt: input.ok ? happenedAt : current.lastSuccessAt,
       lastFailureAt: input.ok ? current.lastFailureAt : happenedAt,
@@ -100,6 +166,21 @@ export class GatewayRuntime {
     };
 
     this.sessionActivity.set(input.sessionId, next);
+    this.database.upsertSessionActivity(input.sessionId, next);
+    this.database.insertSessionActivityEvent({
+      sessionId: input.sessionId,
+      timestamp: happenedAt,
+      clientTag: normalizedClientTag,
+      ok: input.ok,
+      stream: input.stream,
+    });
+    this.sessionActivityInsertCount += 1;
+    if (this.sessionActivityInsertCount % 100 === 0) {
+      this.database.pruneSessionActivityEvents({
+        maxRows: 50_000,
+        retainDays: 30,
+      });
+    }
   }
 
   getActiveSessionId(): string | undefined {
@@ -147,7 +228,43 @@ export class GatewayRuntime {
       startedAt: this.startedAt.toISOString(),
       providerConfigurations: this.providerConfigurations,
       defaultSelection: this.getDefaultSelectionSummary(),
+      routingObservability: this.getRoutingObservability(),
+      inferenceAuth: this.getInferenceAuthPublicSettings(),
     };
+  }
+
+  getInferenceAuthPublicSettings(): GatewayInferenceAuthPublicSettings {
+    const settings = this.configStore.getInferenceAuthSettings();
+    const mode = settings.mode === "api-key" ? "api-key" : "none";
+    const apiKey = settings.apiKey?.trim();
+    return {
+      mode,
+      enabled: mode === "api-key",
+      hasApiKey: Boolean(apiKey),
+    };
+  }
+
+  recordRoutingHit(event: GatewayRoutingHitEvent): void {
+    this.routingHits.push(event);
+    if (this.routingHits.length > 500) {
+      this.routingHits.splice(0, this.routingHits.length - 500);
+    }
+    this.database.insertRoutingHit(event);
+    this.routingHitInsertCount += 1;
+    if (this.routingHitInsertCount % 100 === 0) {
+      this.database.pruneRoutingHits({
+        maxRows: 20_000,
+        retainDays: 30,
+      });
+    }
+  }
+
+  resetTelemetry(): void {
+    this.sessionActivity.clear();
+    this.routingHits.splice(0, this.routingHits.length);
+    this.sessionActivityInsertCount = 0;
+    this.routingHitInsertCount = 0;
+    this.database.clearTelemetry();
   }
 
   getProviders(): ProviderSummary[] {
@@ -240,6 +357,110 @@ export class GatewayRuntime {
       model,
       adapter: this.providerRegistry.getAdapterForModel(model),
     };
+  }
+
+  private getRoutingObservability(): GatewayRoutingObservability {
+    const now = Date.now();
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+    const oneHourAgo = now - 60 * 60 * 1000;
+    const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    const totalMatched = this.database.countRoutingHitsSince();
+    const matchedLast5m = this.database.countRoutingHitsSince(fiveMinutesAgo);
+    const matchedLast1h = this.database.countRoutingHitsSince(oneHourAgo);
+    const matchedLast24h = this.database.countRoutingHitsSince(oneDayAgo);
+    const lastMatchedAt = this.routingHits.at(-1)?.timestamp;
+
+    const byRuleMap = new Map<
+      string,
+      {
+        ruleId: string;
+        ruleName: string;
+        hits: number;
+        lastMatchedAt?: number;
+      }
+    >();
+    const byClientMap = new Map<
+      string,
+      {
+        clientTag: string;
+        hits: number;
+        lastMatchedAt?: number;
+      }
+    >();
+
+    for (const item of this.routingHits) {
+      const ruleKey = `${item.matchedRuleId}:${item.matchedRuleName}`;
+      const rule = byRuleMap.get(ruleKey) ?? {
+        ruleId: item.matchedRuleId,
+        ruleName: item.matchedRuleName,
+        hits: 0,
+        lastMatchedAt: undefined,
+      };
+      rule.hits += 1;
+      if (!rule.lastMatchedAt || item.timestamp > rule.lastMatchedAt) {
+        rule.lastMatchedAt = item.timestamp;
+      }
+      byRuleMap.set(ruleKey, rule);
+
+      const clientTag = item.clientTag?.trim() || "未标记客户端";
+      const client = byClientMap.get(clientTag) ?? {
+        clientTag,
+        hits: 0,
+        lastMatchedAt: undefined,
+      };
+      client.hits += 1;
+      if (!client.lastMatchedAt || item.timestamp > client.lastMatchedAt) {
+        client.lastMatchedAt = item.timestamp;
+      }
+      byClientMap.set(clientTag, client);
+    }
+
+    const byRule = Array.from(byRuleMap.values()).sort(
+      (left, right) =>
+        right.hits - left.hits ||
+        (right.lastMatchedAt ?? 0) - (left.lastMatchedAt ?? 0),
+    );
+    const byClientTag = Array.from(byClientMap.values()).sort(
+      (left, right) =>
+        right.hits - left.hits ||
+        (right.lastMatchedAt ?? 0) - (left.lastMatchedAt ?? 0),
+    );
+    const recent = this.routingHits.slice(-12).reverse();
+
+    return {
+      totalMatched,
+      matchedLast5m,
+      matchedLast1h,
+      matchedLast24h,
+      lastMatchedAt,
+      byRule,
+      byClientTag,
+      recent,
+    };
+  }
+
+  private restoreTelemetryFromDatabase(): void {
+    const validSessionIds = new Set(
+      this.sessionSource.listSessions().map((session) => session.id),
+    );
+    const persistedActivities = this.database.getSessionActivities(2_000);
+    for (const item of persistedActivities) {
+      if (!validSessionIds.has(item.sessionId)) {
+        continue;
+      }
+      this.sessionActivity.set(item.sessionId, item.snapshot);
+    }
+    this.database.deleteSessionActivitiesExcept(Array.from(validSessionIds));
+    this.database.pruneSessionActivityEvents({
+      maxRows: 50_000,
+      retainDays: 30,
+    });
+
+    this.database.pruneRoutingHits({
+      maxRows: 20_000,
+      retainDays: 30,
+    });
+    this.routingHits.push(...this.database.getRecentRoutingHits(500));
   }
 
   private getDefaultSelectionSummary(): DefaultModelSelectionSummary {

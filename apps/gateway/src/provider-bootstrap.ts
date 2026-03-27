@@ -1,5 +1,7 @@
 import type { ProviderAdapter } from "@local-ai-gateway/shared";
 import {
+  getCodexAliasForUpstreamModel,
+  isSupportedCodexUpstreamModel,
   DEFAULT_MODEL_ALIAS,
   DEFAULT_PROVIDER_ID,
   DEFAULT_PROVIDER_MODEL_ID,
@@ -24,27 +26,77 @@ function resolveCodexUpstreamModel(
   settings: GatewayProviderSettings,
 ): string {
   const requested = env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim() || settings.codex?.upstreamModel?.trim();
-  if (requested && SUPPORTED_CODEX_UPSTREAM_MODELS.includes(requested as (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number])) {
+  if (requested && isSupportedCodexUpstreamModel(requested)) {
     return requested;
   }
   return DEFAULT_PROVIDER_MODEL_ID;
 }
 
-function buildDefaultCodexModel(
+function resolveCodexExposedModels(
   env: NodeJS.ProcessEnv,
   settings: GatewayProviderSettings,
-): GatewayModelDefinition {
+): string[] {
+  const raw = env.LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS?.trim();
+  const configured: string[] | undefined =
+    raw?.length
+      ? raw.split(",").map((item) => item.trim())
+      : settings.codex?.exposedModels;
+  const source =
+    configured === undefined ? [...SUPPORTED_CODEX_UPSTREAM_MODELS] : configured;
+
+  const deduped: string[] = [];
+  for (const modelId of source) {
+    if (!modelId || !isSupportedCodexUpstreamModel(modelId)) {
+      continue;
+    }
+    if (!deduped.includes(modelId)) {
+      deduped.push(modelId);
+    }
+  }
+
+  return deduped;
+}
+
+function buildCodexModels(
+  env: NodeJS.ProcessEnv,
+  settings: GatewayProviderSettings,
+): GatewayModelDefinition[] {
   const upstreamModel = resolveCodexUpstreamModel(env, settings);
-  return {
-    alias: DEFAULT_MODEL_ALIAS,
-    displayName: `Codex ${upstreamModel}`,
-    provider: DEFAULT_PROVIDER_ID,
-    providerModelId: upstreamModel,
-    contextWindow: 1_050_000,
-    maxTokens: 128_000,
-    input: ["text"],
-    reasoning: true,
-  };
+  const models: GatewayModelDefinition[] = [
+    {
+      alias: DEFAULT_MODEL_ALIAS,
+      displayName: `Codex ${upstreamModel}`,
+      provider: DEFAULT_PROVIDER_ID,
+      providerModelId: upstreamModel,
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      input: ["text"],
+      reasoning: true,
+    },
+  ];
+
+  const extraModels = resolveCodexExposedModels(env, settings);
+  for (const modelId of extraModels) {
+    const alias = getCodexAliasForUpstreamModel(modelId);
+    if (!alias) {
+      continue;
+    }
+    if (models.some((model) => model.alias === alias)) {
+      continue;
+    }
+    models.push({
+      alias,
+      displayName: `Codex ${modelId}`,
+      provider: DEFAULT_PROVIDER_ID,
+      providerModelId: modelId,
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      input: ["text"],
+      reasoning: true,
+    });
+  }
+
+  return models;
 }
 
 function parsePositiveInt(input: string | undefined, fallback: number): number {
@@ -129,9 +181,13 @@ export function bootstrapProvidersFromEnvironment(
   settings: GatewayProviderSettings = {},
 ): BootstrappedProviders {
   const adapters: ProviderAdapter[] = [];
-  const codexModel = buildDefaultCodexModel(env, settings);
+  const codexModels = buildCodexModels(env, settings);
+  const codexModel = codexModels[0] as GatewayModelDefinition;
   const codexUsesEnv = Boolean(env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim());
-  const models: GatewayModelDefinition[] = [codexModel];
+  const codexExposedAliases = codexModels
+    .slice(1)
+    .map((model) => model.alias);
+  const models: GatewayModelDefinition[] = [...codexModels];
   const configurations: ProviderConfigurationSummary[] = [
     {
       id: DEFAULT_PROVIDER_ID,
@@ -141,11 +197,14 @@ export function bootstrapProvidersFromEnvironment(
       source: "openclaw-session",
       configuredVia: "OpenClaw 本地授权",
       authMode: "oauth-session",
-      envKeys: ["LOCAL_AI_GATEWAY_CODEX_MODEL"],
+      envKeys: ["LOCAL_AI_GATEWAY_CODEX_MODEL", "LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS"],
       notes: [
         "认证来源固定为 ~/.openclaw 本地授权元数据",
         `当前上游模型：${codexModel.providerModelId}`,
         codexUsesEnv ? "Codex 上游模型由环境变量指定" : "Codex 上游模型可在桌面端手动切换",
+        codexExposedAliases.length
+          ? `并行暴露别名：${codexExposedAliases.join(", ")}`
+          : "当前仅暴露 codex-default",
         "活动会话可在桌面端手动切换",
       ],
     },

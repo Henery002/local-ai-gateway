@@ -11,6 +11,10 @@ import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gate
 import {
   DEFAULT_HOST,
   DEFAULT_PORT,
+  type GatewayInferenceAuthPublicSettings,
+  type GatewayInferenceAuthSettings,
+  type GatewayRoutingPreviewInput,
+  type GatewayRoutingSettings,
   type SessionActivitySnapshot,
   type SessionUsageRefreshSummary,
   resolveGatewayPaths,
@@ -301,14 +305,19 @@ async function buildOpenClawSnippet(): Promise<string> {
       provider?: string;
       model?: string;
     };
+    inferenceAuth?: GatewayInferenceAuthPublicSettings;
   };
 
   const baseUrl = buildGatewayBaseUrl(getConfiguredGatewayPort());
-  return [
+  const lines = [
     `baseUrl=${payload.openclaw?.baseUrl ?? `${baseUrl}/v1`}`,
     `provider=${payload.openclaw?.provider ?? "openai"}`,
     `model=${payload.openclaw?.model ?? "codex-default"}`,
-  ].join("\n");
+  ];
+  if (payload.inferenceAuth?.enabled) {
+    lines.push("apiKey=<你的 Local AI Gateway API Key>");
+  }
+  return lines.join("\n");
 }
 
 async function createWindow(): Promise<void> {
@@ -385,6 +394,43 @@ ipcMain.handle("gateway:save-provider-settings", async (_event, payload: unknown
     body: JSON.stringify(payload ?? {}),
   });
 });
+
+ipcMain.handle("gateway:get-routing-settings", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/routing");
+});
+
+ipcMain.handle("gateway:save-routing-settings", async (_event, payload: GatewayRoutingSettings) => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/routing", {
+    method: "PUT",
+    body: JSON.stringify(payload ?? {}),
+  });
+});
+
+ipcMain.handle("gateway:preview-routing", async (_event, payload: GatewayRoutingPreviewInput) => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/routing/preview", {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+});
+
+ipcMain.handle("gateway:get-security-settings", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/security");
+});
+
+ipcMain.handle(
+  "gateway:save-security-settings",
+  async (_event, payload: GatewayInferenceAuthSettings) => {
+    await gatewayManager.ensureRunning();
+    return callAdmin("/admin/config/security", {
+      method: "PUT",
+      body: JSON.stringify(payload ?? {}),
+    });
+  },
+);
 
 ipcMain.handle("gateway:get-sessions", async () => {
   await gatewayManager.ensureRunning();
@@ -485,6 +531,14 @@ ipcMain.handle("gateway:refresh-session-usage", async (_event, sessionId?: strin
   return refreshDesktopManagedUsage(sessionId);
 });
 
+ipcMain.handle("gateway:reset-telemetry", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/telemetry/reset", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+});
+
 ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string) => {
   const removed = desktopSessionSource.deleteImportedSession(sessionId);
 
@@ -528,6 +582,11 @@ ipcMain.handle("gateway:restart", async () => {
 ipcMain.handle("gateway:copy-openclaw-snippet", async () => {
   await gatewayManager.ensureRunning();
   clipboard.writeText(await buildOpenClawSnippet());
+  return { ok: true };
+});
+
+ipcMain.handle("gateway:copy-text", async (_event, text: string) => {
+  clipboard.writeText(String(text ?? ""));
   return { ok: true };
 });
 

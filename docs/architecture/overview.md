@@ -175,7 +175,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 7. 用户也可将某个 OpenClaw 已登录授权导入为桌面端账号
 8. 用户保存图形化配置后，Electron 调用 `PUT /admin/config/providers`
 9. 用户选择活动会话后，Electron 调用 `PUT /admin/sessions/active`
-10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果（当前仅配置与预览，不影响实时推理链路）
+10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果；桌面端 Provider 配置页已接入该组接口进行可视化配置
+11. `GET /admin/health` 现已附带 `routingObservability`，用于展示 5 分钟命中、累计命中、Top 规则/客户端与最近命中事件
+12. 第三方推理接口可选启用 API Key 鉴权：通过 `GET/PUT /admin/config/security` 管理（仅回传 `mode/enabled/hasApiKey`），启用后 `/v1/models` 与 `/v1/chat/completions` 需携带密钥
 
 ## 4. 会话模型
 
@@ -207,7 +209,10 @@ v1 采用单活动会话模型：
 - 不支持多账号池化与自动切换
 - 不对外网暴露服务
 - 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
-- 二期路由策略层当前仅完成配置与预览 API，尚未接入请求时真实路由决策
+- 二期路由策略层已完成“配置 + 预演 + 实时链路命中”第二步，当前支持按客户端标签/请求模型别名匹配并重写目标模型与目标会话
+- 推理接口鉴权当前支持 `none / api-key` 两种模式，适用于本机单用户与多应用共享两类场景
+- Codex 模型当前已支持“默认别名 + 多别名并存”模式：`codex-default` 负责默认路由，`codex-5.4 / codex-5.4-mini / codex-5.3 / codex-5.2` 可并行暴露给第三方客户端按需选择
+- 会话活动快照当前已支持 `clientTag` 维度统计，可在桌面端账号卡片中查看主要调用来源
 
 ## 7. 后续架构演进建议
 
