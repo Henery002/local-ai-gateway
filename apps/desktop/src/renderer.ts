@@ -430,6 +430,53 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function renderActionIcon(
+  type: "activate" | "active" | "pin" | "unpin" | "refresh" | "delete",
+): string {
+  if (type === "activate") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 1.5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5A.75.75 0 0 1 8 1.5Z" fill="currentColor"/>
+        <path d="M4.15 3.85a.75.75 0 0 1 1.06 1.06A4.75 4.75 0 1 0 10.79 4.9a.75.75 0 0 1 1.06-1.06A6.25 6.25 0 1 1 4.15 3.85Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  if (type === "active") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 1.25A6.75 6.75 0 1 0 14.75 8 6.76 6.76 0 0 0 8 1.25Zm3.14 5.47-3.6 4.18a.75.75 0 0 1-1.1.06L4.8 9.45a.75.75 0 1 1 1.02-1.1l1.06.98 3.12-3.62a.75.75 0 1 1 1.14 1.01Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  if (type === "pin") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M10.9 1.75a.75.75 0 0 1 .53 1.28l-.86.86 1.57 1.57.86-.86a.75.75 0 1 1 1.06 1.06l-2.6 2.6a2 2 0 0 1-.57.4l-1.62.64-2.92 2.92a.75.75 0 0 1-1.06 0l-.11-.11-.88 2.06a.75.75 0 0 1-1.39-.6l1.11-2.61a.75.75 0 0 1 .74-.46l1.88-1.88-1.85-1.85a.75.75 0 0 1 0-1.06l2.92-2.92.64-1.62a2 2 0 0 1 .4-.57l2.6-2.6a.75.75 0 0 1 .53-.22Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  if (type === "unpin") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M10.9 1.75a.75.75 0 0 1 .53 1.28l-.86.86 1.57 1.57.86-.86a.75.75 0 1 1 1.06 1.06l-2.6 2.6a2 2 0 0 1-.57.4l-1.62.64-2.92 2.92a.75.75 0 0 1-1.06 0L3.8 10.9a.75.75 0 0 1 0-1.06l2.92-2.92.64-1.62a2 2 0 0 1 .4-.57l2.6-2.6a.75.75 0 0 1 .53-.22Z" fill="currentColor"/>
+        <path d="M2.47 2.47a.75.75 0 0 1 1.06 0l10 10a.75.75 0 0 1-1.06 1.06l-10-10a.75.75 0 0 1 0-1.06Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  if (type === "refresh") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M13.5 3.25v3.5H10a.75.75 0 1 1 0-1.5h1.57A4.75 4.75 0 1 0 12.3 9.9a.75.75 0 1 1 1.4.52A6.25 6.25 0 1 1 12.3 4.5h1.2a.75.75 0 0 1 0-1.25Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5.25 2A1.25 1.25 0 0 0 4 3.25V4H2.75a.75.75 0 0 0 0 1.5H3v7.25C3 13.44 3.56 14 4.25 14h7.5c.69 0 1.25-.56 1.25-1.25V5.5h.25a.75.75 0 0 0 0-1.5H12v-.75A1.25 1.25 0 0 0 10.75 2h-5.5Zm1.5 3a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5A.75.75 0 0 1 6.75 5Zm3.25.75a.75.75 0 0 0-1.5 0v5a.75.75 0 0 0 1.5 0v-5Z" fill="currentColor"/>
+    </svg>
+  `;
+}
+
 function getClientTagToneIndex(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -646,21 +693,39 @@ function setButtonLoading(
   }
 
   if (loading) {
+    if (!button.dataset.originalHtml) {
+      button.dataset.originalHtml = button.innerHTML;
+    }
     if (!button.dataset.originalText) {
       button.dataset.originalText = button.textContent ?? "";
+    }
+    if (!button.dataset.originalTitle) {
+      button.dataset.originalTitle = button.title ?? "";
     }
     button.dataset.loading = "true";
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    button.textContent = loadingText ?? `${button.dataset.originalText}...`;
+    if (button.classList.contains("icon-btn")) {
+      button.innerHTML = `<span class="icon-btn-spinner" aria-hidden="true"></span>`;
+      if (loadingText) {
+        button.title = loadingText;
+      }
+    } else {
+      button.textContent = loadingText ?? `${button.dataset.originalText}...`;
+    }
     return;
   }
 
   button.disabled = false;
   button.removeAttribute("aria-busy");
   delete button.dataset.loading;
-  if (button.dataset.originalText) {
+  if (button.classList.contains("icon-btn") && button.dataset.originalHtml) {
+    button.innerHTML = button.dataset.originalHtml;
+  } else if (button.dataset.originalText) {
     button.textContent = button.dataset.originalText;
+  }
+  if (button.dataset.originalTitle !== undefined) {
+    button.title = button.dataset.originalTitle;
   }
 }
 
@@ -1159,7 +1224,7 @@ function renderCodexAccounts(): void {
             ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
             : "尚未同步";
           return `
-        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}">
+        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}">
           <div class="acc-header">
             <div class="acc-title-group">
               <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
@@ -1206,15 +1271,47 @@ function renderCodexAccounts(): void {
           </div>
           ${refreshErrorMessage ? `<div style="font-size: 13px; color: var(--warning); background: var(--warning-bg); border-radius: 6px; padding: 6px 8px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
           <div class="acc-actions">
-            <button class="btn ${account.isActive ? "primary" : "secondary"} mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
-              ${account.isActive ? "当前活动" : "设为活动"}
+            <button
+              class="btn ${account.isActive ? "primary" : "secondary"} mini icon-btn"
+              data-icon-only="true"
+              data-action="activate"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+            >
+              ${renderActionIcon(account.isActive ? "active" : "activate")}
             </button>
-            <button class="btn secondary mini" data-action="toggle-pin-session" data-session-id="${escapeHtml(account.representative.id)}">
-              ${isPinned ? "取消置顶" : "置顶"}
+            <button
+              class="btn secondary mini icon-btn"
+              data-icon-only="true"
+              data-action="toggle-pin-session"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${isPinned ? "取消置顶" : "置顶账号"}"
+              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
+            >
+              ${renderActionIcon(isPinned ? "unpin" : "pin")}
             </button>
-            <button class="btn secondary mini" data-action="refresh-session-usage" data-session-id="${escapeHtml(account.representative.id)}">刷新</button>
-            <button class="btn ghost danger-ghost mini" data-action="delete-codex-account" data-session-id="${escapeHtml(account.representative.id)}">删除</button>
-            <button class="btn ghost mini" style="margin-left: auto;" data-action="copy-snippet" title="复制接入片段">复制片段</button>
+            <button
+              class="btn secondary mini icon-btn"
+              data-icon-only="true"
+              data-action="refresh-session-usage"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="刷新额度"
+              aria-label="刷新额度"
+            >
+              ${renderActionIcon("refresh")}
+            </button>
+            <button
+              class="btn ghost danger-ghost mini icon-btn"
+              data-icon-only="true"
+              data-action="delete-codex-account"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="删除账号"
+              aria-label="删除账号"
+              style="margin-left: auto;"
+            >
+              ${renderActionIcon("delete")}
+            </button>
           </div>
         </div>
       `;
@@ -1725,6 +1822,9 @@ function renderRoutingRules(): void {
             <label>目标会话 / 账号标识（可选）</label>
             <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
           </div>
+        </div>
+        <div class="form-hint" style="margin-top: 10px;">
+          至少填写 1 个匹配条件，并至少填写 1 个目标字段。目标会话留空时沿用当前活动账号；填写后，该规则命中的请求会固定走指定账号。
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
           <label class="switch-label" style="font-size: 14px;">
