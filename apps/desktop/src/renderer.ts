@@ -725,19 +725,19 @@ function renderCodexAccounts(): void {
             <span>请求数: ${requestCount}</span>
           </div>
           <div style="margin-top: 4px;">
-            <div style="display: flex; justify-content: space-between; font-size: 12px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px;">
               <span style="color: var(--text-secondary);">${quotaScope}</span>
               <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
             </div>
             <div class="acc-quota-bar">
               <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
             </div>
-            <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
+            <div style="font-size: 13px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
               <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
               <span>${escapeHtml(quotaUpdatedAt)}</span>
             </div>
           </div>
-          ${refreshErrorMessage ? `<div style="font-size: 12px; color: var(--warning); background: var(--warning-bg); border-radius: 6px; padding: 6px 8px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
+          ${refreshErrorMessage ? `<div style="font-size: 13px; color: var(--warning); background: var(--warning-bg); border-radius: 6px; padding: 6px 8px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
           <div class="acc-actions">
             <button class="btn ${account.isActive ? "primary" : "secondary"} mini" data-action="activate" data-session-id="${escapeHtml(account.representative.id)}">
               ${account.isActive ? "当前活动" : "设为活动"}
