@@ -254,7 +254,7 @@ afterEach(() => {
 
 describe("gateway app", () => {
   it("serves health, models, providers, and admin session switching", async () => {
-    const { rootDir, runtime, database } = createTestRuntime();
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
     cleanupDirs.push(rootDir);
     const app = createGatewayApp(runtime);
 
@@ -608,6 +608,91 @@ describe("gateway app", () => {
       });
       expect(adminHealth.json().routingObservability.byClientTag[0]).toMatchObject({
         clientTag: "localraghub",
+        hits: 1,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("resolves routing target session from account identifier during preview and live routing", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-openclaw-account",
+          name: "openclaw-account-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            modelAlias: "fake-default",
+            sessionId: "acct_fake",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+        },
+      });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          reason: "rule_matched",
+          resolvedSessionId: "main:fake:default",
+        },
+      });
+      expect(preview.json().data.warnings ?? []).toHaveLength(0);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.lastOptions?.sessionId).toBe("main:fake:default");
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability.byClientTag[0]).toMatchObject({
+        clientTag: "openclaw",
         hits: 1,
       });
     } finally {

@@ -323,7 +323,15 @@ export class GatewayRuntime {
     }
 
     const resolvedModelAlias = matched.target?.modelAlias ?? baseModelAlias;
-    const resolvedSessionId = matched.target?.sessionId ?? baseSessionId;
+    const sessionResolution = this.resolveRoutingSessionSelector(
+      matched.target?.sessionId,
+      baseSessionId,
+    );
+    const resolvedSessionId = sessionResolution.sessionId;
+
+    if (sessionResolution.warning) {
+      warnings.push(sessionResolution.warning);
+    }
 
     if (!this.modelRegistry.resolve(resolvedModelAlias)) {
       warnings.push(`模型别名 ${resolvedModelAlias} 未在当前模型注册表中找到。`);
@@ -511,5 +519,75 @@ export class GatewayRuntime {
     }
 
     return true;
+  }
+
+  private resolveRoutingSessionSelector(
+    selector: string | undefined,
+    fallbackSessionId: string | undefined,
+  ): { sessionId?: string; warning?: string } {
+    const normalizedSelector = selector?.trim();
+    if (!normalizedSelector) {
+      return { sessionId: fallbackSessionId };
+    }
+
+    const sessions = this.listSessions();
+    const byId = sessions.find((session) => session.id === normalizedSelector);
+    if (byId) {
+      return { sessionId: byId.id };
+    }
+
+    const byProfile = sessions.filter(
+      (session) => session.profileId === normalizedSelector,
+    );
+    if (byProfile.length === 1) {
+      return { sessionId: byProfile[0]!.id };
+    }
+    if (byProfile.length > 1) {
+      const chosen = this.pickPreferredRoutingSession(byProfile);
+      return {
+        sessionId: chosen?.id ?? fallbackSessionId,
+        warning: `会话选择器 ${normalizedSelector} 命中了多个 profile，已优先使用 ${chosen?.id ?? "当前活动会话"}。`,
+      };
+    }
+
+    const byAccount = sessions.filter(
+      (session) => session.accountId === normalizedSelector,
+    );
+    if (byAccount.length === 1) {
+      return { sessionId: byAccount[0]!.id };
+    }
+    if (byAccount.length > 1) {
+      const chosen = this.pickPreferredRoutingSession(byAccount);
+      return {
+        sessionId: chosen?.id ?? fallbackSessionId,
+        warning: `账号标识 ${normalizedSelector} 命中了多个本地会话，已优先使用 ${chosen?.id ?? "当前活动会话"}。`,
+      };
+    }
+
+    return {
+      sessionId: normalizedSelector,
+      warning: `会话选择器 ${normalizedSelector} 未在当前本地会话列表中找到。`,
+    };
+  }
+
+  private pickPreferredRoutingSession(
+    sessions: SessionSummary[],
+  ): SessionSummary | undefined {
+    const activeSessionId = this.getActiveSessionId();
+    return [...sessions].sort((left, right) => {
+      const leftActive = left.id === activeSessionId ? 1 : 0;
+      const rightActive = right.id === activeSessionId ? 1 : 0;
+      if (leftActive !== rightActive) {
+        return rightActive - leftActive;
+      }
+
+      const leftAvailable = left.status === "available" ? 1 : 0;
+      const rightAvailable = right.status === "available" ? 1 : 0;
+      if (leftAvailable !== rightAvailable) {
+        return rightAvailable - leftAvailable;
+      }
+
+      return (right.expiresAt ?? 0) - (left.expiresAt ?? 0);
+    })[0];
   }
 }

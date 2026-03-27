@@ -1722,8 +1722,8 @@ function renderRoutingRules(): void {
             <input class="input-field" data-field="target-model-alias" placeholder="例如 openai-compatible-default" value="${escapeHtml(rule.target?.modelAlias ?? "")}" />
           </div>
           <div class="form-field">
-            <label>目标会话 ID（可选）</label>
-            <input class="input-field" data-field="target-session-id" placeholder="例如 local-import:openai-codex-xxx" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
+            <label>目标会话 / 账号标识（可选）</label>
+            <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
           </div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
@@ -2701,7 +2701,20 @@ function bindActions(): void {
         }
         setButtonLoading(button, true, "清理中");
         setBanner("正在清空统计数据...", "info");
-        await api.resetTelemetry();
+        try {
+          await api.resetTelemetry();
+        } catch (error) {
+          const message = String(error);
+          if (
+            message.includes("gateway:reset-telemetry") &&
+            message.includes("No handler registered")
+          ) {
+            throw new Error(
+              "当前桌面主进程仍是旧版本，尚未注册“清空统计”能力。请完全退出桌面端后重新启动。",
+            );
+          }
+          throw error;
+        }
         await refresh();
         setBanner("统计数据已清空。", "success");
       } catch (error) {
