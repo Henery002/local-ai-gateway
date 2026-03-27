@@ -436,8 +436,8 @@ function renderActionIcon(
   if (type === "activate") {
     return `
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M8 1.5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5A.75.75 0 0 1 8 1.5Z" fill="currentColor"/>
-        <path d="M4.15 3.85a.75.75 0 0 1 1.06 1.06A4.75 4.75 0 1 0 10.79 4.9a.75.75 0 0 1 1.06-1.06A6.25 6.25 0 1 1 4.15 3.85Z" fill="currentColor"/>
+        <path d="M8 1.75a6.25 6.25 0 1 1 0 12.5A6.25 6.25 0 0 1 8 1.75Zm0 1.5A4.75 4.75 0 1 0 8 12.75 4.75 4.75 0 0 0 8 3.25Z" fill="currentColor"/>
+        <path d="M8 5.25a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5Zm0 1.5a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z" fill="currentColor"/>
       </svg>
     `;
   }
@@ -466,7 +466,7 @@ function renderActionIcon(
   if (type === "refresh") {
     return `
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path d="M13.5 3.25v3.5H10a.75.75 0 1 1 0-1.5h1.57A4.75 4.75 0 1 0 12.3 9.9a.75.75 0 1 1 1.4.52A6.25 6.25 0 1 1 12.3 4.5h1.2a.75.75 0 0 1 0-1.25Z" fill="currentColor"/>
+        <path d="M13.25 2.75a.75.75 0 0 1 .75.75v2.9a.75.75 0 0 1-.75.75h-2.9a.75.75 0 1 1 0-1.5h1.02a4.75 4.75 0 1 0 1.02 4.36.75.75 0 0 1 1.46.34A6.25 6.25 0 1 1 12 4.58V3.5a.75.75 0 0 1 .75-.75Z" fill="currentColor"/>
       </svg>
     `;
   }
@@ -520,7 +520,7 @@ function renderClientTagBadges(
   rows: Array<{ clientTag: string; requestCount: number }>,
 ): string {
   if (!rows.length) {
-    return `<span style="font-size: 13px; color: var(--text-tertiary);">暂无来源明细</span>`;
+    return `<span style="font-size: 14px; color: var(--text-tertiary);">暂无来源明细</span>`;
   }
 
   return rows
@@ -538,7 +538,7 @@ function renderRecentClientTagBadges(
   total: number,
 ): string {
   if (!rows.length || total <= 0) {
-    return `<span style="font-size: 13px; color: var(--text-tertiary);">最近 5 分钟暂无请求</span>`;
+    return `<span style="font-size: 14px; color: var(--text-tertiary);">最近 5 分钟暂无请求</span>`;
   }
 
   return rows
@@ -1153,7 +1153,7 @@ function renderRoutingObservability(): void {
         <div class="routing-event-item">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
             <strong style="font-size: 14px;">${escapeHtml(event.matchedRuleName)}</strong>
-            <span style="font-size: 13px; color: var(--text-secondary);">${escapeHtml(formatRecentCall(event.timestamp))}</span>
+            <span style="font-size: 14px; color: var(--text-secondary);">${escapeHtml(formatRecentCall(event.timestamp))}</span>
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
             <span class="badge neutral">客户端 ${escapeHtml(normalizeClientTagLabel(event.clientTag ?? "unknown"))}</span>
@@ -1234,6 +1234,7 @@ function renderCodexAccounts(): void {
               </div>
             </div>
             <div class="acc-status-group">
+              ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
               ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
               ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
               ${refreshErrorMessage ? `<span class="badge incomplete">额度同步失败</span>` : ""}
@@ -1257,58 +1258,70 @@ function renderCodexAccounts(): void {
             <span class="client-tag-list">${recentClientTagBadges}</span>
           </div>
           <div style="margin-top: 4px;">
-            <div style="display: flex; justify-content: space-between; font-size: 13px;">
+            <div style="display: flex; justify-content: space-between; font-size: 14px;">
               <span style="color: var(--text-secondary);">${quotaScope}</span>
               <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
             </div>
             <div class="acc-quota-bar">
               <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
             </div>
-            <div style="font-size: 13px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
+            <div style="font-size: 14px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
               <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
               <span>${escapeHtml(quotaUpdatedAt)}</span>
             </div>
           </div>
-          ${refreshErrorMessage ? `<div style="font-size: 13px; color: var(--warning); background: var(--warning-bg); border-radius: 6px; padding: 6px 8px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
+          ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
           <div class="acc-actions">
             <button
-              class="btn ${account.isActive ? "primary" : "secondary"} mini icon-btn"
+              class="icon-btn"
               data-icon-only="true"
               data-action="activate"
+              data-tone="${account.isActive ? "active" : "activate"}"
+              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              type="button"
             >
               ${renderActionIcon(account.isActive ? "active" : "activate")}
             </button>
             <button
-              class="btn secondary mini icon-btn"
+              class="icon-btn"
               data-icon-only="true"
               data-action="toggle-pin-session"
+              data-tone="${isPinned ? "pin-active" : "pin"}"
+              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${isPinned ? "取消置顶" : "置顶账号"}"
               aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
+              type="button"
             >
               ${renderActionIcon(isPinned ? "unpin" : "pin")}
             </button>
             <button
-              class="btn secondary mini icon-btn"
+              class="icon-btn"
               data-icon-only="true"
               data-action="refresh-session-usage"
+              data-tone="refresh"
+              data-tooltip="刷新额度"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="刷新额度"
               aria-label="刷新额度"
+              type="button"
             >
               ${renderActionIcon("refresh")}
             </button>
             <button
-              class="btn ghost danger-ghost mini icon-btn"
+              class="icon-btn"
               data-icon-only="true"
               data-action="delete-codex-account"
+              data-tone="delete"
+              data-tooltip="删除账号"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="删除账号"
               aria-label="删除账号"
               style="margin-left: auto;"
+              type="button"
             >
               ${renderActionIcon("delete")}
             </button>
@@ -1328,6 +1341,10 @@ function renderCodexAccounts(): void {
           <p style="margin: 0; font-size: 14px; color: var(--text-secondary);">这里展示的是本应用自己管理并可直接切换的 Codex 账号。</p>
         </div>
         <span class="badge neutral">${accounts.length} 个账号</span>
+      </div>
+      <div class="settings-note compact" style="margin-bottom: 16px;">
+        <strong>账号卡片说明</strong>
+        <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；“来源分布 / 近 5 分钟”基于第三方请求里的 clientTag 聚合。</p>
       </div>
       <div class="grid-layout accounts-grid">${cards}</div>
     `;
@@ -1362,7 +1379,7 @@ function renderProviderRegistry(): void {
         <div class="model-line">
           <div style="display: flex; flex-direction: column; gap: 2px;">
             <strong style="font-weight: 600; color: var(--text-primary);">${escapeHtml(model.alias)}</strong>
-            <span style="color: var(--text-tertiary); font-size: 11px;">${escapeHtml(model.providerModelId)}</span>
+            <span style="color: var(--text-tertiary); font-size: 13px;">${escapeHtml(model.providerModelId)}</span>
           </div>
           <span class="badge ${model.alias === state.health?.defaultModel ? "active" : "neutral"}">${model.alias === state.health?.defaultModel ? "默认" : "可用"}</span>
         </div>
@@ -1562,11 +1579,11 @@ function renderGuide(): void {
                 <div style="display: flex; justify-content: space-between; gap: 8px; align-items: flex-start;">
                   <div style="display: flex; flex-direction: column; gap: 2px;">
                     <strong style="font-size: 14px;">${escapeHtml(row.title)}</strong>
-                    <span style="font-size: 13px; color: var(--text-secondary);">${escapeHtml(row.subtitle)}</span>
+                    <span style="font-size: 14px; color: var(--text-secondary);">${escapeHtml(row.subtitle)}</span>
                   </div>
                   <button class="btn secondary" data-action="copy-template" data-template-key="${row.key}" title="复制 ${escapeHtml(row.title)}">复制</button>
                 </div>
-                <pre style="margin: 8px 0 0 0; padding: 10px; background: #fff; border-radius: 8px; font-size: 13px; border: 1px solid var(--border-light); overflow-x: auto;">${escapeHtml(snippet)}</pre>
+                <pre style="margin: 8px 0 0 0; padding: 10px; background: #fff; border-radius: 8px; font-size: 14px; border: 1px solid var(--border-light); overflow-x: auto;">${escapeHtml(snippet)}</pre>
               </section>
             `;
           })
@@ -1796,7 +1813,17 @@ function renderRoutingRules(): void {
   container.innerHTML = rules
     .map(
       (rule) => `
-      <div class="card" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}">
+      <div class="routing-rule-card" data-enabled="${rule.enabled === false ? "false" : "true"}" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}">
+        <div class="routing-rule-top">
+          <div>
+            <strong>${escapeHtml(rule.name || "未命名规则")}</strong>
+            <span>按优先级顺序参与匹配。命中后会立即停止继续向下匹配后续规则。</span>
+          </div>
+          <div class="routing-rule-meta">
+            <span class="badge neutral">优先级 ${typeof rule.priority === "number" ? rule.priority : 100}</span>
+            <span class="badge ${rule.enabled === false ? "neutral" : "active"}">${rule.enabled === false ? "未启用" : "已启用"}</span>
+          </div>
+        </div>
         <div class="routing-rule-grid">
           <div class="form-field">
             <label>规则名称</label>
@@ -1823,8 +1850,10 @@ function renderRoutingRules(): void {
             <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
           </div>
         </div>
-        <div class="form-hint" style="margin-top: 10px;">
-          至少填写 1 个匹配条件，并至少填写 1 个目标字段。目标会话留空时沿用当前活动账号；填写后，该规则命中的请求会固定走指定账号。
+        <div class="routing-rule-guide">
+          <span>至少填写 1 个匹配条件，并至少填写 1 个目标字段。</span>
+          <span>目标会话留空：命中后沿用当前活动账号，适合在账号页灵活切号。</span>
+          <span>目标会话已填：命中后固定走指定账号，适合做 OpenClaw / localRagHub 专用分流。</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
           <label class="switch-label" style="font-size: 14px;">
@@ -1929,23 +1958,55 @@ function renderRoutingPreviewResult(
   if (!node) {
     return;
   }
+  const tone =
+    payload.warnings?.length
+      ? "warning"
+      : payload.reason === "rule_matched"
+        ? "success"
+        : "neutral";
+  const headline =
+    payload.reason === "rule_matched"
+      ? "已命中策略规则"
+      : payload.reason === "routing_disabled"
+        ? "策略路由当前未启用"
+        : "未命中任何策略规则";
+  const description =
+    payload.reason === "rule_matched"
+      ? "当前输入条件会按下方结果进入对应模型和账号。"
+      : payload.reason === "routing_disabled"
+        ? "当前系统会直接沿用默认模型与当前活动账号。"
+        : "当前请求会直接沿用默认模型与当前活动账号。";
   const warnings = payload.warnings?.length
-    ? `<div style="margin-top: 8px; font-size: 13px; color: var(--warning);">告警：${escapeHtml(payload.warnings.join("；"))}</div>`
+    ? `<div class="routing-preview-warning"><strong>命中告警</strong><span>${escapeHtml(payload.warnings.join("；"))}</span></div>`
     : "";
   const matched = payload.matchedRuleName
     ? `${payload.matchedRuleName} (${payload.matchedRuleId ?? "unknown"})`
     : "未命中";
   node.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-      <div style="display: flex; flex-direction: column; gap: 4px;">
-        <strong style="font-size: 14px;">预演结果：${escapeHtml(payload.reason)}</strong>
-        <span style="font-size: 13px; color: var(--text-secondary);">命中规则：${escapeHtml(matched)}</span>
-        <span style="font-size: 13px; color: var(--text-secondary);">解析模型：${escapeHtml(payload.resolvedModelAlias)}</span>
-        <span style="font-size: 13px; color: var(--text-secondary);">解析会话：${escapeHtml(payload.resolvedSessionId ?? "沿用当前活动会话")}</span>
+    <div class="routing-preview-result-card ${tone}">
+      <div class="routing-preview-result-head">
+        <div>
+          <strong>${escapeHtml(headline)}</strong>
+          <p>${escapeHtml(description)}</p>
+        </div>
+        <span class="badge ${payload.enabled ? "active" : "neutral"}">${payload.enabled ? "已启用" : "未启用"}</span>
       </div>
-      <span class="badge ${payload.enabled ? "active" : "neutral"}">${payload.enabled ? "已启用" : "未启用"}</span>
+      <div class="routing-preview-facts">
+        <div class="routing-preview-fact">
+          <label>命中规则</label>
+          <span>${escapeHtml(matched)}</span>
+        </div>
+        <div class="routing-preview-fact">
+          <label>解析模型</label>
+          <span>${escapeHtml(payload.resolvedModelAlias)}</span>
+        </div>
+        <div class="routing-preview-fact">
+          <label>解析会话</label>
+          <span>${escapeHtml(payload.resolvedSessionId ?? "沿用当前活动会话")}</span>
+        </div>
+      </div>
+      ${warnings}
     </div>
-    ${warnings}
   `;
 }
 
@@ -1954,7 +2015,7 @@ function resetRoutingPreviewResult(): void {
   if (!node) {
     return;
   }
-  node.innerHTML = "<span style='font-size: 13px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span>";
+  node.innerHTML = "<div class='routing-preview-result-card neutral'><span style='font-size: 14px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span></div>";
 }
 
 function applySecuritySettingsToForm(): void {
