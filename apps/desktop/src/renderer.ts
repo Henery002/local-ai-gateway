@@ -393,11 +393,23 @@ type PoolMemberCandidateView = {
   selector: string;
   title: string;
   subtitle: string;
+  quotaPercentage?: number;
   quotaLabel: string;
   quotaToneClass: string;
+  resetAt?: number;
+  resetLabel: string;
   statusLabel: string;
   statusToneClass: string;
   matchers: string[];
+};
+
+type PoolMemberSortKey = "quota" | "resetAt" | "name";
+type PoolMemberSortDirection = "asc" | "desc";
+type PoolMemberPanelState = {
+  search: string;
+  sortKey: PoolMemberSortKey;
+  sortDirection: PoolMemberSortDirection;
+  collapsed: boolean;
 };
 
 type SecuritySettingsInput = {
@@ -491,6 +503,7 @@ const state: {
 
 let autoRefreshTimer: number | undefined;
 let sessionActivityTimer: number | undefined;
+const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 
 function getGatewayApi() {
@@ -2244,7 +2257,7 @@ function buildPoolMemberCandidates(): PoolMemberCandidateView[] {
         ? "success"
         : representative.status === "expired"
           ? "warning"
-          : "neutral";
+          : "danger";
 
     return {
       selector,
@@ -2254,9 +2267,12 @@ function buildPoolMemberCandidates(): PoolMemberCandidateView[] {
         representative.accountId ||
         representative.profileId ||
         representative.id,
+      quotaPercentage,
       quotaLabel:
         typeof quotaPercentage === "number" ? `${quotaPercentage}%` : "待同步",
       quotaToneClass: getQuotaToneClass(quotaPercentage),
+      resetAt: representative.quota?.resetAt,
+      resetLabel: formatCountdown(representative.quota?.resetAt),
       statusLabel,
       statusToneClass,
       matchers: Array.from(
@@ -2273,6 +2289,80 @@ function buildPoolMemberCandidates(): PoolMemberCandidateView[] {
   });
 }
 
+function getPoolPanelState(poolId: string): PoolMemberPanelState {
+  const existing = poolMemberPanelState.get(poolId);
+  if (existing) {
+    return existing;
+  }
+  const next: PoolMemberPanelState = {
+    search: "",
+    sortKey: "quota",
+    sortDirection: "desc",
+    collapsed: false,
+  };
+  poolMemberPanelState.set(poolId, next);
+  return next;
+}
+
+function setPoolPanelState(
+  poolId: string,
+  patch: Partial<PoolMemberPanelState>,
+): void {
+  const current = getPoolPanelState(poolId);
+  poolMemberPanelState.set(poolId, {
+    ...current,
+    ...patch,
+  });
+}
+
+function comparePoolMemberCandidates(
+  left: PoolMemberCandidateView,
+  right: PoolMemberCandidateView,
+  sortKey: PoolMemberSortKey,
+  direction: PoolMemberSortDirection,
+): number {
+  const multiplier = direction === "asc" ? 1 : -1;
+
+  if (sortKey === "name") {
+    return left.title.localeCompare(right.title, "zh-CN") * multiplier;
+  }
+
+  if (sortKey === "resetAt") {
+    const leftValue = left.resetAt ?? Number.MAX_SAFE_INTEGER;
+    const rightValue = right.resetAt ?? Number.MAX_SAFE_INTEGER;
+    if (leftValue !== rightValue) {
+      return (leftValue - rightValue) * multiplier;
+    }
+    return left.title.localeCompare(right.title, "zh-CN");
+  }
+
+  const leftQuota = left.quotaPercentage ?? -1;
+  const rightQuota = right.quotaPercentage ?? -1;
+  if (leftQuota !== rightQuota) {
+    return (leftQuota - rightQuota) * multiplier;
+  }
+  return left.title.localeCompare(right.title, "zh-CN");
+}
+
+function matchesPoolCandidateSearch(
+  candidate: PoolMemberCandidateView,
+  search: string,
+): boolean {
+  if (!search) {
+    return true;
+  }
+  const normalized = search.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return [
+    candidate.title,
+    candidate.subtitle,
+    candidate.selector,
+    ...candidate.matchers,
+  ].some((value) => value.toLowerCase().includes(normalized));
+}
+
 function isPoolCandidateSelected(
   pool: PoolDefinition,
   candidate: PoolMemberCandidateView,
@@ -2283,39 +2373,153 @@ function isPoolCandidateSelected(
 }
 
 function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
+  const panelState = getPoolPanelState(pool.id);
   const candidates = buildPoolMemberCandidates();
   if (candidates.length === 0) {
     return "<div class='empty-state'>当前没有可选的桌面端账号。请先在“账号资产”页导入至少一个桌面端 Codex 账号。</div>";
   }
 
+  const filteredCandidates = [...candidates]
+    .filter((candidate) => matchesPoolCandidateSearch(candidate, panelState.search))
+    .sort((left, right) =>
+      comparePoolMemberCandidates(
+        left,
+        right,
+        panelState.sortKey,
+        panelState.sortDirection,
+      ),
+    );
+  const selectedCount = candidates.filter((candidate) =>
+    isPoolCandidateSelected(pool, candidate),
+  ).length;
+  const selectedVisibleCount = filteredCandidates.filter((candidate) =>
+    isPoolCandidateSelected(pool, candidate),
+  ).length;
+  const sortLabel =
+    panelState.sortKey === "name"
+      ? "按名称"
+      : panelState.sortKey === "resetAt"
+        ? "按重置时间"
+        : "按剩余额度";
+  const directionLabel = panelState.sortDirection === "asc" ? "升序" : "降序";
+  const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates);
+
   return `
-    <div class="pool-member-grid">
-      ${candidates
+    <div class="pool-member-toolbar">
+      <div class="toolbar-group">
+        <input
+          class="input-field search-input"
+          data-pool-ui="search"
+          type="search"
+          placeholder="搜索名称、邮箱、账号标识..."
+          value="${escapeHtml(panelState.search)}"
+        />
+        <select class="input-field" data-pool-ui="sort-key" style="width: auto;">
+          <option value="quota" ${panelState.sortKey === "quota" ? "selected" : ""}>按剩余额度</option>
+          <option value="resetAt" ${panelState.sortKey === "resetAt" ? "selected" : ""}>按重置时间</option>
+          <option value="name" ${panelState.sortKey === "name" ? "selected" : ""}>按名称</option>
+        </select>
+        <button
+          type="button"
+          class="btn secondary mini"
+          data-action="pool-toggle-sort"
+          data-pool-id="${escapeHtml(pool.id)}"
+          title="切换当前排序升降序"
+        >${escapeHtml(directionLabel)}</button>
+        <button
+          type="button"
+          class="btn secondary mini"
+          data-action="pool-select-all"
+          data-pool-id="${escapeHtml(pool.id)}"
+          title="全选当前筛选结果"
+        >全选</button>
+        <button
+          type="button"
+          class="btn secondary mini"
+          data-action="pool-invert-selection"
+          data-pool-id="${escapeHtml(pool.id)}"
+          title="反选当前筛选结果"
+        >反选</button>
+      </div>
+      <div class="toolbar-group">
+        <span class="badge neutral">已选 ${escapeHtml(String(selectedCount))} / 总 ${escapeHtml(String(candidates.length))}</span>
+        <span class="badge neutral">当前筛选 ${escapeHtml(String(filteredCandidates.length))} 项</span>
+        <span class="badge neutral">${escapeHtml(sortLabel)} · ${escapeHtml(directionLabel)}</span>
+        <button
+          type="button"
+          class="btn ghost mini"
+          data-action="pool-toggle-collapse"
+          data-pool-id="${escapeHtml(pool.id)}"
+          title="${panelState.collapsed ? "展开池成员面板" : "收起池成员面板"}"
+        >${panelState.collapsed ? "展开面板" : "收起面板"}</button>
+      </div>
+    </div>
+    ${
+      unresolvedMembers.length
+        ? `<div class="form-hint" style="margin-bottom: 12px;">当前仍有 ${escapeHtml(String(unresolvedMembers.length))} 个高级成员标识未映射到上方账号卡片，可在“额外成员标识”里继续维护。</div>`
+        : ""
+    }
+    ${
+      panelState.collapsed
+        ? `<div class="form-hint">池成员面板已收起。当前筛选结果中已选 ${escapeHtml(String(selectedVisibleCount))} 项。</div>`
+        : ""
+    }
+    <div ${panelState.collapsed ? "hidden" : ""}>
+      ${
+        filteredCandidates.length === 0
+          ? `<div class="empty-state">当前筛选条件下没有匹配的桌面端账号。可清空搜索词、调整排序，或先在“账号资产”页导入更多账号。</div>`
+          : `<div class="pool-member-grid">
+      ${filteredCandidates
         .map((candidate) => {
           const selected = isPoolCandidateSelected(pool, candidate);
+          const quotaFillClass =
+            candidate.quotaToneClass === "quota-low"
+              ? "low"
+              : candidate.quotaToneClass === "quota-medium"
+                ? "medium"
+                : "";
+          const quotaNumberClass =
+            candidate.quotaToneClass === "quota-low"
+              ? "pool-quota-text low"
+              : candidate.quotaToneClass === "quota-medium"
+                ? "pool-quota-text medium"
+                : candidate.quotaToneClass === "quota-high"
+                  ? "pool-quota-text high"
+                  : "pool-quota-text";
           return `
             <label class="pool-member-option" data-selected="${selected ? "true" : "false"}">
-              <input
-                type="checkbox"
-                data-field="pool-member-selector"
-                data-selector="${escapeHtml(candidate.selector)}"
-                data-label="${escapeHtml(candidate.title)}"
-                value="${escapeHtml(candidate.selector)}"
-                ${selected ? "checked" : ""}
-              />
               <div class="pool-member-option-head">
-                <strong>${escapeHtml(candidate.title)}</strong>
-                <span class="badge ${candidate.statusToneClass}">${escapeHtml(candidate.statusLabel)}</span>
+                <div class="pool-member-option-title">
+                  <input
+                    type="checkbox"
+                    data-field="pool-member-selector"
+                    data-selector="${escapeHtml(candidate.selector)}"
+                    data-label="${escapeHtml(candidate.title)}"
+                    value="${escapeHtml(candidate.selector)}"
+                    ${selected ? "checked" : ""}
+                  />
+                  <strong title="${escapeHtml(candidate.title)}">${escapeHtml(candidate.title)}</strong>
+                </div>
+                <span class="badge ${candidate.statusToneClass}" title="${escapeHtml(candidate.statusLabel)}">${escapeHtml(candidate.statusLabel)}</span>
               </div>
-              <div class="pool-member-option-subtitle">${escapeHtml(candidate.subtitle)}</div>
+              <div class="pool-member-option-subtitle" title="${escapeHtml(candidate.subtitle)}">${escapeHtml(candidate.subtitle)}</div>
               <div class="pool-member-option-meta">
-                <span class="badge neutral">${escapeHtml(candidate.selector)}</span>
-                <span class="badge ${candidate.quotaToneClass === "quota-high" ? "success" : candidate.quotaToneClass === "quota-medium" ? "warning" : candidate.quotaToneClass === "quota-low" ? "danger" : "neutral"}">${escapeHtml(candidate.quotaLabel)}</span>
+                <span class="badge neutral" title="${escapeHtml(candidate.selector)}">${escapeHtml(candidate.selector)}</span>
+                <span class="badge ${candidate.quotaToneClass === "quota-high" ? "success" : candidate.quotaToneClass === "quota-medium" ? "warning" : candidate.quotaToneClass === "quota-low" ? "danger" : "neutral"}" title="${escapeHtml(candidate.resetLabel)}">${escapeHtml(candidate.resetLabel)}</span>
+              </div>
+              <div class="pool-member-quota-row">
+                <span>剩余额度</span>
+                <strong class="${quotaNumberClass}" title="${escapeHtml(candidate.quotaLabel)}">${escapeHtml(candidate.quotaLabel)}</strong>
+              </div>
+              <div class="acc-quota-bar">
+                <div class="acc-quota-fill ${quotaFillClass}" style="width: ${escapeHtml(String(Math.max(0, Math.min(100, candidate.quotaPercentage ?? 0))))}%"></div>
               </div>
             </label>
           `;
         })
         .join("")}
+    </div>`
+      }
     </div>
   `;
 }
@@ -2499,7 +2703,7 @@ function renderPoolCards(): void {
             <div class="form-field" style="grid-column: 1 / -1;">
               <label>池成员（推荐直接勾选桌面端账号）</label>
               ${buildPoolMemberSelectorMarkup(pool)}
-              <div class="form-hint">优先使用账号标识作为池成员选择器；如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+              <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
             </div>
             <div class="form-field" style="grid-column: 1 / -1;">
               <label>额外成员标识（高级，可选）</label>
@@ -2524,6 +2728,7 @@ function renderPoolCards(): void {
           </div>
           <div class="routing-rule-guide">
             <span>第一版动态号池只纳入桌面端导入账号，不直接把原始本地可复用授权作为正式池成员。</span>
+            <span>动态号池是“请求级自动选账号”，不是把多个账号做成真正的额度池化；单次请求仍只会使用一个账号。</span>
             <span>额度阈值用于“新请求是否可选”，不是精确 token 预算；当某账号低于阈值或进入冷却，会自动跳过。</span>
             <span>请求级自动切号不会改写全局活动账号；每次请求只会在命中的号池内独立选择实际使用账号。</span>
           </div>
@@ -2558,6 +2763,111 @@ function applyPoolSettingsToForm(): void {
     enabledInput.checked = Boolean(state.poolSettings?.enabled);
   }
   renderPoolCards();
+}
+
+function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
+  const id = row.dataset.poolId || createPoolId();
+  const name =
+    row.querySelector<HTMLInputElement>('[data-field="pool-name"]')?.value.trim() ||
+    id;
+  const description =
+    row
+      .querySelector<HTMLInputElement>('[data-field="pool-description"]')
+      ?.value.trim() || undefined;
+  const selectionStrategy =
+    row
+      .querySelector<HTMLSelectElement>('[data-field="pool-strategy"]')
+      ?.value as PoolDefinition["selectionStrategy"] | undefined;
+  const minRemainingPercentage = Number(
+    row.querySelector<HTMLInputElement>('[data-field="pool-min-percentage"]')
+      ?.value ?? "15",
+  );
+  const cooldownSeconds = Number(
+    row.querySelector<HTMLInputElement>('[data-field="pool-cooldown-seconds"]')
+      ?.value ?? "300",
+  );
+  const quotaExhaustedCooldownSeconds = Number(
+    row.querySelector<HTMLInputElement>(
+      '[data-field="pool-quota-cooldown-seconds"]',
+    )?.value ?? "7200",
+  );
+  const maxRetryCandidates = Number(
+    row.querySelector<HTMLInputElement>(
+      '[data-field="pool-max-retry-candidates"]',
+    )?.value ?? "2",
+  );
+  const selectedMembers = Array.from(
+    row.querySelectorAll<HTMLInputElement>(
+      '[data-field="pool-member-selector"]:checked',
+    ),
+  ).map((input, index) => ({
+    selector: (input.dataset.selector ?? input.value).trim(),
+    label: input.dataset.label?.trim() || undefined,
+    priority: index * 10,
+    enabled: true,
+  }));
+  const extraMembersRaw =
+    row.querySelector<HTMLTextAreaElement>('[data-field="pool-members-extra"]')
+      ?.value ?? "";
+  const extraMembers = extraMembersRaw
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((selector, index) => ({
+      selector,
+      priority: (selectedMembers.length + index) * 10,
+      enabled: true,
+    }));
+  const membersCombined = [...selectedMembers, ...extraMembers].filter(
+    (member, index, list) =>
+      list.findIndex((item) => item.selector === member.selector) === index,
+  );
+
+  return {
+    id,
+    name,
+    description,
+    enabled:
+      row.querySelector<HTMLInputElement>('[data-field="pool-enabled"]')
+        ?.checked ?? true,
+    selectionStrategy,
+    minRemainingPercentage: Number.isFinite(minRemainingPercentage)
+      ? Math.max(0, Math.min(100, Math.round(minRemainingPercentage)))
+      : 15,
+    allowUnknownQuota:
+      row.querySelector<HTMLInputElement>('[data-field="pool-allow-unknown"]')
+        ?.checked ?? true,
+    cooldownSeconds: Number.isFinite(cooldownSeconds)
+      ? Math.max(10, Math.min(86_400, Math.round(cooldownSeconds)))
+      : 300,
+    quotaExhaustedCooldownSeconds: Number.isFinite(quotaExhaustedCooldownSeconds)
+      ? Math.max(30, Math.min(86_400, Math.round(quotaExhaustedCooldownSeconds)))
+      : 7_200,
+    maxRetryCandidates: Number.isFinite(maxRetryCandidates)
+      ? Math.max(1, Math.min(5, Math.round(maxRetryCandidates)))
+      : 2,
+    fallbackToActiveSession:
+      row.querySelector<HTMLInputElement>('[data-field="pool-fallback-active"]')
+        ?.checked ?? true,
+    members: membersCombined,
+  } satisfies PoolDefinition;
+}
+
+function syncPoolDraftFromRow(row: HTMLElement): void {
+  const nextPool = collectPoolDefinitionFromRow(row);
+  const settings = state.poolSettings ?? {};
+  const pools = settings.pools ?? [];
+  const existingIndex = pools.findIndex((pool) => pool.id === nextPool.id);
+  const nextPools = [...pools];
+  if (existingIndex >= 0) {
+    nextPools.splice(existingIndex, 1, nextPool);
+  } else {
+    nextPools.push(nextPool);
+  }
+  state.poolSettings = {
+    ...settings,
+    pools: nextPools,
+  };
 }
 
 function collectRoutingSettingsFromForm(): RoutingSettings {
@@ -2659,94 +2969,7 @@ function collectPoolSettingsFromForm(): PoolSettings {
     document.querySelectorAll<HTMLElement>("[data-pool-row]"),
   );
   const pools: PoolDefinition[] = rows
-    .map((row) => {
-      const id = row.dataset.poolId || createPoolId();
-      const name =
-        row.querySelector<HTMLInputElement>('[data-field="pool-name"]')?.value.trim() ||
-        id;
-      const description =
-        row
-          .querySelector<HTMLInputElement>('[data-field="pool-description"]')
-          ?.value.trim() || undefined;
-      const selectionStrategy =
-        row
-          .querySelector<HTMLSelectElement>('[data-field="pool-strategy"]')
-          ?.value as PoolDefinition["selectionStrategy"] | undefined;
-      const minRemainingPercentage = Number(
-        row.querySelector<HTMLInputElement>('[data-field="pool-min-percentage"]')
-          ?.value ?? "15",
-      );
-      const cooldownSeconds = Number(
-        row.querySelector<HTMLInputElement>('[data-field="pool-cooldown-seconds"]')
-          ?.value ?? "300",
-      );
-      const quotaExhaustedCooldownSeconds = Number(
-        row.querySelector<HTMLInputElement>(
-          '[data-field="pool-quota-cooldown-seconds"]',
-        )?.value ?? "7200",
-      );
-      const maxRetryCandidates = Number(
-        row.querySelector<HTMLInputElement>(
-          '[data-field="pool-max-retry-candidates"]',
-        )?.value ?? "2",
-      );
-      const selectedMembers =
-        Array.from(
-          row.querySelectorAll<HTMLInputElement>(
-            '[data-field="pool-member-selector"]:checked',
-          ),
-        ).map((input, index) => ({
-          selector: (input.dataset.selector ?? input.value).trim(),
-          label: input.dataset.label?.trim() || undefined,
-          priority: index * 10,
-          enabled: true,
-        }));
-      const extraMembersRaw =
-        row.querySelector<HTMLTextAreaElement>('[data-field="pool-members-extra"]')
-          ?.value ?? "";
-      const extraMembers = extraMembersRaw
-        .split("\n")
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map((selector, index) => ({
-          selector,
-          priority: (selectedMembers.length + index) * 10,
-          enabled: true,
-        }));
-      const membersCombined = [...selectedMembers, ...extraMembers].filter(
-        (member, index, list) =>
-          list.findIndex((item) => item.selector === member.selector) === index,
-      );
-
-      return {
-        id,
-        name,
-        description,
-        enabled:
-          row.querySelector<HTMLInputElement>('[data-field="pool-enabled"]')
-            ?.checked ?? true,
-        selectionStrategy,
-        minRemainingPercentage: Number.isFinite(minRemainingPercentage)
-          ? Math.max(0, Math.min(100, Math.round(minRemainingPercentage)))
-          : 15,
-        allowUnknownQuota:
-          row.querySelector<HTMLInputElement>('[data-field="pool-allow-unknown"]')
-            ?.checked ?? true,
-        cooldownSeconds: Number.isFinite(cooldownSeconds)
-          ? Math.max(10, Math.min(86_400, Math.round(cooldownSeconds)))
-          : 300,
-        quotaExhaustedCooldownSeconds: Number.isFinite(quotaExhaustedCooldownSeconds)
-          ? Math.max(30, Math.min(86_400, Math.round(quotaExhaustedCooldownSeconds)))
-          : 7_200,
-        maxRetryCandidates: Number.isFinite(maxRetryCandidates)
-          ? Math.max(1, Math.min(5, Math.round(maxRetryCandidates)))
-          : 2,
-        fallbackToActiveSession:
-          row.querySelector<HTMLInputElement>('[data-field="pool-fallback-active"]')
-            ?.checked ?? true,
-        members: membersCombined,
-      } satisfies PoolDefinition;
-    })
+    .map((row) => collectPoolDefinitionFromRow(row))
     .filter((pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0);
 
   return {
@@ -3770,6 +3993,38 @@ function bindActions(): void {
       renderCodexAccounts();
     });
 
+  document.addEventListener("input", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-pool-ui="search"]')
+    ) {
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (!row) {
+        return;
+      }
+      syncPoolDraftFromRow(row);
+      setPoolPanelState(row.dataset.poolId || createPoolId(), {
+        search: target.value,
+      });
+      renderPoolCards();
+      return;
+    }
+
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement
+    ) {
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (
+        row &&
+        target.dataset.poolUi !== "search"
+      ) {
+        syncPoolDraftFromRow(row);
+      }
+    }
+  });
+
   document
     .getElementById("account-sort-key")
     ?.addEventListener("change", (event) => {
@@ -3799,12 +4054,40 @@ function bindActions(): void {
     }
 
     if (
+      target instanceof HTMLSelectElement &&
+      target.matches('[data-pool-ui="sort-key"]')
+    ) {
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (row) {
+        syncPoolDraftFromRow(row);
+        setPoolPanelState(row.dataset.poolId || createPoolId(), {
+          sortKey: target.value as PoolMemberSortKey,
+        });
+        renderPoolCards();
+      }
+    }
+
+    if (
       target instanceof HTMLInputElement &&
       target.matches('[data-field="pool-member-selector"]')
     ) {
       const option = target.closest<HTMLElement>(".pool-member-option");
       if (option) {
         option.dataset.selected = target.checked ? "true" : "false";
+      }
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (row) {
+        syncPoolDraftFromRow(row);
+      }
+    }
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.closest<HTMLElement>("[data-pool-row]")
+    ) {
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (row && target.dataset.poolUi !== "search") {
+        syncPoolDraftFromRow(row);
       }
     }
   });
@@ -4134,6 +4417,60 @@ function bindActions(): void {
       applyPoolSettingsToForm();
       applyRoutingSettingsToForm();
       resetRoutingPreviewResult();
+    }
+
+    if (
+      action === "pool-toggle-collapse" &&
+      button.dataset.poolId
+    ) {
+      const row = button.closest<HTMLElement>("[data-pool-row]");
+      if (row) {
+        syncPoolDraftFromRow(row);
+      }
+      const panelState = getPoolPanelState(button.dataset.poolId);
+      setPoolPanelState(button.dataset.poolId, {
+        collapsed: !panelState.collapsed,
+      });
+      renderPoolCards();
+    }
+
+    if (
+      action === "pool-toggle-sort" &&
+      button.dataset.poolId
+    ) {
+      const row = button.closest<HTMLElement>("[data-pool-row]");
+      if (row) {
+        syncPoolDraftFromRow(row);
+      }
+      const panelState = getPoolPanelState(button.dataset.poolId);
+      setPoolPanelState(button.dataset.poolId, {
+        sortDirection: panelState.sortDirection === "asc" ? "desc" : "asc",
+      });
+      renderPoolCards();
+    }
+
+    if (
+      (action === "pool-select-all" || action === "pool-invert-selection") &&
+      button.dataset.poolId
+    ) {
+      const row = button.closest<HTMLElement>("[data-pool-row]");
+      if (!row) {
+        return;
+      }
+      const checkboxes = Array.from(
+        row.querySelectorAll<HTMLInputElement>(
+          '[data-field="pool-member-selector"]',
+        ),
+      );
+      for (const checkbox of checkboxes) {
+        checkbox.checked =
+          action === "pool-select-all" ? true : !checkbox.checked;
+        const option = checkbox.closest<HTMLElement>(".pool-member-option");
+        if (option) {
+          option.dataset.selected = checkbox.checked ? "true" : "false";
+        }
+      }
+      syncPoolDraftFromRow(row);
     }
   });
 }
