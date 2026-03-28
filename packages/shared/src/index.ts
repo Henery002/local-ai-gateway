@@ -250,6 +250,8 @@ export interface SessionActivitySnapshot {
   byClientTag?: SessionClientTagActivitySnapshot[];
   recentRequestCount5m?: number;
   recentByClientTag5m?: SessionClientTagActivitySnapshot[];
+  recentRequestCount1h?: number;
+  recentRequestCount24h?: number;
   lastRequestAt?: number;
   lastSuccessAt?: number;
   lastFailureAt?: number;

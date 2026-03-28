@@ -207,6 +207,8 @@ type DashboardSessions = {
         failureCount: number;
         lastRequestAt?: number;
       }>;
+      recentRequestCount1h?: number;
+      recentRequestCount24h?: number;
       lastRequestAt?: number;
       lastSuccessAt?: number;
       lastFailureAt?: number;
@@ -1246,6 +1248,10 @@ function renderCodexAccounts(): void {
           <div class="acc-meta" style="align-items: center;">
             <span>近5分钟:</span>
             <span class="client-tag-list">${recentClientTagBadges}</span>
+          </div>
+          <div class="acc-meta">
+            <span>近1小时请求: ${activity?.recentRequestCount1h ?? 0}</span>
+            <span>近24小时: ${activity?.recentRequestCount24h ?? 0}</span>
           </div>
           <div style="margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; font-size: 14px;">

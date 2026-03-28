@@ -792,6 +792,20 @@ describe("gateway app", () => {
       expect(response.statusCode).toBe(200);
       expect(adapter.lastOptions?.sessionId).toBe("main:fake:default");
 
+      const sessions = await app.inject({
+        method: "GET",
+        url: "/admin/sessions",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(sessions.statusCode).toBe(200);
+      expect(sessions.json().data[0]?.activity).toMatchObject({
+        recentRequestCount5m: 1,
+        recentRequestCount1h: 1,
+        recentRequestCount24h: 1,
+      });
+
       const adminHealth = await app.inject({
         method: "GET",
         url: "/admin/health",

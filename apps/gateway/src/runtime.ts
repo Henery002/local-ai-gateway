@@ -70,15 +70,25 @@ export class GatewayRuntime {
 
   listSessions(): SessionSummary[] {
     const sessions = this.sessionSource.listSessions();
-    const recentBySessionId = this.database.getRecentSessionClientActivity(
+    const recentBySessionId5m = this.database.getRecentSessionClientActivity(
       sessions.map((session) => session.id),
       Date.now() - 5 * 60 * 1000,
+    );
+    const recentBySessionId1h = this.database.getRecentSessionClientActivity(
+      sessions.map((session) => session.id),
+      Date.now() - 60 * 60 * 1000,
+    );
+    const recentBySessionId24h = this.database.getRecentSessionClientActivity(
+      sessions.map((session) => session.id),
+      Date.now() - 24 * 60 * 60 * 1000,
     );
 
     return sessions.map((session) => {
       const activity = this.sessionActivity.get(session.id);
-      const recent = recentBySessionId.get(session.id);
-      if (!activity && !recent) {
+      const recent5m = recentBySessionId5m.get(session.id);
+      const recent1h = recentBySessionId1h.get(session.id);
+      const recent24h = recentBySessionId24h.get(session.id);
+      if (!activity && !recent5m && !recent1h && !recent24h) {
         return session;
       }
 
@@ -91,8 +101,10 @@ export class GatewayRuntime {
           streamCount: activity?.streamCount ?? 0,
           nonStreamCount: activity?.nonStreamCount ?? 0,
           byClientTag: activity?.byClientTag,
-          recentRequestCount5m: recent?.total ?? 0,
-          recentByClientTag5m: recent?.byClientTag,
+          recentRequestCount5m: recent5m?.total ?? 0,
+          recentByClientTag5m: recent5m?.byClientTag,
+          recentRequestCount1h: recent1h?.total ?? 0,
+          recentRequestCount24h: recent24h?.total ?? 0,
           lastRequestAt: activity?.lastRequestAt,
           lastSuccessAt: activity?.lastSuccessAt,
           lastFailureAt: activity?.lastFailureAt,
