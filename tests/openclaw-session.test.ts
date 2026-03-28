@@ -170,7 +170,7 @@ describe("openclaw session source", () => {
     const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
     const store = new ImportedCodexAccountStore(importedProfilesPath);
 
-    store.importAccountConfigObject({
+    const firstImport = store.importAccountConfigObject({
       platforms: {
         codex: {
           exported_data: [
@@ -231,6 +231,7 @@ describe("openclaw session source", () => {
       imported: 0,
       updated: 1,
     });
+    expect(result.profileIds[0]).toBe(firstImport.profileIds[0]);
     expect(Object.keys(profiles)).toHaveLength(1);
     expect(imported[0]).toMatchObject({
       accountId: "acct_transfer",

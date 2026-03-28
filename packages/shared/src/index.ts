@@ -205,7 +205,24 @@ export interface GatewayPoolObservability {
   lastSelectedAt?: number;
   lastFailureAt?: number;
   warnings: string[];
+  recentEvents?: GatewayPoolSelectionEvent[];
   members: GatewayPoolMemberObservability[];
+}
+
+export type GatewayPoolSelectionEventType = "selected" | "failover";
+
+export interface GatewayPoolSelectionEvent {
+  timestamp: number;
+  poolId: string;
+  poolName: string;
+  eventType: GatewayPoolSelectionEventType;
+  clientTag?: string;
+  requestedModelAlias?: string;
+  selectedSessionId?: string;
+  fromSessionId?: string;
+  toSessionId?: string;
+  failureClass?: GatewayPoolFailureClass;
+  reason?: string;
 }
 
 export interface GatewayRoutingRuleCondition {

@@ -1328,6 +1328,16 @@ describe("gateway app", () => {
             eligibleMemberCount: 1,
             coolingMemberCount: 1,
             selectedSessionId: sessionB.id,
+            recentEvents: expect.arrayContaining([
+              expect.objectContaining({
+                eventType: "failover",
+                fromSessionId: sessionA.id,
+                toSessionId: sessionB.id,
+                failureClass: "quota_exhausted",
+                clientTag: "localraghub",
+                requestedModelAlias: "fake-default",
+              }),
+            ]),
             members: expect.arrayContaining([
               expect.objectContaining({
                 selector: sessionA.accountId,

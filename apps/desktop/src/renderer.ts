@@ -189,6 +189,25 @@ type DashboardHealth = {
     lastSelectedAt?: number;
     lastFailureAt?: number;
     warnings: string[];
+    recentEvents?: Array<{
+      timestamp: number;
+      poolId: string;
+      poolName: string;
+      eventType: "selected" | "failover";
+      clientTag?: string;
+      requestedModelAlias?: string;
+      selectedSessionId?: string;
+      fromSessionId?: string;
+      toSessionId?: string;
+      failureClass?:
+        | "auth_invalid"
+        | "quota_exhausted"
+        | "rate_limited"
+        | "network_retryable"
+        | "upstream_retryable"
+        | "non_retryable";
+      reason?: string;
+    }>;
     members: Array<{
       selector: string;
       label?: string;
@@ -2523,6 +2542,61 @@ function formatPoolFailureClassLabel(
   return "暂无";
 }
 
+function formatPoolEventTypeLabel(
+  eventType: "selected" | "failover",
+): string {
+  return eventType === "failover" ? "自动切号" : "首次选中";
+}
+
+function buildPoolEventMarkup(poolId: string): string {
+  const events = getPoolRuntime(poolId)?.recentEvents ?? [];
+  if (!events.length) {
+    return `
+      <div class="pool-event-empty">
+        暂无最近调度事件。等该号池真正命中第三方请求后，这里会显示“为什么选中某个账号”以及“什么时候自动切号”。
+      </div>
+    `;
+  }
+
+  return `
+    <div class="pool-event-list">
+      ${events
+        .map((event) => {
+          const tone = event.eventType === "failover" ? "warning" : "active";
+          const sessionLabel =
+            event.eventType === "failover"
+              ? `${event.fromSessionId ?? "unknown"} -> ${event.toSessionId ?? event.selectedSessionId ?? "unknown"}`
+              : event.selectedSessionId ?? "unknown";
+          const subtitleParts = [
+            event.clientTag ? `来源 ${event.clientTag}` : undefined,
+            event.requestedModelAlias
+              ? `模型 ${event.requestedModelAlias}`
+              : undefined,
+            event.failureClass
+              ? `原因 ${formatPoolFailureClassLabel(event.failureClass)}`
+              : undefined,
+          ].filter(Boolean);
+          return `
+            <div class="pool-event-item">
+              <div class="pool-event-head">
+                <span class="badge ${tone}">${escapeHtml(formatPoolEventTypeLabel(event.eventType))}</span>
+                <strong title="${escapeHtml(sessionLabel)}">${escapeHtml(sessionLabel)}</strong>
+                <span class="pool-event-time">${escapeHtml(formatRecentCall(event.timestamp))}</span>
+              </div>
+              <div class="pool-event-subtitle">${escapeHtml(subtitleParts.join(" · ") || "暂无附加上下文")}</div>
+              ${
+                event.reason
+                  ? `<div class="pool-event-reason">${escapeHtml(event.reason)}</div>`
+                  : ""
+              }
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): string {
   if (!member) {
     return "";
@@ -2674,6 +2748,13 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
                 .join("")
             : `<span>运行时观测已加载，可直接查看成员冷却、最近失败和最近命中情况。</span>`
         }
+      </div>
+      <div class="pool-event-panel">
+        <div class="pool-event-panel-head">
+          <strong>最近调度事件</strong>
+          <span>用于解释为什么这次选中了某个账号，或为何从 A 切到 B。</span>
+        </div>
+        ${buildPoolEventMarkup(pool.id)}
       </div>
     `
     : `<div class="form-hint" style="margin-bottom: 12px;">当前尚未拿到该号池的运行时观测。通常在网关健康信息刷新后会自动出现。</div>`;

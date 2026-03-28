@@ -18,6 +18,7 @@ import {
   GatewayPoolMemberObservability,
   GatewayPoolObservability,
   GatewayPoolRejectedCandidate,
+  GatewayPoolSelectionEvent,
   GatewayRoutingHitEvent,
   GatewayRoutingObservability,
   GatewayRoutingDispatchMode,
@@ -75,9 +76,11 @@ export class GatewayRuntime {
   readonly providerConfigurations: ProviderConfigurationSummary[];
   private readonly sessionActivity = new Map<string, SessionActivitySnapshot>();
   private readonly routingHits: GatewayRoutingHitEvent[] = [];
+  private readonly poolSelectionEvents: GatewayPoolSelectionEvent[] = [];
   private readonly poolMemberState = new Map<string, PoolMemberRuntimeState>();
   private sessionActivityInsertCount = 0;
   private routingHitInsertCount = 0;
+  private poolSelectionInsertCount = 0;
 
   constructor(
     readonly paths: GatewayPaths,
@@ -314,8 +317,10 @@ export class GatewayRuntime {
   resetTelemetry(): void {
     this.sessionActivity.clear();
     this.routingHits.splice(0, this.routingHits.length);
+    this.poolSelectionEvents.splice(0, this.poolSelectionEvents.length);
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
+    this.poolSelectionInsertCount = 0;
     this.database.clearTelemetry();
   }
 
@@ -630,6 +635,10 @@ export class GatewayRuntime {
           undefined,
         ),
         warnings: selection.warnings,
+        recentEvents: this.poolSelectionEvents
+          .filter((event) => event.poolId === pool.id)
+          .slice(-6)
+          .reverse(),
         members,
       } satisfies GatewayPoolObservability;
     });
@@ -657,6 +666,14 @@ export class GatewayRuntime {
       retainDays: 30,
     });
     this.routingHits.push(...this.database.getRecentRoutingHits(500));
+
+    this.database.prunePoolSelectionEvents({
+      maxRows: 10_000,
+      retainDays: 30,
+    });
+    this.poolSelectionEvents.push(
+      ...this.database.getRecentPoolSelectionEvents(500),
+    );
   }
 
   private getDefaultSelectionSummary(): DefaultModelSelectionSummary {
@@ -909,6 +926,24 @@ export class GatewayRuntime {
     state.consecutiveFailures = 0;
     state.cooldownUntil = undefined;
     this.poolMemberState.set(this.buildPoolMemberStateKey(poolId, sessionId), state);
+  }
+
+  recordPoolSelectionEvent(event: GatewayPoolSelectionEvent): void {
+    this.poolSelectionEvents.push(event);
+    if (this.poolSelectionEvents.length > 500) {
+      this.poolSelectionEvents.splice(
+        0,
+        this.poolSelectionEvents.length - 500,
+      );
+    }
+    this.database.insertPoolSelectionEvent(event);
+    this.poolSelectionInsertCount += 1;
+    if (this.poolSelectionInsertCount % 100 === 0) {
+      this.database.prunePoolSelectionEvents({
+        maxRows: 10_000,
+        retainDays: 30,
+      });
+    }
   }
 
   recordPoolSelectionFailure(input: {

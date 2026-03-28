@@ -267,11 +267,17 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       runtime.getPoolSettings(),
       targetPoolId,
     );
+    const targetPoolName =
+      targetPoolId
+        ? runtime.getPoolSettings().pools?.find((pool) => pool.id === targetPoolId)
+            ?.name ?? targetPoolId
+        : undefined;
     const hasExplicitTargetSession = Boolean(
       dispatchMode === "fixed-session" && matchedRule?.target?.sessionId?.trim(),
     );
     const attemptedSessionIds = new Set<string>();
     let routingHitRecorded = false;
+    let poolSelectionEventRecorded = false;
     let selectedByPoolMember = Boolean(
       targetPoolId &&
         routingPreview.reason === "rule_matched" &&
@@ -444,6 +450,19 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           failureClass,
           candidateCount: nextSelection.candidateCount,
         });
+        runtime.recordPoolSelectionEvent({
+          timestamp: Date.now(),
+          poolId: nextSelection.poolId,
+          poolName: nextSelection.poolName,
+          eventType: "failover",
+          clientTag,
+          requestedModelAlias: parsed.model,
+          fromSessionId: failedSessionId,
+          toSessionId: nextSelection.selectedSessionId,
+          selectedSessionId: nextSelection.selectedSessionId,
+          failureClass,
+          reason: nextSelection.selectionReason,
+        });
         return nextSelection.selectedSessionId;
       }
 
@@ -491,6 +510,24 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         result = await createAttempt(resolvedSessionId);
       }
       usedSessionId = result.session.id;
+      if (
+        targetPoolId &&
+        selectedByPoolMember &&
+        usedSessionId &&
+        !poolSelectionEventRecorded
+      ) {
+        runtime.recordPoolSelectionEvent({
+          timestamp: Date.now(),
+          poolId: targetPoolId,
+          poolName: targetPoolName ?? targetPoolId,
+          eventType: "selected",
+          clientTag,
+          requestedModelAlias: parsed.model,
+          selectedSessionId: usedSessionId,
+          reason: routingPreview.selectionReason,
+        });
+        poolSelectionEventRecorded = true;
+      }
 
       if (parsed.stream) {
         recordRoutingHitIfNeeded(usedSessionId);

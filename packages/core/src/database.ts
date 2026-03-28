@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import {
   GatewayLogRecord,
   GatewayPaths,
+  GatewayPoolSelectionEvent,
   GatewayRoutingHitEvent,
   SessionActivitySnapshot,
 } from "@local-ai-gateway/shared";
@@ -52,6 +53,22 @@ export class GatewayDatabase {
         client_tag TEXT NOT NULL,
         ok INTEGER NOT NULL,
         stream INTEGER NOT NULL
+      );
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS pool_selection_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        pool_id TEXT NOT NULL,
+        pool_name TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        client_tag TEXT,
+        requested_model_alias TEXT,
+        selected_session_id TEXT,
+        from_session_id TEXT,
+        to_session_id TEXT,
+        failure_class TEXT,
+        reason TEXT
       );
     `);
   }
@@ -304,6 +321,91 @@ export class GatewayDatabase {
       );
   }
 
+  insertPoolSelectionEvent(event: GatewayPoolSelectionEvent): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO pool_selection_events (
+            timestamp,
+            pool_id,
+            pool_name,
+            event_type,
+            client_tag,
+            requested_model_alias,
+            selected_session_id,
+            from_session_id,
+            to_session_id,
+            failure_class,
+            reason
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        event.timestamp,
+        event.poolId,
+        event.poolName,
+        event.eventType,
+        event.clientTag ?? null,
+        event.requestedModelAlias ?? null,
+        event.selectedSessionId ?? null,
+        event.fromSessionId ?? null,
+        event.toSessionId ?? null,
+        event.failureClass ?? null,
+        event.reason ?? null,
+      );
+  }
+
+  getRecentPoolSelectionEvents(limit = 500): GatewayPoolSelectionEvent[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            timestamp,
+            pool_id,
+            pool_name,
+            event_type,
+            client_tag,
+            requested_model_alias,
+            selected_session_id,
+            from_session_id,
+            to_session_id,
+            failure_class,
+            reason
+          FROM pool_selection_events
+          ORDER BY id DESC
+          LIMIT ?
+        `,
+      )
+      .all(limit) as Array<{
+      timestamp: number;
+      pool_id: string;
+      pool_name: string;
+      event_type: GatewayPoolSelectionEvent["eventType"];
+      client_tag: string | null;
+      requested_model_alias: string | null;
+      selected_session_id: string | null;
+      from_session_id: string | null;
+      to_session_id: string | null;
+      failure_class: GatewayPoolSelectionEvent["failureClass"] | null;
+      reason: string | null;
+    }>;
+
+    return rows.reverse().map((row) => ({
+      timestamp: row.timestamp,
+      poolId: row.pool_id,
+      poolName: row.pool_name,
+      eventType: row.event_type,
+      clientTag: row.client_tag ?? undefined,
+      requestedModelAlias: row.requested_model_alias ?? undefined,
+      selectedSessionId: row.selected_session_id ?? undefined,
+      fromSessionId: row.from_session_id ?? undefined,
+      toSessionId: row.to_session_id ?? undefined,
+      failureClass: row.failure_class ?? undefined,
+      reason: row.reason ?? undefined,
+    }));
+  }
+
   getRecentRoutingHits(limit = 500): GatewayRoutingHitEvent[] {
     const rows = this.db
       .prepare(
@@ -400,6 +502,13 @@ export class GatewayDatabase {
         `,
       )
       .run();
+    this.db
+      .prepare(
+        `
+          DELETE FROM pool_selection_events
+        `,
+      )
+      .run();
   }
 
   pruneSessionActivityEvents(options: { maxRows?: number; retainDays?: number } = {}): void {
@@ -469,6 +578,43 @@ export class GatewayDatabase {
         .prepare(
           `
             DELETE FROM routing_hit_events
+            WHERE id < ?
+          `,
+        )
+        .run(row.id);
+    }
+  }
+
+  prunePoolSelectionEvents(options: { maxRows?: number; retainDays?: number } = {}): void {
+    const maxRows = Math.max(200, options.maxRows ?? 10_000);
+    const retainDays = Math.max(1, options.retainDays ?? 30);
+    const minTimestamp = Date.now() - retainDays * 24 * 60 * 60 * 1000;
+
+    this.db
+      .prepare(
+        `
+          DELETE FROM pool_selection_events
+          WHERE timestamp < ?
+        `,
+      )
+      .run(minTimestamp);
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT id
+          FROM pool_selection_events
+          ORDER BY id DESC
+          LIMIT 1 OFFSET ?
+        `,
+      )
+      .get(maxRows - 1) as { id?: number } | undefined;
+
+    if (typeof row?.id === "number") {
+      this.db
+        .prepare(
+          `
+            DELETE FROM pool_selection_events
             WHERE id < ?
           `,
         )
