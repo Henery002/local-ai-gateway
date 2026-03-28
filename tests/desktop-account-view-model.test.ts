@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CodexAccountGroup } from "../apps/desktop/src/account-groups.js";
 import {
+  buildAccountActivitySummary,
   formatQuotaWindowLabel,
   getAvatarToneIndex,
   getQuotaPercentage,
@@ -182,5 +183,105 @@ describe("desktop account view model", () => {
     expect(first).toBeLessThan(12);
     expect(other).toBeGreaterThanOrEqual(0);
     expect(other).toBeLessThan(12);
+  });
+
+  it("aggregates account activity summaries from grouped sessions", () => {
+    const groups: CodexAccountGroup<AccountSessionViewLike>[] = [
+      {
+        key: "acct_alpha",
+        sourceKind: "local-import",
+        sourceLabel: "桌面端 Codex 账号",
+        displayName: "alpha@example.com",
+        representative: {
+          id: "acct_alpha_primary",
+          profileId: "acct_alpha_primary",
+          accountId: "acct_alpha",
+          email: "alpha@example.com",
+          status: "available",
+          sourceKind: "local-import",
+          activity: {
+            requestCount: 18,
+            recentRequestCount1h: 9,
+            recentRequestCount24h: 26,
+            recentByClientTag5m: [
+              { clientTag: "openclaw", requestCount: 3 },
+              { clientTag: "localraghub", requestCount: 1 },
+            ],
+          },
+        },
+        sessions: [
+          {
+            id: "acct_alpha_primary",
+            profileId: "acct_alpha_primary",
+            accountId: "acct_alpha",
+            email: "alpha@example.com",
+            status: "available",
+            sourceKind: "local-import",
+            activity: {
+              requestCount: 18,
+              recentRequestCount1h: 9,
+              recentRequestCount24h: 26,
+              recentByClientTag5m: [
+                { clientTag: "openclaw", requestCount: 3 },
+                { clientTag: "localraghub", requestCount: 1 },
+              ],
+            },
+          },
+          {
+            id: "acct_alpha_secondary",
+            profileId: "acct_alpha_secondary",
+            accountId: "acct_alpha",
+            email: "alpha+2@example.com",
+            status: "available",
+            sourceKind: "local-import",
+            activity: {
+              requestCount: 4,
+              recentRequestCount1h: 2,
+              recentRequestCount24h: 5,
+              recentByClientTag5m: [{ clientTag: "openclaw", requestCount: 2 }],
+            },
+          },
+        ],
+        isActive: true,
+      },
+      createGroup({
+        id: "acct_beta",
+        profileId: "acct_beta",
+        email: "beta@example.com",
+        activity: {
+          requestCount: 5,
+          recentRequestCount1h: 4,
+          recentRequestCount24h: 8,
+          recentByClientTag5m: [{ clientTag: "unknown", requestCount: 2 }],
+        },
+      }),
+      createGroup({
+        id: "acct_gamma",
+        profileId: "acct_gamma",
+        email: "gamma@example.com",
+        activity: {
+          requestCount: 1,
+          recentRequestCount1h: 0,
+          recentRequestCount24h: 1,
+          recentByClientTag5m: [],
+        },
+      }),
+    ];
+
+    expect(buildAccountActivitySummary(groups)).toEqual({
+      totalRequestCount1h: 15,
+      totalRequestCount24h: 40,
+      activeAccountCount1h: 2,
+      activeAccountCount24h: 3,
+      topClientTag5m: {
+        clientTag: "openclaw",
+        requestCount: 5,
+      },
+      topAccount1h: {
+        sessionId: "acct_alpha_primary",
+        title: "alpha@example.com",
+        requestCount: 11,
+      },
+    });
   });
 });

@@ -6,6 +6,16 @@ import type {
 export interface AccountSessionViewLike extends CodexAccountSessionLike {
   displayName?: string;
   email?: string;
+  activity?: {
+    requestCount: number;
+    recentRequestCount1h?: number;
+    recentRequestCount24h?: number;
+    recentByClientTag5m?: Array<{
+      clientTag: string;
+      requestCount: number;
+    }>;
+    lastRequestAt?: number;
+  };
   quota?: {
     scope?: "hourly" | "weekly";
     percentage?: number;
@@ -17,6 +27,22 @@ export interface AccountSessionViewLike extends CodexAccountSessionLike {
 
 export type AccountSortKey = "default" | "name" | "quota" | "resetAt";
 export type AccountSortDirection = "asc" | "desc";
+
+export interface AccountActivitySummary {
+  totalRequestCount1h: number;
+  totalRequestCount24h: number;
+  activeAccountCount1h: number;
+  activeAccountCount24h: number;
+  topClientTag5m?: {
+    clientTag: string;
+    requestCount: number;
+  };
+  topAccount1h?: {
+    sessionId: string;
+    title: string;
+    requestCount: number;
+  };
+}
 
 export function getSessionTitle(session: AccountSessionViewLike): string {
   return (
@@ -75,6 +101,87 @@ export function getAvatarToneIndex(id: string, toneCount = 12): number {
     hash = id.charCodeAt(i) + ((hash << 5) - hash);
   }
   return Math.abs(hash) % toneCount;
+}
+
+export function buildAccountActivitySummary<
+  TSession extends AccountSessionViewLike,
+>(groups: CodexAccountGroup<TSession>[]): AccountActivitySummary {
+  let totalRequestCount1h = 0;
+  let totalRequestCount24h = 0;
+  let activeAccountCount1h = 0;
+  let activeAccountCount24h = 0;
+  const clientTagCounts = new Map<string, number>();
+  let topAccount1h: AccountActivitySummary["topAccount1h"];
+
+  for (const group of groups) {
+    let groupRequestCount1h = 0;
+    let groupRequestCount24h = 0;
+
+    for (const session of group.sessions) {
+      const activity = session.activity;
+      if (!activity) {
+        continue;
+      }
+
+      groupRequestCount1h += activity.recentRequestCount1h ?? 0;
+      groupRequestCount24h += activity.recentRequestCount24h ?? 0;
+
+      for (const row of activity.recentByClientTag5m ?? []) {
+        clientTagCounts.set(
+          row.clientTag,
+          (clientTagCounts.get(row.clientTag) ?? 0) + row.requestCount,
+        );
+      }
+    }
+
+    totalRequestCount1h += groupRequestCount1h;
+    totalRequestCount24h += groupRequestCount24h;
+
+    if (groupRequestCount1h > 0) {
+      activeAccountCount1h += 1;
+    }
+    if (groupRequestCount24h > 0) {
+      activeAccountCount24h += 1;
+    }
+
+    if (
+      groupRequestCount1h > 0 &&
+      (!topAccount1h ||
+        groupRequestCount1h > topAccount1h.requestCount ||
+        (groupRequestCount1h === topAccount1h.requestCount &&
+          getSessionTitle(group.representative).localeCompare(
+            topAccount1h.title,
+            "zh-CN",
+          ) < 0))
+    ) {
+      topAccount1h = {
+        sessionId: group.representative.id,
+        title: getSessionTitle(group.representative),
+        requestCount: groupRequestCount1h,
+      };
+    }
+  }
+
+  const topClientTagEntry = [...clientTagCounts.entries()].sort((left, right) => {
+    if (right[1] !== left[1]) {
+      return right[1] - left[1];
+    }
+    return left[0].localeCompare(right[0], "zh-CN");
+  })[0];
+
+  return {
+    totalRequestCount1h,
+    totalRequestCount24h,
+    activeAccountCount1h,
+    activeAccountCount24h,
+    topClientTag5m: topClientTagEntry
+      ? {
+          clientTag: topClientTagEntry[0],
+          requestCount: topClientTagEntry[1],
+        }
+      : undefined,
+    topAccount1h,
+  };
 }
 
 function compareOptionalNumbers(

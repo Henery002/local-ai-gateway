@@ -1615,6 +1615,42 @@
               </div>
 
               <div class="card routing-observe-panel mt-4">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
+                  <div>
+                    <strong style="font-size: 16px;">账号活动观测</strong>
+                    <div style="font-size: 14px; color: var(--text-secondary);">基于当前本地账号活动快照汇总近 1 小时 / 24 小时请求量、活跃账号数和主要来源。</div>
+                  </div>
+                  <span class="badge neutral">消耗视角</span>
+                </div>
+                <div class="routing-observe-grid">
+                  <div class="routing-observe-kpi">
+                    <small>近 1 小时请求</small>
+                    <strong class="hot" id="account-activity-summary-1h">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 24 小时请求</small>
+                    <strong id="account-activity-summary-24h">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 1 小时活跃账号</small>
+                    <strong id="account-activity-summary-active-1h">0 个</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 24 小时活跃账号</small>
+                    <strong id="account-activity-summary-active-24h">0 个</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 5 分钟主要来源</small>
+                    <strong id="account-activity-summary-top-client">暂无</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 1 小时最忙账号</small>
+                    <strong id="account-activity-summary-top-account">暂无</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card routing-observe-panel mt-4">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                   <div>
                     <strong style="font-size: 16px;">路由命中观测</strong>

@@ -6,6 +6,7 @@ import {
   type SupportedCodexUpstreamModel,
 } from "./codex-models.js";
 import {
+  buildAccountActivitySummary,
   formatQuotaWindowLabel,
   getAvatarToneIndex,
   getQuotaPercentage,
@@ -1028,7 +1029,38 @@ function renderOverview(): void {
     "snippet-model",
     health.openclaw?.model ?? health.defaultModel ?? "codex-default",
   );
+  renderAccountActivityOverview();
   renderRoutingObservability();
+}
+
+function renderAccountActivityOverview(): void {
+  const groups = getAccountGroups();
+  const activitySummary = buildAccountActivitySummary(groups.groups);
+  const topClientTag = activitySummary.topClientTag5m
+    ? `${normalizeClientTagLabel(activitySummary.topClientTag5m.clientTag)} (${activitySummary.topClientTag5m.requestCount})`
+    : "暂无";
+  const topAccount = activitySummary.topAccount1h
+    ? `${activitySummary.topAccount1h.title} (${activitySummary.topAccount1h.requestCount})`
+    : "暂无";
+
+  setText(
+    "account-activity-summary-1h",
+    String(activitySummary.totalRequestCount1h),
+  );
+  setText(
+    "account-activity-summary-24h",
+    String(activitySummary.totalRequestCount24h),
+  );
+  setText(
+    "account-activity-summary-active-1h",
+    `${activitySummary.activeAccountCount1h} 个`,
+  );
+  setText(
+    "account-activity-summary-active-24h",
+    `${activitySummary.activeAccountCount24h} 个`,
+  );
+  setText("account-activity-summary-top-client", topClientTag);
+  setText("account-activity-summary-top-account", topAccount);
 }
 
 function renderRoutingObservability(): void {
@@ -2126,6 +2158,13 @@ function updateRuntimeDiagnostics(
     activeSessionId: state.sessions?.activeSessionId,
     sessions: state.sessions?.data ?? [],
     loadFailures,
+    routingEnabled: state.routingSettings?.enabled,
+    routingMatchedTotal: state.health?.routingObservability?.totalMatched,
+    inferenceAuthEnabled:
+      state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled,
+    inferenceAuthHasApiKey:
+      state.securitySettings?.hasApiKey ?? state.health?.inferenceAuth?.hasApiKey,
+    recentErrors: state.health?.recentErrors ?? [],
   });
 }
 

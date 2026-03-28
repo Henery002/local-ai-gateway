@@ -23,6 +23,9 @@ export interface RuntimeDiagnosticLoadFailure {
 export interface RuntimeDiagnosticSessionLike {
   id: string;
   status: "available" | "expired" | "invalid";
+  activity?: {
+    requestCount?: number;
+  };
 }
 
 export interface RuntimeDiagnosticContext {
@@ -30,6 +33,14 @@ export interface RuntimeDiagnosticContext {
   activeSessionId?: string;
   sessions: RuntimeDiagnosticSessionLike[];
   loadFailures: RuntimeDiagnosticLoadFailure[];
+  routingEnabled?: boolean;
+  routingMatchedTotal?: number;
+  inferenceAuthEnabled?: boolean;
+  inferenceAuthHasApiKey?: boolean;
+  recentErrors?: Array<{
+    level?: string;
+    message: string;
+  }>;
 }
 
 function includesAny(message: string, patterns: string[]): boolean {
@@ -121,6 +132,20 @@ export function buildRuntimeDiagnostics(
 ): RuntimeDiagnostic[] {
   const diagnostics: RuntimeDiagnostic[] = context.loadFailures.map(classifyLoadFailure);
   const availableSessions = context.sessions.filter((session) => session.status === "available");
+  const totalRequestCount = context.sessions.reduce(
+    (sum, session) => sum + (session.activity?.requestCount ?? 0),
+    0,
+  );
+
+  if (context.inferenceAuthEnabled && !context.inferenceAuthHasApiKey) {
+    diagnostics.push({
+      id: "gateway-inference-auth-missing-key",
+      title: "接入鉴权缺少密钥",
+      message: "当前网关已启用第三方接入鉴权，但尚未配置可用的 Gateway API Key。",
+      severity: "warning",
+      suggestion: "请在“诊断与系统 -> 第三方客户端接入鉴权”中填写并保存 Gateway API Key。",
+    });
+  }
 
   if (!context.sessions.length) {
     diagnostics.push({
@@ -164,6 +189,64 @@ export function buildRuntimeDiagnostics(
       message: `当前检测到 ${availableSessions.length} 个可用授权，但尚未指定活动账号。`,
       severity: "info",
       suggestion: "请在账号页将一个可用账号设为活动账号，第三方请求才会走该授权。",
+    });
+  }
+
+  if (context.gatewayOk && availableSessions.length > 0 && totalRequestCount === 0) {
+    diagnostics.push({
+      id: "gateway-no-client-traffic",
+      title: "尚未观测到第三方请求",
+      message: "本地网关和账号授权已就绪，但目前还没有任何真实请求经过该网关。",
+      severity: "info",
+      suggestion:
+        "请在第三方客户端中将 baseUrl 指向本地网关，并发起一次真实请求以验证 clientTag、路由命中和账号活动统计。",
+    });
+  }
+
+  if (
+    context.gatewayOk &&
+    context.routingEnabled &&
+    totalRequestCount > 0 &&
+    (context.routingMatchedTotal ?? 0) === 0
+  ) {
+    diagnostics.push({
+      id: "routing-enabled-no-hit",
+      title: "策略路由尚未命中",
+      message: "当前已有真实请求经过网关，但启用的策略规则暂未命中任何一次。",
+      severity: "info",
+      suggestion:
+        "如果你希望按客户端或模型分流，请检查 clientTag、请求模型别名与规则优先级，并先用“路由预演”验证匹配结果。",
+    });
+  }
+
+  const recentErrorMessages = (context.recentErrors ?? []).map((item) => item.message);
+  if (
+    recentErrorMessages.some((message) =>
+      includesAny(message, ["gateway_api_key_required", "Missing API key for gateway inference endpoint"]),
+    )
+  ) {
+    diagnostics.push({
+      id: "gateway-inference-auth-required",
+      title: "第三方请求缺少 Gateway API Key",
+      message: "最近有第三方请求命中了本地网关，但没有携带正确的 Gateway API Key。",
+      severity: "warning",
+      suggestion:
+        "请在第三方客户端里填写本地网关 API Key，或暂时把接入鉴权模式切回“无鉴权”后再验证。",
+    });
+  }
+
+  if (
+    recentErrorMessages.some((message) =>
+      includesAny(message, ["gateway_api_key_invalid", "Invalid API key for gateway inference endpoint"]),
+    )
+  ) {
+    diagnostics.push({
+      id: "gateway-inference-auth-invalid",
+      title: "第三方请求使用了错误的 Gateway API Key",
+      message: "最近有第三方请求访问本地网关，但提供的 Gateway API Key 与当前配置不一致。",
+      severity: "warning",
+      suggestion:
+        "请重新复制当前网关 API Key 到第三方客户端，避免旧密钥或手工录入错误导致请求被拒绝。",
     });
   }
 
