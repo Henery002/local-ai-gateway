@@ -3309,9 +3309,30 @@ async function refresh(): Promise<void> {
   setOAuthBusyState(Boolean(state.oauthInFlight));
 }
 
-async function refreshSessionsOnly(): Promise<void> {
+async function refreshHealthAndSessionsOnly(): Promise<void> {
   const api = getGatewayApi();
-  state.sessions = await api.getSessions();
+  const [healthResult, sessionsResult] = await Promise.allSettled([
+    api.getHealth(),
+    api.getSessions(),
+  ]);
+
+  if (
+    healthResult.status !== "fulfilled" &&
+    sessionsResult.status !== "fulfilled"
+  ) {
+    throw (
+      healthResult.reason ??
+      sessionsResult.reason ??
+      new Error("无法刷新桌面端运行态数据。")
+    );
+  }
+
+  if (healthResult.status === "fulfilled") {
+    state.health = healthResult.value;
+  }
+  if (sessionsResult.status === "fulfilled") {
+    state.sessions = sessionsResult.value;
+  }
   updateRuntimeDiagnostics([]);
   renderOverview();
   renderTopSummary();
@@ -3340,7 +3361,7 @@ async function refreshWithLiveUsage(
   }
 
   state.lastUsageRefresh = summary;
-  await refreshSessionsOnly();
+  await refreshHealthAndSessionsOnly();
   return summary;
 }
 
@@ -3388,7 +3409,7 @@ async function syncSessionActivitySilently(): Promise<void> {
   }
   state.sessionPulseInFlight = true;
   try {
-    await refreshSessionsOnly();
+    await refreshHealthAndSessionsOnly();
   } catch {
     // 静默轮询不弹错误，避免打扰正常交互
   } finally {
