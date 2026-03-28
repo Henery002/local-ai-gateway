@@ -176,7 +176,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 7. 用户也可将某个已发现的本地授权导入为桌面端账号
 8. 用户保存图形化配置后，Electron 调用 `PUT /admin/config/providers`
 9. 用户选择活动会话后，Electron 调用 `PUT /admin/sessions/active`
-10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果；桌面端 Provider 配置页已接入该组接口进行可视化配置
+10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果；桌面端现已把“策略路由”作为独立控制页，与 Provider 配置、号池调度并列
 11. 三期动态号池可通过 `GET/PUT /admin/config/pools` 管理号池成员、阈值、冷却与有限重试；桌面端“号池调度”页将作为独立控制入口
 12. `GET /admin/health` 现已附带 `routingObservability`，用于展示 5 分钟命中、累计命中、Top 规则/客户端与最近命中事件
 13. 第三方推理接口可选启用 API Key 鉴权：通过 `GET/PUT /admin/config/security` 管理（仅回传 `mode/enabled/hasApiKey`），启用后 `/v1/models` 与 `/v1/chat/completions` 需携带密钥

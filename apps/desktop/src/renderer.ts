@@ -26,6 +26,8 @@ import {
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
   "local-ai-gateway.desktop.collapsed-groups";
+const EXPANDED_GROUPS_STORAGE_KEY =
+  "local-ai-gateway.desktop.expanded-groups";
 
 declare global {
   interface Window {
@@ -524,6 +526,7 @@ type DashboardView =
   | "overview"
   | "accounts"
   | "providers"
+  | "routing"
   | "pools"
   | "diagnostics";
 type IntegrationTemplateKey = "openclaw" | "localraghub" | "curl";
@@ -741,6 +744,7 @@ function loadPersistedView(): DashboardView {
       saved === "overview" ||
       saved === "accounts" ||
       saved === "providers" ||
+      saved === "routing" ||
       saved === "pools" ||
       saved === "diagnostics"
     ) {
@@ -768,6 +772,22 @@ function loadCollapsedGroupIds(): Set<string> {
   }
 }
 
+function loadExpandedGroupIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_GROUPS_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((item) => typeof item === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
 function saveCollapsedGroupIds(collapsedIds: Set<string>): void {
   try {
     localStorage.setItem(
@@ -779,11 +799,23 @@ function saveCollapsedGroupIds(collapsedIds: Set<string>): void {
   }
 }
 
+function saveExpandedGroupIds(expandedIds: Set<string>): void {
+  try {
+    localStorage.setItem(
+      EXPANDED_GROUPS_STORAGE_KEY,
+      JSON.stringify(Array.from(expandedIds)),
+    );
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function initCollapsibleSettingsGroups(): void {
   const groups = Array.from(
     document.querySelectorAll<HTMLElement>(".settings-group"),
   );
   const collapsedIds = loadCollapsedGroupIds();
+  const expandedIds = loadExpandedGroupIds();
 
   groups.forEach((group, index) => {
     const header = group.querySelector<HTMLElement>(".settings-header");
@@ -797,7 +829,12 @@ function initCollapsibleSettingsGroups(): void {
     group.dataset.collapsibleId = groupId;
     group.classList.add("collapsible");
 
-    if (collapsedIds.has(groupId)) {
+    const shouldCollapseByDefault =
+      group.dataset.defaultCollapsed === "true" &&
+      !collapsedIds.has(groupId) &&
+      !expandedIds.has(groupId);
+
+    if (collapsedIds.has(groupId) || shouldCollapseByDefault) {
       group.classList.add("collapsed");
     }
 
@@ -812,12 +849,16 @@ function initCollapsibleSettingsGroups(): void {
       }
       group.classList.toggle("collapsed");
       const nextCollapsed = loadCollapsedGroupIds();
+      const nextExpanded = loadExpandedGroupIds();
       if (group.classList.contains("collapsed")) {
         nextCollapsed.add(groupId);
+        nextExpanded.delete(groupId);
       } else {
         nextCollapsed.delete(groupId);
+        nextExpanded.add(groupId);
       }
       saveCollapsedGroupIds(nextCollapsed);
+      saveExpandedGroupIds(nextExpanded);
     });
     header.dataset.collapsibleBound = "true";
   });
@@ -2008,7 +2049,7 @@ function renderGuide(): void {
     </div>
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">第三方接入模板</h3>
-      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在配置页完成 provider 设定并重启服务，然后把客户端指向本地网关。每个模板都支持一键复制。</p>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在“Provider 配置”完成模型入口设定，必要时再到“策略路由 / 号池调度”补充分流规则，然后把客户端指向本地网关。每个模板都支持一键复制。</p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
         ${snippetRows
           .map((row) => {

@@ -1015,6 +1015,49 @@
         cursor: pointer;
       }
 
+      .switch-label input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--accent-color);
+        flex-shrink: 0;
+      }
+
+      .switch-label.prominent-toggle {
+        min-width: 220px;
+        padding: 10px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.94) 100%);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        justify-content: flex-start;
+        gap: 12px;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+      }
+
+      .switch-label.prominent-toggle:hover {
+        border-color: rgba(37, 99, 235, 0.28);
+        box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+        transform: translateY(-1px);
+      }
+
+      .switch-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .switch-copy strong {
+        font-size: 16px;
+        line-height: 1.3;
+        color: var(--text-primary);
+      }
+
+      .switch-copy small {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text-secondary);
+      }
+
       /* Modal */
       .modal-overlay {
         position: fixed;
@@ -1864,7 +1907,11 @@
           </button>
           <button class="nav-item" data-nav-target="providers" data-active="false">
             <span class="nav-icon">配</span>
-            <span>服务配置</span>
+            <span>Provider 配置</span>
+          </button>
+          <button class="nav-item" data-nav-target="routing" data-active="false">
+            <span class="nav-icon">路</span>
+            <span>策略路由</span>
           </button>
           <button class="nav-item" data-nav-target="pools" data-active="false">
             <span class="nav-icon">池</span>
@@ -2119,94 +2166,13 @@
             <section>
               <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
                 <div>
-                  <h2>Provider 服务配置</h2>
-                  <p>在此配置不通过终端注入的本地持久化参数，保存后网关将自动重启生效。</p>
+                  <h2>Provider 配置</h2>
+                  <p>在此管理各类 Provider 本身的接入参数与暴露模型，不负责按客户端做请求分流。</p>
                 </div>
                 <button id="save-provider-settings" class="btn primary">保存并重启服务</button>
               </div>
 
-              <div class="settings-group mb-4">
-                <div class="settings-header">
-                  <div>
-                    <h3>全局路由设置</h3>
-                    <p>设置全局默认回退使用的模型别名。</p>
-                  </div>
-                </div>
-                <div class="settings-body">
-                  <div class="settings-note compact">
-                    <strong>默认模型的作用</strong>
-                    <p>当第三方客户端没有显式指定模型，或策略路由未改写目标模型时，网关会把请求导向这里设置的默认模型别名。</p>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-field">
-                      <label>默认模型别名</label>
-                      <select id="default-model-alias" class="input-field"></select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="settings-group mb-4">
-                <div class="settings-header">
-                  <div>
-                    <h3>策略路由（第二期）</h3>
-                    <p>按客户端标签或请求模型命中规则。建议先预演，再启用到实时推理链路。</p>
-                  </div>
-                  <label class="switch-label">
-                    <input id="routing-enabled" type="checkbox" /> 启用策略路由
-                  </label>
-                </div>
-                <div class="settings-body">
-                  <div class="settings-note">
-                    <strong>策略路由使用说明</strong>
-                    <ul>
-                      <li>一条规则 = 至少 1 个匹配条件 + 至少 1 个目标字段，可按客户端或模型把流量分配到不同模型、不同账号。</li>
-                      <li>目标会话 / 账号标识留空时，命中规则后仍沿用当前活动账号，适合你在账号页灵活切号。</li>
-                      <li>填写目标会话 / 账号标识后，命中规则的请求会固定走指定账号，适合给 OpenClaw 或 localRagHub 预留专用额度。</li>
-                      <li>多条规则按优先级生效，数字越小越先命中；只要命中第一条启用规则，就不会继续往下匹配。</li>
-                    </ul>
-                  </div>
-                  <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
-                    <button id="add-routing-rule" class="btn secondary">新增规则</button>
-                    <button id="save-routing-settings" class="btn primary">保存路由策略</button>
-                  </div>
-
-                  <div id="routing-rules-list" class="grid-layout grid-1"></div>
-
-                  <div class="routing-preview-panel">
-                    <h4>路由预演</h4>
-                    <p>输入模拟请求条件，查看当前策略将解析到哪个模型和账号。</p>
-                    <div class="form-row">
-                      <div class="form-field">
-                        <label>客户端标签（可选）</label>
-                        <input id="routing-preview-client-tag" class="input-field" placeholder="例如 localraghub / openclaw" />
-                      </div>
-                      <div class="form-field">
-                        <label>请求模型别名（可选）</label>
-                        <input id="routing-preview-requested-model" class="input-field" placeholder="例如 codex-default" />
-                      </div>
-                      <div class="form-field">
-                        <label>当前模型别名（可选）</label>
-                        <input id="routing-preview-current-model" class="input-field" placeholder="为空则使用当前默认模型" />
-                      </div>
-                      <div class="form-field">
-                        <label>当前会话 ID（可选）</label>
-                        <input id="routing-preview-current-session" class="input-field" placeholder="为空则使用当前活动账号" />
-                      </div>
-                    </div>
-                    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
-                      <button id="preview-routing-settings" class="btn secondary">预演路由结果</button>
-                    </div>
-                    <div id="routing-preview-result" style="margin-top: 12px;">
-                      <div class="routing-preview-result-card neutral">
-                        <span style="font-size: 14px; color: var(--text-secondary);">填写条件后点击“预演路由结果”查看命中情况。</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="settings-group mb-4">
+              <div class="settings-group mb-4" data-collapsible-id="provider-codex">
                 <div class="settings-header">
                   <div>
                     <h3>会话型 Provider (Codex)</h3>
@@ -2244,20 +2210,24 @@
                 </div>
               </div>
 
-              <div class="settings-group mb-4">
+              <div class="settings-group mb-4" data-collapsible-id="provider-openai-compatible" data-default-collapsed="true">
                 <div class="settings-header">
                   <div>
                     <h3>OpenAI-Compatible</h3>
-                    <p>接入标准的 OpenAI 兼容云端接口。</p>
+                    <p>扩展 Provider，可选接入标准 OpenAI 兼容云端接口。</p>
                   </div>
-                  <label class="switch-label">
-                    <input id="openai-enabled" type="checkbox" /> 启用
+                  <label class="switch-label prominent-toggle">
+                    <input id="openai-enabled" type="checkbox" />
+                    <span class="switch-copy">
+                      <strong>启用 Provider</strong>
+                      <small>默认折叠，按需展开配置</small>
+                    </span>
                   </label>
                 </div>
                 <div class="settings-body">
                   <div class="settings-note compact">
                     <strong>OpenAI-Compatible Provider 说明</strong>
-                    <p>这是额外的标准兼容 Provider，可与 Codex 同时存在；适合接入你自有的云端中转、官方 API 或其他 OpenAI 兼容服务。</p>
+                    <p>这是额外的标准兼容 Provider，可与 Codex 同时存在；适合接入你自有的云端中转、官方 API 或其他 OpenAI 兼容服务。若当前只围绕 Codex 使用，可保持关闭状态。</p>
                   </div>
                   <div class="form-row">
                     <div class="form-field"><label>显示名称</label><input id="openai-label" class="input-field" placeholder="My Relay" /></div>
@@ -2270,20 +2240,24 @@
                 </div>
               </div>
 
-              <div class="settings-group mb-4">
+              <div class="settings-group mb-4" data-collapsible-id="provider-ollama" data-default-collapsed="true">
                 <div class="settings-header">
                   <div>
                     <h3>本地模型 (Ollama)</h3>
-                    <p>接入本机运行的 Ollama 服务。</p>
+                    <p>扩展 Provider，可选接入本机运行的 Ollama 服务。</p>
                   </div>
-                  <label class="switch-label">
-                    <input id="ollama-enabled" type="checkbox" /> 启用
+                  <label class="switch-label prominent-toggle">
+                    <input id="ollama-enabled" type="checkbox" />
+                    <span class="switch-copy">
+                      <strong>启用 Provider</strong>
+                      <small>默认折叠，按需展开配置</small>
+                    </span>
                   </label>
                 </div>
                 <div class="settings-body">
                   <div class="settings-note compact">
                     <strong>Ollama Provider 说明</strong>
-                    <p>用于把本机 Ollama 模型一并纳入本地网关管理。配置成功后，第三方客户端就能通过同一个网关入口同时访问 Codex 和 Ollama。</p>
+                    <p>用于把本机 Ollama 模型一并纳入本地网关管理。配置成功后，第三方客户端就能通过同一个网关入口同时访问 Codex 和 Ollama；若当前只服务 Codex，可保持关闭状态。</p>
                   </div>
                   <div class="form-row">
                     <div class="form-field"><label>显示名称</label><input id="ollama-label" class="input-field" placeholder="Ollama" /></div>
@@ -2300,6 +2274,104 @@
                 <p>当前网关真正加载并可被外部访问的 Provider 列表。</p>
               </div>
               <div id="provider-registry" class="grid-layout grid-2"></div>
+            </section>
+          </div>
+
+          <!-- View: Routing -->
+          <div class="view" data-view="routing" hidden>
+            <section>
+              <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                  <h2>策略路由</h2>
+                  <p>决定哪类第三方请求该走默认模型、活动账号、固定账号，还是命中动态号池。</p>
+                </div>
+                <button id="save-routing-settings" class="btn primary">保存路由策略</button>
+              </div>
+
+              <div class="settings-group mb-4" data-collapsible-id="routing-default-model">
+                <div class="settings-header">
+                  <div>
+                    <h3>默认路由</h3>
+                    <p>当没有命中任何策略规则时，网关会从这里决定最终回退模型。</p>
+                  </div>
+                </div>
+                <div class="settings-body">
+                  <div class="settings-note compact">
+                    <strong>默认模型的作用</strong>
+                    <p>当第三方客户端没有显式指定模型，或策略路由未改写目标模型时，网关会把请求导向这里设置的默认模型别名。这里决定的是“默认去哪里”，不影响 Provider 自身配置。</p>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-field">
+                      <label>默认模型别名</label>
+                      <select id="default-model-alias" class="input-field"></select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-group mb-4" data-collapsible-id="routing-strategy-rules">
+                <div class="settings-header">
+                  <div>
+                    <h3>规则命中</h3>
+                    <p>按客户端标签或请求模型匹配规则，把请求分流到不同目标。</p>
+                  </div>
+                  <label class="switch-label prominent-toggle">
+                    <input id="routing-enabled" type="checkbox" />
+                    <span class="switch-copy">
+                      <strong>启用策略路由</strong>
+                      <small>未启用时全部走默认路由</small>
+                    </span>
+                  </label>
+                </div>
+                <div class="settings-body">
+                  <div class="settings-note">
+                    <strong>策略路由使用说明</strong>
+                    <ul>
+                      <li>一条规则 = 至少 1 个匹配条件 + 至少 1 个目标字段，可按客户端或模型把流量分配到不同模型、不同账号。</li>
+                      <li>目标账号模式选择“沿用当前活动账号”时，命中规则后仍由账号页当前活动账号决定最终额度来源，适合你灵活切号。</li>
+                      <li>目标账号模式选择“固定账号”时，命中规则的请求会固定走指定账号，适合给某个客户端预留专用额度。</li>
+                      <li>目标账号模式选择“号池调度”时，命中规则的请求会转入左侧“号池调度”页定义的动态号池，再由池内策略自动选号。</li>
+                      <li>多条规则按优先级生效，数字越小越先命中；只要命中第一条启用规则，就不会继续往下匹配。</li>
+                    </ul>
+                  </div>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                    <button id="add-routing-rule" class="btn secondary">新增规则</button>
+                  </div>
+
+                  <div id="routing-rules-list" class="grid-layout grid-1"></div>
+
+                  <div class="routing-preview-panel">
+                    <h4>路由预演</h4>
+                    <p>输入模拟请求条件，查看当前策略将解析到哪个模型和账号；若命中号池，还会显示候选与选择原因。</p>
+                    <div class="form-row">
+                      <div class="form-field">
+                        <label>客户端标签（可选）</label>
+                        <input id="routing-preview-client-tag" class="input-field" placeholder="例如 localraghub / openclaw" />
+                      </div>
+                      <div class="form-field">
+                        <label>请求模型别名（可选）</label>
+                        <input id="routing-preview-requested-model" class="input-field" placeholder="例如 codex-default" />
+                      </div>
+                      <div class="form-field">
+                        <label>当前模型别名（可选）</label>
+                        <input id="routing-preview-current-model" class="input-field" placeholder="为空则使用当前默认模型" />
+                      </div>
+                      <div class="form-field">
+                        <label>当前会话 ID（可选）</label>
+                        <input id="routing-preview-current-session" class="input-field" placeholder="为空则使用当前活动账号" />
+                      </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
+                      <button id="preview-routing-settings" class="btn secondary">预演路由结果</button>
+                    </div>
+                    <div id="routing-preview-result" style="margin-top: 12px;">
+                      <div class="routing-preview-result-card neutral">
+                        <span style="font-size: 14px; color: var(--text-secondary);">填写条件后点击“预演路由结果”查看命中情况。</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </section>
           </div>
 
@@ -2344,7 +2416,7 @@
                 <div class="settings-header">
                   <div>
                     <h3>调度规则说明</h3>
-                    <p>先在这里定义池成员和自动切号策略，再到“服务配置 -> 策略路由”里把某类请求绑定到目标号池。</p>
+                    <p>先在这里定义池成员和自动切号策略，再到左侧“策略路由”页把某类请求绑定到目标号池。</p>
                   </div>
                 </div>
                 <div class="settings-body">
