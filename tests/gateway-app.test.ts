@@ -1321,6 +1321,30 @@ describe("gateway app", () => {
           expect.stringContaining("已将请求从"),
         ]),
       );
+      expect(adminHealth.json().poolObservability).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            poolId: "pool-rotate",
+            eligibleMemberCount: 1,
+            coolingMemberCount: 1,
+            selectedSessionId: sessionB.id,
+            members: expect.arrayContaining([
+              expect.objectContaining({
+                selector: sessionA.accountId,
+                sessionId: sessionA.id,
+                status: "cooldown",
+                lastFailureClass: "quota_exhausted",
+              }),
+              expect.objectContaining({
+                selector: sessionB.accountId,
+                sessionId: sessionB.id,
+                selected: true,
+                eligible: true,
+              }),
+            ]),
+          }),
+        ]),
+      );
     } finally {
       await app.close();
       database.close();

@@ -160,6 +160,54 @@ export interface GatewaySessionPoolSettings {
   pools?: GatewaySessionPoolDefinition[];
 }
 
+export type GatewayPoolMemberObservabilityStatus =
+  | "available"
+  | "cooldown"
+  | "quota-low"
+  | "expired"
+  | "invalid"
+  | "missing"
+  | "disabled"
+  | "unknown-quota";
+
+export interface GatewayPoolMemberObservability {
+  selector: string;
+  label?: string;
+  sessionId?: string;
+  sessionTitle?: string;
+  sessionSubtitle?: string;
+  quotaPercentage?: number;
+  resetAt?: number;
+  eligible: boolean;
+  selected: boolean;
+  status: GatewayPoolMemberObservabilityStatus;
+  statusLabel: string;
+  note?: string;
+  cooldownUntil?: number;
+  lastSelectedAt?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  lastFailureClass?: GatewayPoolFailureClass;
+  consecutiveFailures: number;
+}
+
+export interface GatewayPoolObservability {
+  poolId: string;
+  poolName: string;
+  enabled: boolean;
+  selectionStrategy?: GatewayPoolSelectionStrategy;
+  selectedSessionId?: string;
+  selectedSelector?: string;
+  selectionReason?: string;
+  memberCount: number;
+  eligibleMemberCount: number;
+  coolingMemberCount: number;
+  lastSelectedAt?: number;
+  lastFailureAt?: number;
+  warnings: string[];
+  members: GatewayPoolMemberObservability[];
+}
+
 export interface GatewayRoutingRuleCondition {
   clientTag?: string;
   requestedModelAlias?: string;
@@ -428,6 +476,7 @@ export interface GatewayHealth {
   providerConfigurations?: ProviderConfigurationSummary[];
   defaultSelection?: DefaultModelSelectionSummary;
   routingObservability?: GatewayRoutingObservability;
+  poolObservability?: GatewayPoolObservability[];
   inferenceAuth?: GatewayInferenceAuthPublicSettings;
 }
 

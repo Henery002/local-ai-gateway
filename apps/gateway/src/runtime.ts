@@ -15,6 +15,8 @@ import {
   GatewayHealth,
   GatewayInferenceAuthPublicSettings,
   GatewayPoolFailureClass,
+  GatewayPoolMemberObservability,
+  GatewayPoolObservability,
   GatewayPoolRejectedCandidate,
   GatewayRoutingHitEvent,
   GatewayRoutingObservability,
@@ -26,6 +28,7 @@ import {
   GatewayRoutingRule,
   GatewayRoutingSettings,
   GatewaySessionPoolDefinition,
+  GatewaySessionPoolMember,
   GatewaySessionPoolSettings,
   ProviderConfigurationSummary,
   ProviderSummary,
@@ -277,6 +280,7 @@ export class GatewayRuntime {
       providerConfigurations: this.providerConfigurations,
       defaultSelection: this.getDefaultSelectionSummary(),
       routingObservability: this.getRoutingObservability(),
+      poolObservability: this.getPoolObservability(),
       inferenceAuth: this.getInferenceAuthPublicSettings(),
     };
   }
@@ -563,6 +567,72 @@ export class GatewayRuntime {
       byClientTag,
       recent,
     };
+  }
+
+  private getPoolObservability(): GatewayPoolObservability[] {
+    const settings = this.getPoolSettings();
+    const sessions = this.listSessions();
+    const activeSessionId = this.getActiveSessionId();
+
+    return (settings.pools ?? []).map((pool) => {
+      const selection =
+        settings.enabled && pool.enabled !== false
+          ? this.selectSessionFromPool({
+              poolId: pool.id,
+              currentSessionId: activeSessionId,
+              preview: true,
+            })
+          : {
+              poolId: pool.id,
+              poolName: pool.name,
+              candidateCount: 0,
+              rejectedCandidates: [],
+              warnings:
+                settings.enabled && pool.enabled === false
+                  ? ["当前号池已被禁用。"]
+                  : ["动态号池总开关当前未启用。"],
+            };
+
+      const members = (pool.members ?? []).map((member) =>
+        this.buildPoolMemberObservability({
+          pool,
+          member,
+          sessions,
+          selectedSessionId: selection.selectedSessionId,
+          selectedSelector: selection.selectedSelector,
+        }),
+      );
+
+      return {
+        poolId: pool.id,
+        poolName: pool.name,
+        enabled: settings.enabled !== false && pool.enabled !== false,
+        selectionStrategy: pool.selectionStrategy,
+        selectedSessionId: selection.selectedSessionId,
+        selectedSelector: selection.selectedSelector,
+        selectionReason: selection.selectionReason,
+        memberCount: members.length,
+        eligibleMemberCount: members.filter((member) => member.eligible).length,
+        coolingMemberCount: members.filter((member) => member.status === "cooldown")
+          .length,
+        lastSelectedAt: members.reduce<number | undefined>(
+          (latest, member) =>
+            !member.lastSelectedAt || (latest && latest > member.lastSelectedAt)
+              ? latest
+              : member.lastSelectedAt,
+          undefined,
+        ),
+        lastFailureAt: members.reduce<number | undefined>(
+          (latest, member) =>
+            !member.lastFailureAt || (latest && latest > member.lastFailureAt)
+              ? latest
+              : member.lastFailureAt,
+          undefined,
+        ),
+        warnings: selection.warnings,
+        members,
+      } satisfies GatewayPoolObservability;
+    });
   }
 
   private restoreTelemetryFromDatabase(): void {
@@ -954,6 +1024,140 @@ export class GatewayRuntime {
     return this.getPoolSettings().pools?.find(
       (pool) => pool.id === poolId,
     );
+  }
+
+  private buildPoolMemberObservability(input: {
+    pool: GatewaySessionPoolDefinition;
+    member: GatewaySessionPoolMember;
+    sessions: SessionSummary[];
+    selectedSessionId?: string;
+    selectedSelector?: string;
+  }): GatewayPoolMemberObservability {
+    const selector = input.member?.selector?.trim() ?? "";
+    const baseState: GatewayPoolMemberObservability = {
+      selector,
+      label: input.member?.label,
+      eligible: false,
+      selected: false,
+      status: "missing",
+      statusLabel: "未找到",
+      note: "当前池成员未在本地会话列表中找到可解析账号。",
+      consecutiveFailures: 0,
+    };
+
+    if (!selector || input.member?.enabled === false) {
+      return {
+        ...baseState,
+        status: "disabled",
+        statusLabel: "未启用",
+        note: "该池成员当前已被禁用。",
+      };
+    }
+
+    const pool = input.pool;
+    const now = Date.now();
+    const minRemaining = this.normalizePercentage(pool.minRemainingPercentage);
+    const allowUnknownQuota = pool.allowUnknownQuota !== false;
+    const sessionResolution = this.resolveRoutingSessionSelector(selector, undefined);
+    const session = sessionResolution.sessionId
+      ? input.sessions.find((item) => item.id === sessionResolution.sessionId)
+      : undefined;
+
+    if (!session) {
+      return {
+        ...baseState,
+        sessionId: sessionResolution.sessionId,
+        note: sessionResolution.warning ?? baseState.note,
+      };
+    }
+
+    const runtimeState = this.getPoolMemberRuntimeState(pool.id, session.id);
+    const selected = Boolean(
+      (input.selectedSelector && input.selectedSelector === selector) ||
+      (input.selectedSessionId && input.selectedSessionId === session.id),
+    );
+    const output: GatewayPoolMemberObservability = {
+      ...baseState,
+      selector,
+      label: input.member.label,
+      sessionId: session.id,
+      sessionTitle:
+        session.email || session.displayName || session.accountId || session.id,
+      sessionSubtitle: session.accountId || session.profileId || session.id,
+      quotaPercentage: session.quota?.percentage,
+      resetAt: session.quota?.resetAt,
+      eligible: true,
+      selected,
+      status: session.status === "expired" ? "expired" : "available",
+      statusLabel: session.status === "expired" ? "待刷新" : "可选",
+      note:
+        session.status === "expired"
+          ? "当前本地会话已标记为过期，请求时仍可能尝试刷新。"
+          : undefined,
+      cooldownUntil: runtimeState.cooldownUntil,
+      lastSelectedAt: runtimeState.lastSelectedAt,
+      lastSuccessAt: runtimeState.lastSuccessAt,
+      lastFailureAt: runtimeState.lastFailureAt,
+      lastFailureClass: runtimeState.lastFailureClass,
+      consecutiveFailures: runtimeState.consecutiveFailures,
+    };
+
+    if (session.sourceKind !== "local-import") {
+      return {
+        ...output,
+        eligible: false,
+        status: "invalid",
+        statusLabel: "来源不支持",
+        note: "当前第一版动态号池仅支持桌面端导入账号，不直接纳入原始本地授权来源。",
+      };
+    }
+
+    if (runtimeState.cooldownUntil && runtimeState.cooldownUntil > now) {
+      return {
+        ...output,
+        eligible: false,
+        status: "cooldown",
+        statusLabel: "冷却中",
+        note: `预计 ${new Date(runtimeState.cooldownUntil).toLocaleString("zh-CN")} 后恢复可选。`,
+      };
+    }
+
+    if (session.status === "invalid") {
+      return {
+        ...output,
+        eligible: false,
+        status: "invalid",
+        statusLabel: "已失效",
+        note: "当前账号已失效，需重新授权或刷新账号。",
+      };
+    }
+
+    const percentage = session.quota?.percentage;
+    if (
+      typeof percentage === "number" &&
+      typeof minRemaining === "number" &&
+      percentage < minRemaining
+    ) {
+      return {
+        ...output,
+        eligible: false,
+        status: "quota-low",
+        statusLabel: "低于阈值",
+        note: `剩余额度 ${percentage}% 低于阈值 ${minRemaining}% ，不会参与新请求调度。`,
+      };
+    }
+
+    if (typeof percentage !== "number" && !allowUnknownQuota) {
+      return {
+        ...output,
+        eligible: false,
+        status: "unknown-quota",
+        statusLabel: "额度未知",
+        note: "当前缺少额度快照，且该号池不允许未知额度账号参与调度。",
+      };
+    }
+
+    return output;
   }
 
   private buildPoolMemberStateKey(poolId: string, sessionId: string): string {

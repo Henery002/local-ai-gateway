@@ -173,6 +173,55 @@ type DashboardHealth = {
       warnings?: string[];
     }>;
   };
+  poolObservability?: Array<{
+    poolId: string;
+    poolName: string;
+    enabled: boolean;
+    selectionStrategy?: PoolDefinition["selectionStrategy"];
+    selectedSessionId?: string;
+    selectedSelector?: string;
+    selectionReason?: string;
+    memberCount: number;
+    eligibleMemberCount: number;
+    coolingMemberCount: number;
+    lastSelectedAt?: number;
+    lastFailureAt?: number;
+    warnings: string[];
+    members: Array<{
+      selector: string;
+      label?: string;
+      sessionId?: string;
+      sessionTitle?: string;
+      sessionSubtitle?: string;
+      quotaPercentage?: number;
+      resetAt?: number;
+      eligible: boolean;
+      selected: boolean;
+      status:
+        | "available"
+        | "cooldown"
+        | "quota-low"
+        | "expired"
+        | "invalid"
+        | "missing"
+        | "disabled"
+        | "unknown-quota";
+      statusLabel: string;
+      note?: string;
+      cooldownUntil?: number;
+      lastSelectedAt?: number;
+      lastSuccessAt?: number;
+      lastFailureAt?: number;
+      lastFailureClass?:
+        | "auth_invalid"
+        | "quota_exhausted"
+        | "rate_limited"
+        | "network_retryable"
+        | "upstream_retryable"
+        | "non_retryable";
+      consecutiveFailures: number;
+    }>;
+  }>;
 };
 
 type StartupCheckTone = "active" | "neutral" | "incomplete" | "disabled";
@@ -402,6 +451,14 @@ type PoolMemberCandidateView = {
   statusToneClass: string;
   matchers: string[];
 };
+
+type PoolRuntimeMember = NonNullable<
+  NonNullable<DashboardHealth["poolObservability"]>[number]["members"]
+>[number];
+
+type PoolRuntimeSummary = NonNullable<
+  DashboardHealth["poolObservability"]
+>[number];
 
 type PoolMemberSortKey = "quota" | "resetAt" | "name";
 type PoolMemberSortDirection = "asc" | "desc";
@@ -2363,6 +2420,145 @@ function matchesPoolCandidateSearch(
   ].some((value) => value.toLowerCase().includes(normalized));
 }
 
+function getPoolRuntime(poolId: string): PoolRuntimeSummary | undefined {
+  return state.health?.poolObservability?.find((pool) => pool.poolId === poolId);
+}
+
+function getPoolRuntimeMember(
+  pool: PoolDefinition,
+  candidate: PoolMemberCandidateView,
+): PoolRuntimeMember | undefined {
+  return getPoolRuntime(pool.id)?.members.find(
+    (member) =>
+      candidate.matchers.includes(member.selector) ||
+      (member.sessionId ? candidate.matchers.includes(member.sessionId) : false),
+  );
+}
+
+function getPoolRuntimeMemberTone(member: PoolRuntimeMember | undefined): string {
+  if (!member) {
+    return "neutral";
+  }
+  if (member.selected && member.eligible) {
+    return "active";
+  }
+  if (member.status === "available" || member.status === "expired") {
+    return member.eligible ? "success" : "warning";
+  }
+  if (member.status === "cooldown" || member.status === "quota-low") {
+    return "warning";
+  }
+  if (
+    member.status === "invalid" ||
+    member.status === "missing" ||
+    member.status === "disabled"
+  ) {
+    return "danger";
+  }
+  return "neutral";
+}
+
+function formatPoolFailureClassLabel(
+  failureClass?: PoolRuntimeMember["lastFailureClass"],
+): string {
+  if (failureClass === "auth_invalid") {
+    return "鉴权失效";
+  }
+  if (failureClass === "quota_exhausted") {
+    return "额度耗尽";
+  }
+  if (failureClass === "rate_limited") {
+    return "速率限制";
+  }
+  if (failureClass === "network_retryable") {
+    return "网络重试";
+  }
+  if (failureClass === "upstream_retryable") {
+    return "上游重试";
+  }
+  if (failureClass === "non_retryable") {
+    return "不可重试";
+  }
+  return "暂无";
+}
+
+function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): string {
+  if (!member) {
+    return "";
+  }
+
+  const shouldRender =
+    member.selected ||
+    Boolean(
+      member.note ||
+        member.cooldownUntil ||
+        member.lastSelectedAt ||
+        member.lastSuccessAt ||
+        member.lastFailureAt ||
+        member.consecutiveFailures,
+    );
+  if (!shouldRender) {
+    return "";
+  }
+
+  const tags: string[] = [];
+  if (member.selected) {
+    tags.push('<span class="badge active">当前首选</span>');
+  }
+  if (member.cooldownUntil && member.cooldownUntil > Date.now()) {
+    tags.push(
+      `<span class="badge warning" title="${escapeHtml(formatDate(member.cooldownUntil))}">冷却至 ${escapeHtml(formatCountdown(member.cooldownUntil))}</span>`,
+    );
+  }
+  if (member.lastFailureClass) {
+    tags.push(
+      `<span class="badge danger">最近失败：${escapeHtml(formatPoolFailureClassLabel(member.lastFailureClass))}</span>`,
+    );
+  }
+
+  const facts = [
+    {
+      label: "最近选中",
+      value: formatRecentCall(member.lastSelectedAt),
+    },
+    {
+      label: "最近成功",
+      value: formatRecentCall(member.lastSuccessAt),
+    },
+    {
+      label: "最近失败",
+      value: formatRecentCall(member.lastFailureAt),
+    },
+    {
+      label: "连续失败",
+      value: `${member.consecutiveFailures} 次`,
+    },
+  ];
+
+  return `
+    <div class="pool-member-runtime">
+      ${tags.length ? `<div class="pool-member-runtime-tags">${tags.join("")}</div>` : ""}
+      <div class="pool-member-runtime-grid">
+        ${facts
+          .map(
+            (fact) => `
+              <div class="pool-member-runtime-item">
+                <span>${escapeHtml(fact.label)}</span>
+                <strong title="${escapeHtml(fact.value)}">${escapeHtml(fact.value)}</strong>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+      ${
+        member.note
+          ? `<div class="form-hint">${escapeHtml(member.note)}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function isPoolCandidateSelected(
   pool: PoolDefinition,
   candidate: PoolMemberCandidateView,
@@ -2375,6 +2571,7 @@ function isPoolCandidateSelected(
 function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
   const panelState = getPoolPanelState(pool.id);
   const candidates = buildPoolMemberCandidates();
+  const poolRuntime = getPoolRuntime(pool.id);
   if (candidates.length === 0) {
     return "<div class='empty-state'>当前没有可选的桌面端账号。请先在“账号资产”页导入至少一个桌面端 Codex 账号。</div>";
   }
@@ -2403,8 +2600,45 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         : "按剩余额度";
   const directionLabel = panelState.sortDirection === "asc" ? "升序" : "降序";
   const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates);
+  const runtimeSummary = poolRuntime
+    ? `
+      <div class="pool-runtime-summary">
+        <div class="pool-runtime-kpi">
+          <span>可选成员</span>
+          <strong class="${poolRuntime.eligibleMemberCount > 0 ? "success" : "warning"}">${escapeHtml(String(poolRuntime.eligibleMemberCount))} / ${escapeHtml(String(poolRuntime.memberCount))}</strong>
+        </div>
+        <div class="pool-runtime-kpi">
+          <span>冷却中</span>
+          <strong class="${poolRuntime.coolingMemberCount > 0 ? "warning" : ""}">${escapeHtml(String(poolRuntime.coolingMemberCount))}</strong>
+        </div>
+        <div class="pool-runtime-kpi">
+          <span>当前首选</span>
+          <strong title="${escapeHtml(poolRuntime.selectedSelector ?? "暂无")}">${escapeHtml(poolRuntime.selectedSelector ?? "暂无")}</strong>
+        </div>
+        <div class="pool-runtime-kpi">
+          <span>最近选中</span>
+          <strong>${escapeHtml(formatRecentCall(poolRuntime.lastSelectedAt))}</strong>
+        </div>
+        <div class="pool-runtime-kpi">
+          <span>最近异常</span>
+          <strong class="${poolRuntime.lastFailureAt ? "warning" : ""}">${escapeHtml(formatRecentCall(poolRuntime.lastFailureAt))}</strong>
+        </div>
+      </div>
+      <div class="routing-rule-guide" style="margin-top: 0;">
+        <span>当前调度策略：${escapeHtml(poolRuntime.selectionReason ?? "尚未形成有效选择结果。")}</span>
+        ${
+          poolRuntime.warnings.length
+            ? poolRuntime.warnings
+                .map((warning) => `<span>${escapeHtml(warning)}</span>`)
+                .join("")
+            : `<span>运行时观测已加载，可直接查看成员冷却、最近失败和最近命中情况。</span>`
+        }
+      </div>
+    `
+    : `<div class="form-hint" style="margin-bottom: 12px;">当前尚未拿到该号池的运行时观测。通常在网关健康信息刷新后会自动出现。</div>`;
 
   return `
+    ${runtimeSummary}
     <div class="pool-member-toolbar">
       <div class="toolbar-group">
         <input
@@ -2472,6 +2706,11 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
       ${filteredCandidates
         .map((candidate) => {
           const selected = isPoolCandidateSelected(pool, candidate);
+          const runtimeMember = getPoolRuntimeMember(pool, candidate);
+          const effectiveStatusTone = runtimeMember
+            ? getPoolRuntimeMemberTone(runtimeMember)
+            : candidate.statusToneClass;
+          const effectiveStatusLabel = runtimeMember?.statusLabel ?? candidate.statusLabel;
           const quotaFillClass =
             candidate.quotaToneClass === "quota-low"
               ? "low"
@@ -2500,7 +2739,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
                   />
                   <strong title="${escapeHtml(candidate.title)}">${escapeHtml(candidate.title)}</strong>
                 </div>
-                <span class="badge ${candidate.statusToneClass}" title="${escapeHtml(candidate.statusLabel)}">${escapeHtml(candidate.statusLabel)}</span>
+                <span class="badge ${effectiveStatusTone}" title="${escapeHtml(effectiveStatusLabel)}">${escapeHtml(effectiveStatusLabel)}</span>
               </div>
               <div class="pool-member-option-subtitle" title="${escapeHtml(candidate.subtitle)}">${escapeHtml(candidate.subtitle)}</div>
               <div class="pool-member-option-meta">
@@ -2514,6 +2753,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
               <div class="acc-quota-bar">
                 <div class="acc-quota-fill ${quotaFillClass}" style="width: ${escapeHtml(String(Math.max(0, Math.min(100, candidate.quotaPercentage ?? 0))))}%"></div>
               </div>
+              ${buildPoolMemberRuntimeMarkup(runtimeMember)}
             </label>
           `;
         })
@@ -3177,6 +3417,7 @@ function buildHealthFallback(): DashboardHealth {
     },
     recentErrors: [],
     providerConfigurations: [],
+    poolObservability: [],
   };
 }
 
