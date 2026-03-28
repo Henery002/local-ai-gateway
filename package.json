@@ -17,6 +17,7 @@
     "dist:desktop": "npm run build && electron-builder",
     "package:desktop": "npm run build && electron-builder --dir",
     "smoke:gateway": "npm run build && node scripts/smoke-gateway.mjs",
+    "audit:openclaw": "node scripts/audit-openclaw.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false"
   },

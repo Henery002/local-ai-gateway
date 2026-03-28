@@ -18,6 +18,8 @@
 - 新增统计持久化能力：路由命中事件与账号会话活动快照落盘到本机 `gateway.db`，重启后自动恢复。
 - 新增统计清理接口：`POST /admin/telemetry/reset`，用于一键清空路由命中与会话活动统计。
 - 新增会话活动事件明细表：账号卡片可显示“近 5 分钟来源分布/占比”，用于区分累计来源与当前活跃来源。
+- 新增 OpenClaw 配置审计脚本 `npm run audit:openclaw`，用于在不重启 OpenClaw 的前提下检查本地网关 Provider、`codex-default` 与 `x-client-tag=openclaw` 是否已经写入。
+- 新增 `docs/operations/openclaw-联调验收清单.md`，沉淀“灵活切号版 / 固定专用账号版”的低扰动联调模板与回滚步骤。
 
 ### 调整
 

@@ -31,6 +31,12 @@ npm run build
 npm run smoke:gateway
 ```
 
+如需在不重启 OpenClaw 的前提下先检查本地网关 Provider 是否已经写入到各个 agent，可执行：
+
+```bash
+npm run audit:openclaw
+```
+
 ## 4. 启动方式
 
 ### 4.1 启动 gateway 服务
@@ -124,6 +130,25 @@ npm run smoke:gateway
 - Admin 健康接口
 - Admin 会话列表
 
+### 6.6 OpenClaw 配置审计
+
+```bash
+npm run audit:openclaw
+```
+
+该脚本会检查：
+
+- `~/.openclaw/openclaw.json` 中是否存在指向本地网关的 Provider
+- 默认主模型是否指向 `codex-default`
+- 每个 agent 的 `models.json` 是否都已写入本地网关 Provider
+- 每个 agent 是否都带有 `x-client-tag=openclaw`
+
+如果你修改了网关端口，也可以显式传入：
+
+```bash
+node scripts/audit-openclaw.mjs --base-url http://127.0.0.1:9999/v1
+```
+
 ## 7. 会话切换
 
 当前活动会话可通过 Electron 控制台切换，也可通过 Admin API 切换。
@@ -185,3 +210,9 @@ Admin API 需要本地 `admin token`，该值存放于：
 - `config.json` 是否已生成
 - `admin token` 是否可读取
 - 当前网关端口是否被其他程序占用（默认 `8787`，可在系统配置中改）
+
+### 9.4 如何做最小扰动联调
+
+请优先阅读：
+
+- [OpenClaw 联调验收清单](./openclaw-联调验收清单.md)
