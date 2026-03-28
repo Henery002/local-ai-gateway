@@ -104,6 +104,28 @@ function resolveClientTag(request: FastifyRequest): string | undefined {
   return undefined;
 }
 
+function isRetryableFixedSessionError(error: unknown): boolean {
+  if (error instanceof GatewayError && error.code === "gateway_auth_required") {
+    return true;
+  }
+
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  return (
+    message.includes("usage_limit_reached") ||
+    message.includes("usage limit has been reached") ||
+    message.includes("rate limit")
+  );
+}
+
+function isRetryableFinalMessageError(message: string | undefined): boolean {
+  const normalized = (message ?? "").toLowerCase();
+  return (
+    normalized.includes("usage_limit_reached") ||
+    normalized.includes("usage limit has been reached") ||
+    normalized.includes("rate limit")
+  );
+}
+
 function readClientApiKey(request: FastifyRequest): string | undefined {
   const auth = getFirstHeaderValue(request, "authorization");
   if (auth?.startsWith("Bearer ")) {
@@ -186,6 +208,17 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     let resolvedModelAlias = parsed.model;
     let resolvedSessionId = currentSessionId;
     const routingWarnings = [...routingPreview.warnings];
+    const matchedRule =
+      routingPreview.enabled && routingPreview.reason === "rule_matched"
+        ? runtime
+            .getRoutingSettings()
+            .rules?.find((rule) => rule.id === routingPreview.matchedRuleId)
+        : undefined;
+    const hasExplicitTargetSession = Boolean(
+      matchedRule?.target?.sessionId?.trim(),
+    );
+    const attemptedSessionIds = new Set<string>();
+    let routingHitRecorded = false;
 
     if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
       const routedModel = runtime.getProviderAdapterForModel(routingPreview.resolvedModelAlias);
@@ -218,17 +251,33 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       }
     }
 
-    if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
+    let usedSessionId = resolvedSessionId;
+    let hasRecordedResult = false;
+    const resolved = runtime.getProviderAdapterForModel(resolvedModelAlias);
+    if (!resolved) {
+      throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
+    }
+
+    const recordRoutingHitIfNeeded = (sessionId?: string) => {
+      if (
+        routingHitRecorded ||
+        !routingPreview.enabled ||
+        routingPreview.reason !== "rule_matched"
+      ) {
+        return;
+      }
+
+      const finalSessionId = sessionId ?? resolvedSessionId;
       const modelApplied = resolvedModelAlias !== parsed.model;
       const sessionApplied = Boolean(
-        resolvedSessionId && resolvedSessionId !== currentSessionId,
+        finalSessionId && finalSessionId !== currentSessionId,
       );
       runtime.recordRoutingHit({
         timestamp: Date.now(),
         clientTag,
         requestedModelAlias: parsed.model,
         resolvedModelAlias,
-        resolvedSessionId,
+        resolvedSessionId: finalSessionId,
         matchedRuleId: routingPreview.matchedRuleId ?? "unknown-rule",
         matchedRuleName: routingPreview.matchedRuleName ?? "未命名规则",
         modelApplied,
@@ -241,37 +290,80 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         clientTag,
         requestedModel: parsed.model,
         resolvedModelAlias,
-        resolvedSessionId,
+        resolvedSessionId: finalSessionId,
         warnings: routingWarnings,
       });
-    }
+      routingHitRecorded = true;
+    };
 
-    let usedSessionId = resolvedSessionId;
-    let hasRecordedResult = false;
-    const resolved = runtime.getProviderAdapterForModel(resolvedModelAlias);
-    if (!resolved) {
-      throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
-    }
+    const selectFallbackSessionId = (failedSessionId?: string): string | undefined => {
+      if (!hasExplicitTargetSession) {
+        return undefined;
+      }
+
+      const fallback = runtime.resolveFallbackSessionId({
+        failedSessionId,
+        preferredSessionId: currentSessionId,
+      });
+      if (!fallback.sessionId || attemptedSessionIds.has(fallback.sessionId)) {
+        return undefined;
+      }
+
+      const reasonLabel =
+        fallback.reason === "preferred-session"
+          ? "当前活动账号"
+          : "下一个可用账号";
+      routingWarnings.push(
+        `固定账号 ${failedSessionId ?? "unknown"} 当前不可用，已回退到 ${fallback.sessionId}（${reasonLabel}）。`,
+      );
+      runtime.logger.info("routing_session_runtime_fallback", {
+        matchedRuleId: routingPreview.matchedRuleId,
+        failedSessionId,
+        fallbackSessionId: fallback.sessionId,
+        reason: fallback.reason,
+      });
+      return fallback.sessionId;
+    };
 
     try {
       const controller = new AbortController();
       request.raw.on("aborted", () => controller.abort());
+      const createAttempt = async (sessionId: string | undefined) => {
+        if (sessionId) {
+          attemptedSessionIds.add(sessionId);
+        }
+        return resolved.adapter.createStream(
+          resolved.model,
+          toGatewayConversationContext(parsed),
+          {
+            sessionId,
+            temperature: parsed.temperature,
+            maxTokens: parsed.max_tokens,
+            topP: parsed.top_p,
+            toolChoice: parsed.tool_choice,
+            signal: controller.signal,
+          },
+        );
+      };
 
-      const result = await resolved.adapter.createStream(
-        resolved.model,
-        toGatewayConversationContext(parsed),
-        {
-          sessionId: resolvedSessionId,
-          temperature: parsed.temperature,
-          maxTokens: parsed.max_tokens,
-          topP: parsed.top_p,
-          toolChoice: parsed.tool_choice,
-          signal: controller.signal,
-        },
-      );
+      let result;
+      try {
+        result = await createAttempt(resolvedSessionId);
+      } catch (error) {
+        const fallbackSessionId =
+          hasExplicitTargetSession && isRetryableFixedSessionError(error)
+            ? selectFallbackSessionId(resolvedSessionId)
+            : undefined;
+        if (!fallbackSessionId) {
+          throw error;
+        }
+        resolvedSessionId = fallbackSessionId;
+        result = await createAttempt(resolvedSessionId);
+      }
       usedSessionId = result.session.id;
 
       if (parsed.stream) {
+        recordRoutingHitIfNeeded(usedSessionId);
         reply.raw.writeHead(200, {
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
@@ -296,7 +388,22 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         return reply;
       }
 
-      const finalMessage = await result.stream.result();
+      let finalMessage = await result.stream.result();
+      if (
+        finalMessage.stopReason === "error" &&
+        hasExplicitTargetSession &&
+        isRetryableFinalMessageError(finalMessage.errorMessage)
+      ) {
+        const fallbackSessionId = selectFallbackSessionId(usedSessionId);
+        if (fallbackSessionId) {
+          resolvedSessionId = fallbackSessionId;
+          const retryResult = await createAttempt(fallbackSessionId);
+          usedSessionId = retryResult.session.id;
+          finalMessage = await retryResult.stream.result();
+        }
+      }
+
+      recordRoutingHitIfNeeded(usedSessionId);
       if (finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
         if (usedSessionId) {
           runtime.recordInferenceResult({
@@ -328,6 +435,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       }
       return buildChatCompletionResponse(finalMessage, resolvedModelAlias);
     } catch (error) {
+      recordRoutingHitIfNeeded(usedSessionId);
       if (usedSessionId && !hasRecordedResult) {
         runtime.recordInferenceResult({
           sessionId: usedSessionId,

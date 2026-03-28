@@ -14,6 +14,7 @@ import {
 import {
   GatewayChatOptions,
   GatewayConversationContext,
+  GatewayError,
   GatewayModelDefinition,
   ProviderAdapter,
   ProviderStream,
@@ -181,6 +182,114 @@ class FakeProviderAdapter implements ProviderAdapter {
         apiKey: "fake-api-key",
       },
       stream: new FakeProviderStream(events, finalMessage),
+    };
+  }
+}
+
+class FixedTargetFailureSessionSource implements SessionSource {
+  readonly fixedSession: ResolvedSession = {
+    id: "main:fake:fixed",
+    agentId: "main",
+    profileId: "fake:fixed",
+    provider: "fake-provider",
+    type: "oauth",
+    status: "expired",
+    sourcePath: "/tmp/fake-fixed-auth.json",
+    accountId: "acct_fixed",
+    expiresAt: 4_102_444_800_000,
+    apiKey: "fixed-api-key",
+  };
+
+  readonly backupSession: ResolvedSession = {
+    id: "main:fake:backup",
+    agentId: "main",
+    profileId: "fake:backup",
+    provider: "fake-provider",
+    type: "oauth",
+    status: "available",
+    sourcePath: "/tmp/fake-backup-auth.json",
+    accountId: "acct_backup",
+    expiresAt: 4_102_555_800_000,
+    apiKey: "backup-api-key",
+  };
+
+  listSessions(): SessionSummary[] {
+    return [this.fixedSession, this.backupSession];
+  }
+
+  async resolveSession(sessionId?: string): Promise<ResolvedSession> {
+    if (sessionId === this.fixedSession.id) {
+      throw new GatewayError(
+        503,
+        "gateway_auth_required",
+        `Session ${this.fixedSession.id} could not be refreshed.`,
+      );
+    }
+
+    if (!sessionId || sessionId === this.backupSession.id) {
+      return this.backupSession;
+    }
+
+    throw new GatewayError(400, "session_not_found", `Unknown session: ${sessionId}`);
+  }
+}
+
+class SessionBackedProviderAdapter extends FakeProviderAdapter {
+  attemptedSessionIds: string[] = [];
+
+  constructor(private readonly sessionSource: SessionSource) {
+    super();
+  }
+
+  override async createStream(
+    model: GatewayModelDefinition,
+    context: GatewayConversationContext,
+    options: GatewayChatOptions = {},
+  ): Promise<ProviderStreamResult> {
+    this.lastContext = context;
+    this.lastOptions = options;
+    if (options.sessionId) {
+      this.attemptedSessionIds.push(options.sessionId);
+    }
+
+    const session = await this.sessionSource.resolveSession(options.sessionId);
+    const finalMessage: AssistantMessage = {
+      role: "assistant",
+      api: "openai-codex-responses",
+      provider: this.id,
+      model: model.providerModelId,
+      timestamp: Date.now(),
+      stopReason: "stop",
+      usage: {
+        input: 7,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 12,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+      content: [{ type: "text", text: "OK" }],
+    };
+
+    return {
+      providerId: this.id,
+      providerLabel: this.label,
+      model,
+      session,
+      stream: new FakeProviderStream(
+        [
+          { type: "start", partial: finalMessage },
+          { type: "text_delta", contentIndex: 0, delta: "OK", partial: finalMessage },
+          { type: "done", reason: "stop", message: finalMessage },
+        ],
+        finalMessage,
+      ),
     };
   }
 }
@@ -695,6 +804,103 @@ describe("gateway app", () => {
         clientTag: "openclaw",
         hits: 1,
       });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("falls back to a usable session when a fixed routing target cannot be refreshed", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionSource = new FixedTargetFailureSessionSource();
+    const adapter = new SessionBackedProviderAdapter(sessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionSource.backupSession.id);
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-openclaw-fixed-fallback",
+          name: "openclaw-fixed-fallback",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            modelAlias: "fake-default",
+            sessionId: sessionSource.fixedSession.accountId,
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([
+        sessionSource.fixedSession.id,
+        sessionSource.backupSession.id,
+      ]);
+      expect(adapter.lastOptions?.sessionId).toBe(sessionSource.backupSession.id);
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability.recent[0]).toMatchObject({
+        resolvedSessionId: sessionSource.backupSession.id,
+      });
+      expect(adminHealth.json().routingObservability.recent[0]?.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("已回退到 main:fake:backup"),
+        ]),
+      );
     } finally {
       await app.close();
       database.close();

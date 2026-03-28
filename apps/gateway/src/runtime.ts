@@ -291,6 +291,44 @@ export class GatewayRuntime {
     return this.configStore.getRoutingSettings();
   }
 
+  resolveFallbackSessionId(input: {
+    failedSessionId?: string;
+    preferredSessionId?: string;
+  }): { sessionId?: string; reason?: "preferred-session" | "best-available-session" } {
+    const failedSessionId = input.failedSessionId?.trim();
+    const preferredSessionId = input.preferredSessionId?.trim();
+    const candidates = this.listSessions().filter(
+      (session) =>
+        session.id !== failedSessionId && session.status !== "invalid",
+    );
+
+    if (candidates.length === 0) {
+      return {};
+    }
+
+    if (preferredSessionId) {
+      const preferred = candidates.find(
+        (session) => session.id === preferredSessionId,
+      );
+      if (preferred) {
+        return {
+          sessionId: preferred.id,
+          reason: "preferred-session",
+        };
+      }
+    }
+
+    const chosen = this.pickPreferredRoutingSession(candidates);
+    if (!chosen) {
+      return {};
+    }
+
+    return {
+      sessionId: chosen.id,
+      reason: "best-available-session",
+    };
+  }
+
   previewRouting(input: GatewayRoutingPreviewInput = {}): GatewayRoutingPreviewResult {
     const baseModelAlias = input.currentModelAlias ?? this.modelRegistry.getDefault().alias;
     const baseSessionId = input.currentSessionId ?? this.getActiveSessionId();
