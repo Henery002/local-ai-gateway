@@ -294,6 +294,115 @@ class SessionBackedProviderAdapter extends FakeProviderAdapter {
   }
 }
 
+class PoolSessionSource implements SessionSource {
+  constructor(readonly sessions: ResolvedSession[]) {}
+
+  listSessions(): SessionSummary[] {
+    return this.sessions;
+  }
+
+  async resolveSession(sessionId?: string): Promise<ResolvedSession> {
+    if (sessionId) {
+      const resolved = this.sessions.find((item) => item.id === sessionId);
+      if (resolved) {
+        return resolved;
+      }
+      throw new GatewayError(400, "session_not_found", `Unknown session: ${sessionId}`);
+    }
+
+    const fallback = this.sessions.find((item) => item.status === "available");
+    if (fallback) {
+      return fallback;
+    }
+
+    throw new GatewayError(503, "gateway_auth_required", "No usable session available.");
+  }
+
+  async refreshUsage(sessionId?: string): Promise<SessionUsageRefreshSummary> {
+    const scoped = sessionId
+      ? this.sessions.filter((item) => item.id === sessionId)
+      : this.sessions;
+    return {
+      ok: true,
+      refreshed: scoped.length,
+      failed: 0,
+      data: scoped.map((item) => ({
+        sessionId: item.id,
+        accountId: item.accountId,
+        sourceKind: item.sourceKind,
+        planType: item.planType,
+        quota: item.quota,
+      })),
+      errors: [],
+    };
+  }
+}
+
+class FailableSessionBackedProviderAdapter extends SessionBackedProviderAdapter {
+  constructor(
+    sessionSource: SessionSource,
+    private readonly failures: Record<string, Array<Error | string>>,
+  ) {
+    super(sessionSource);
+  }
+
+  override async createStream(
+    model: GatewayModelDefinition,
+    context: GatewayConversationContext,
+    options: GatewayChatOptions = {},
+  ): Promise<ProviderStreamResult> {
+    const sessionId = options.sessionId;
+    if (sessionId) {
+      const queue = this.failures[sessionId];
+      if (queue?.length) {
+        this.lastContext = context;
+        this.lastOptions = options;
+        this.attemptedSessionIds.push(sessionId);
+        const next = queue.shift();
+        throw next instanceof Error ? next : new Error(next);
+      }
+    }
+
+    return super.createStream(model, context, options);
+  }
+}
+
+function createResolvedSession(input: {
+  id: string;
+  profileId: string;
+  accountId: string;
+  status?: "available" | "expired" | "invalid";
+  sourceKind?: "local-import" | "openclaw";
+  quotaPercentage?: number;
+  resetAt?: number;
+}): ResolvedSession {
+  return {
+    id: input.id,
+    agentId: "main",
+    profileId: input.profileId,
+    provider: "fake-provider",
+    type: "oauth",
+    status: input.status ?? "available",
+    sourceKind: input.sourceKind ?? "local-import",
+    sourceLabel: input.sourceKind === "openclaw" ? "OpenClaw 可复用授权" : "桌面端 Codex 账号",
+    sourcePath: `/tmp/${input.profileId}.json`,
+    accountId: input.accountId,
+    displayName: input.accountId,
+    planType: "plus",
+    quota:
+      typeof input.quotaPercentage === "number"
+        ? {
+            scope: "hourly",
+            percentage: input.quotaPercentage,
+            resetAt: input.resetAt ?? 4_102_444_800_000,
+            updatedAt: 4_102_111_111_000,
+          }
+        : undefined,
+    expiresAt: 4_102_555_800_000,
+    apiKey: `${input.accountId}-api-key`,
+  };
+}
+
 function createTestRuntime(options?: {
   serverHost?: string;
   serverPort?: number;
@@ -927,6 +1036,289 @@ describe("gateway app", () => {
       expect(adminHealth.json().routingObservability.recent[0]?.warnings).toEqual(
         expect.arrayContaining([
           expect.stringContaining("已回退到 main:fake:backup"),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("resolves dynamic pool members by quota threshold during preview and live routing", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionLow = createResolvedSession({
+      id: "main:fake:pool-low",
+      profileId: "fake:pool-low",
+      accountId: "acct_pool_low",
+      quotaPercentage: 12,
+    });
+    const sessionHigh = createResolvedSession({
+      id: "main:fake:pool-high",
+      profileId: "fake:pool-high",
+      accountId: "acct_pool_high",
+      quotaPercentage: 82,
+    });
+    const sessionSource = new PoolSessionSource([sessionLow, sessionHigh]);
+    const adapter = new SessionBackedProviderAdapter(sessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionLow.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-openclaw",
+          name: "OpenClaw 池",
+          enabled: true,
+          selectionStrategy: "quota-desc",
+          minRemainingPercentage: 15,
+          members: [
+            { selector: sessionLow.accountId!, priority: 10 },
+            { selector: sessionHigh.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-openclaw-pool",
+          name: "openclaw-pool-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-openclaw",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const poolSettings = await app.inject({
+        method: "GET",
+        url: "/admin/config/pools",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(poolSettings.statusCode).toBe(200);
+      expect(poolSettings.json()).toMatchObject({
+        ok: true,
+        data: {
+          enabled: true,
+          pools: [{ id: "pool-openclaw" }],
+        },
+      });
+
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: sessionLow.id,
+        },
+      });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          reason: "rule_matched",
+          resolvedPoolId: "pool-openclaw",
+          resolvedSessionId: sessionHigh.id,
+          candidateCount: 1,
+          selectionReason: "按剩余额度优先选择",
+        },
+      });
+      expect(preview.json().data.rejectedCandidates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            selector: sessionLow.accountId,
+            sessionId: sessionLow.id,
+            reason: expect.stringContaining("低于阈值"),
+          }),
+        ]),
+      );
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.lastOptions?.sessionId).toBe(sessionHigh.id);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("retries the next dynamic pool member when the first selected account is quota exhausted", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:pool-a",
+      profileId: "fake:pool-a",
+      accountId: "acct_pool_a",
+      quotaPercentage: 90,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:pool-b",
+      profileId: "fake:pool-b",
+      accountId: "acct_pool_b",
+      quotaPercentage: 76,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("usage_limit_reached")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionB.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-rotate",
+          name: "自动切号池",
+          enabled: true,
+          selectionStrategy: "priority",
+          minRemainingPercentage: 10,
+          maxRetryCandidates: 2,
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-localraghub-pool",
+          name: "localraghub-pool-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "localraghub",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-rotate",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "localraghub",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([sessionA.id, sessionB.id]);
+      expect(adapter.lastOptions?.sessionId).toBe(sessionB.id);
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().routingObservability.recent[0]).toMatchObject({
+        resolvedSessionId: sessionB.id,
+      });
+      expect(adminHealth.json().routingObservability.recent[0]?.warnings).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("已将请求从"),
         ]),
       );
     } finally {

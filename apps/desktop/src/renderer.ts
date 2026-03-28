@@ -43,6 +43,10 @@ declare global {
       previewRouting: (
         payload: RoutingPreviewInput,
       ) => Promise<RoutingPreviewResponse>;
+      getPoolSettings: () => Promise<PoolSettingsResponse>;
+      savePoolSettings: (
+        payload: PoolSettings,
+      ) => Promise<{ ok: boolean; data: PoolSettings }>;
       getSecuritySettings: () => Promise<SecuritySettingsResponse>;
       saveSecuritySettings: (
         payload: SecuritySettingsInput,
@@ -308,10 +312,14 @@ type RoutingRule = {
     requestedModelAlias?: string;
   };
   target?: {
+    dispatchMode?: "active-session" | "fixed-session" | "dynamic-pool";
     modelAlias?: string;
     sessionId?: string;
+    poolId?: string;
   };
 };
+
+type RoutingDispatchMode = "active-session" | "fixed-session" | "dynamic-pool";
 
 type RoutingSettings = {
   enabled?: boolean;
@@ -337,9 +345,48 @@ type RoutingPreviewResponse = {
     matchedRuleName?: string;
     resolvedModelAlias: string;
     resolvedSessionId?: string;
+    resolvedPoolId?: string;
     reason: string;
     warnings: string[];
+    selectionReason?: string;
+    candidateCount?: number;
+    rejectedCandidates?: Array<{
+      selector: string;
+      label?: string;
+      sessionId?: string;
+      reason: string;
+    }>;
   };
+};
+
+type PoolDefinition = {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  description?: string;
+  members?: Array<{
+    selector: string;
+    label?: string;
+    enabled?: boolean;
+    priority?: number;
+  }>;
+  selectionStrategy?: "priority" | "quota-desc" | "least-recently-used" | "hybrid";
+  minRemainingPercentage?: number;
+  allowUnknownQuota?: boolean;
+  cooldownSeconds?: number;
+  quotaExhaustedCooldownSeconds?: number;
+  maxRetryCandidates?: number;
+  fallbackToActiveSession?: boolean;
+};
+
+type PoolSettings = {
+  enabled?: boolean;
+  pools?: PoolDefinition[];
+};
+
+type PoolSettingsResponse = {
+  ok: boolean;
+  data: PoolSettings;
 };
 
 type SecuritySettingsInput = {
@@ -393,7 +440,12 @@ type SystemSettingsResponse = {
   data: SystemSettings;
 };
 
-type DashboardView = "overview" | "accounts" | "providers" | "diagnostics";
+type DashboardView =
+  | "overview"
+  | "accounts"
+  | "providers"
+  | "pools"
+  | "diagnostics";
 type IntegrationTemplateKey = "openclaw" | "localraghub" | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
 const state: {
@@ -402,6 +454,7 @@ const state: {
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
   routingSettings?: RoutingSettings;
+  poolSettings?: PoolSettings;
   securitySettings?: SecuritySettings;
   systemSettings?: SystemSettings;
   oauthInFlight?: boolean;
@@ -607,6 +660,7 @@ function loadPersistedView(): DashboardView {
       saved === "overview" ||
       saved === "accounts" ||
       saved === "providers" ||
+      saved === "pools" ||
       saved === "diagnostics"
     ) {
       return saved;
@@ -2102,8 +2156,74 @@ function createRoutingRuleId(): string {
   return `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createPoolId(): string {
+  return `pool-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function getRoutingRulesContainer(): HTMLElement | null {
   return document.getElementById("routing-rules-list");
+}
+
+function getPoolsContainer(): HTMLElement | null {
+  return document.getElementById("pool-list");
+}
+
+function resolveRoutingDispatchMode(rule: RoutingRule): RoutingDispatchMode {
+  const explicit = rule.target?.dispatchMode;
+  if (
+    explicit === "active-session" ||
+    explicit === "fixed-session" ||
+    explicit === "dynamic-pool"
+  ) {
+    return explicit;
+  }
+  if (rule.target?.poolId?.trim()) {
+    return "dynamic-pool";
+  }
+  if (rule.target?.sessionId?.trim()) {
+    return "fixed-session";
+  }
+  return "active-session";
+}
+
+function buildPoolOptions(selectedPoolId?: string): string {
+  const pools = state.poolSettings?.pools ?? [];
+  const rows = [
+    `<option value="">请选择号池</option>`,
+    ...pools.map(
+      (pool) =>
+        `<option value="${escapeHtml(pool.id)}" ${pool.id === selectedPoolId ? "selected" : ""}>${escapeHtml(pool.name || pool.id)}</option>`,
+    ),
+  ];
+  if (
+    selectedPoolId &&
+    !pools.some((pool) => pool.id === selectedPoolId)
+  ) {
+    rows.push(
+      `<option value="${escapeHtml(selectedPoolId)}" selected>${escapeHtml(selectedPoolId)}（当前未找到）</option>`,
+    );
+  }
+  return rows.join("");
+}
+
+function syncRoutingRuleDispatchModeUI(row: HTMLElement): void {
+  const dispatchMode =
+    row.querySelector<HTMLSelectElement>('[data-field="dispatch-mode"]')
+      ?.value ?? "active-session";
+  for (const field of Array.from(
+    row.querySelectorAll<HTMLElement>("[data-dispatch-visibility]"),
+  )) {
+    const expected = field.dataset.dispatchVisibility;
+    field.hidden = expected !== dispatchMode;
+  }
+}
+
+function syncAllRoutingRuleDispatchModeUI(): void {
+  for (const row of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-routing-rule-row]"),
+  )) {
+    syncRoutingRuleDispatchModeUI(row);
+  }
 }
 
 function renderRoutingRules(): void {
@@ -2120,8 +2240,9 @@ function renderRoutingRules(): void {
   }
 
   container.innerHTML = rules
-    .map(
-      (rule) => `
+    .map((rule) => {
+      const dispatchMode = resolveRoutingDispatchMode(rule);
+      return `
       <div class="routing-rule-card" data-enabled="${rule.enabled === false ? "false" : "true"}" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}">
         <div class="routing-rule-top">
           <div>
@@ -2155,14 +2276,29 @@ function renderRoutingRules(): void {
             <input class="input-field" data-field="target-model-alias" placeholder="例如 openai-compatible-default" value="${escapeHtml(rule.target?.modelAlias ?? "")}" />
           </div>
           <div class="form-field">
+            <label>目标账号模式</label>
+            <select class="input-field" data-field="dispatch-mode">
+              <option value="active-session" ${dispatchMode === "active-session" ? "selected" : ""}>沿用当前活动账号</option>
+              <option value="fixed-session" ${dispatchMode === "fixed-session" ? "selected" : ""}>固定账号</option>
+              <option value="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "selected" : ""}>号池调度</option>
+            </select>
+          </div>
+          <div class="form-field" data-dispatch-visibility="fixed-session" ${dispatchMode === "fixed-session" ? "" : "hidden"}>
             <label>目标会话 / 账号标识（可选）</label>
             <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
+          </div>
+          <div class="form-field" data-dispatch-visibility="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "" : "hidden"}>
+            <label>目标号池（可选）</label>
+            <select class="input-field" data-field="target-pool-id">
+              ${buildPoolOptions(rule.target?.poolId)}
+            </select>
           </div>
         </div>
         <div class="routing-rule-guide">
           <span>至少填写 1 个匹配条件，并至少填写 1 个目标字段。</span>
-          <span>目标会话留空：命中后沿用当前活动账号，适合在账号页灵活切号。</span>
-          <span>目标会话已填：命中后固定走指定账号，适合做 OpenClaw / localRagHub 专用分流。</span>
+          <span>选择“沿用当前活动账号”时，命中规则后仍由账号页当前活动账号决定最终额度来源。</span>
+          <span>选择“固定账号”时，命中规则后会固定走指定账号，适合给某个客户端预留专用额度。</span>
+          <span>选择“号池调度”时，请先在“号池调度”页配置池成员与阈值；命中后网关会按池策略自动挑选账号。</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
           <label class="switch-label" style="font-size: 14px;">
@@ -2172,9 +2308,10 @@ function renderRoutingRules(): void {
           <button class="btn ghost danger-ghost mini" data-action="routing-remove-rule" data-rule-id="${escapeHtml(rule.id)}">删除规则</button>
         </div>
       </div>
-    `,
-    )
+    `;
+    })
     .join("");
+  syncAllRoutingRuleDispatchModeUI();
 }
 
 function applyRoutingSettingsToForm(): void {
@@ -2186,6 +2323,113 @@ function applyRoutingSettingsToForm(): void {
     enabledInput.checked = Boolean(settings.enabled);
   }
   renderRoutingRules();
+}
+
+function renderPoolCards(): void {
+  const container = getPoolsContainer();
+  if (!container) {
+    return;
+  }
+
+  const pools = state.poolSettings?.pools ?? [];
+  if (pools.length === 0) {
+    container.innerHTML =
+      "<div class='empty-state'>当前还没有号池。你可以新增一个号池，把多个桌面端 Codex 账号纳入自动调度。</div>";
+    return;
+  }
+
+  container.innerHTML = pools
+    .map((pool) => {
+      const membersText = (pool.members ?? [])
+        .map((member) => member.selector)
+        .join("\n");
+      return `
+        <div class="routing-rule-card" data-pool-row data-pool-id="${escapeHtml(pool.id)}">
+          <div class="routing-rule-top">
+            <div>
+              <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
+              <span>首版只纳入桌面端导入账号；通过列表顺序确定默认优先级，必要时再结合额度与最近使用情况自动挑号。</span>
+            </div>
+            <div class="routing-rule-meta">
+              <span class="badge neutral">${escapeHtml(pool.id)}</span>
+              <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${pool.enabled === false ? "未启用" : "已启用"}</span>
+            </div>
+          </div>
+          <div class="routing-rule-grid">
+            <div class="form-field">
+              <label>号池名称</label>
+              <input class="input-field" data-field="pool-name" value="${escapeHtml(pool.name ?? "")}" />
+            </div>
+            <div class="form-field">
+              <label>选择策略</label>
+              <select class="input-field" data-field="pool-strategy">
+                <option value="hybrid" ${pool.selectionStrategy === "hybrid" || !pool.selectionStrategy ? "selected" : ""}>混合策略（推荐）</option>
+                <option value="quota-desc" ${pool.selectionStrategy === "quota-desc" ? "selected" : ""}>按剩余额度优先</option>
+                <option value="least-recently-used" ${pool.selectionStrategy === "least-recently-used" ? "selected" : ""}>按最近最少使用</option>
+                <option value="priority" ${pool.selectionStrategy === "priority" ? "selected" : ""}>按成员顺序优先</option>
+              </select>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1;">
+              <label>说明（可选）</label>
+              <input class="input-field" data-field="pool-description" placeholder="例如：给 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1;">
+              <label>池成员（每行一个 sessionId / profileId / accountId）</label>
+              <textarea class="input-field" data-field="pool-members" rows="5" placeholder="每行一个账号标识，建议优先填写桌面端账号的 accountId。">${escapeHtml(membersText)}</textarea>
+            </div>
+            <div class="form-field">
+              <label>最低剩余额度阈值（%）</label>
+              <input class="input-field" data-field="pool-min-percentage" type="number" min="0" max="100" step="1" value="${typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15}" />
+            </div>
+            <div class="form-field">
+              <label>常规冷却（秒）</label>
+              <input class="input-field" data-field="pool-cooldown-seconds" type="number" min="10" max="86400" step="10" value="${typeof pool.cooldownSeconds === "number" ? pool.cooldownSeconds : 300}" />
+            </div>
+            <div class="form-field">
+              <label>额度耗尽冷却（秒）</label>
+              <input class="input-field" data-field="pool-quota-cooldown-seconds" type="number" min="30" max="86400" step="30" value="${typeof pool.quotaExhaustedCooldownSeconds === "number" ? pool.quotaExhaustedCooldownSeconds : 7200}" />
+            </div>
+            <div class="form-field">
+              <label>单次请求最多尝试账号数</label>
+              <input class="input-field" data-field="pool-max-retry-candidates" type="number" min="1" max="5" step="1" value="${typeof pool.maxRetryCandidates === "number" ? pool.maxRetryCandidates : 2}" />
+            </div>
+          </div>
+          <div class="routing-rule-guide">
+            <span>第一版动态号池只纳入桌面端导入账号，不直接把原始本地可复用授权作为正式池成员。</span>
+            <span>额度阈值用于“新请求是否可选”，不是精确 token 预算；当某账号低于阈值或进入冷却，会自动跳过。</span>
+            <span>请求级自动切号不会改写全局活动账号；每次请求只会在命中的号池内独立选择实际使用账号。</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label class="switch-label" style="font-size: 14px;">
+                <input type="checkbox" data-field="pool-enabled" ${pool.enabled === false ? "" : "checked"} />
+                启用号池
+              </label>
+              <label class="switch-label" style="font-size: 14px;">
+                <input type="checkbox" data-field="pool-allow-unknown" ${pool.allowUnknownQuota === false ? "" : "checked"} />
+                允许未知额度账号参与
+              </label>
+              <label class="switch-label" style="font-size: 14px;">
+                <input type="checkbox" data-field="pool-fallback-active" ${pool.fallbackToActiveSession === false ? "" : "checked"} />
+                无候选时回退活动账号
+              </label>
+            </div>
+            <button class="btn ghost danger-ghost mini" data-action="pool-remove" data-pool-id="${escapeHtml(pool.id)}">删除号池</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function applyPoolSettingsToForm(): void {
+  const enabledInput = document.getElementById(
+    "pool-enabled",
+  ) as HTMLInputElement | null;
+  if (enabledInput) {
+    enabledInput.checked = Boolean(state.poolSettings?.enabled);
+  }
+  renderPoolCards();
 }
 
 function collectRoutingSettingsFromForm(): RoutingSettings {
@@ -2226,9 +2470,17 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
             '[data-field="target-model-alias"]',
           )
           ?.value.trim() || undefined;
+      const dispatchMode =
+        row
+          .querySelector<HTMLSelectElement>('[data-field="dispatch-mode"]')
+          ?.value as RoutingDispatchMode | undefined;
       const sessionId =
         row
           .querySelector<HTMLInputElement>('[data-field="target-session-id"]')
+          ?.value.trim() || undefined;
+      const poolId =
+        row
+          .querySelector<HTMLSelectElement>('[data-field="target-pool-id"]')
           ?.value.trim() || undefined;
 
       return {
@@ -2243,20 +2495,120 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
           requestedModelAlias,
         },
         target: {
+          dispatchMode,
           modelAlias,
-          sessionId,
+          sessionId: dispatchMode === "fixed-session" ? sessionId : undefined,
+          poolId: dispatchMode === "dynamic-pool" ? poolId : undefined,
         },
       } satisfies RoutingRule;
     })
     .filter(
       (rule) =>
         Boolean(rule.when?.clientTag || rule.when?.requestedModelAlias) &&
-        Boolean(rule.target?.modelAlias || rule.target?.sessionId),
+        Boolean(rule.target?.modelAlias || rule.target?.sessionId || rule.target?.poolId),
     );
 
   return {
     enabled,
     rules,
+  };
+}
+
+async function savePoolSettings(): Promise<void> {
+  const api = getGatewayApi();
+  const payload = collectPoolSettingsFromForm();
+  const response = await api.savePoolSettings(payload);
+  state.poolSettings = response.data;
+  applyPoolSettingsToForm();
+  applyRoutingSettingsToForm();
+}
+
+function collectPoolSettingsFromForm(): PoolSettings {
+  const enabled =
+    (document.getElementById("pool-enabled") as HTMLInputElement | null)
+      ?.checked ?? false;
+  const rows = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-pool-row]"),
+  );
+  const pools: PoolDefinition[] = rows
+    .map((row) => {
+      const id = row.dataset.poolId || createPoolId();
+      const name =
+        row.querySelector<HTMLInputElement>('[data-field="pool-name"]')?.value.trim() ||
+        id;
+      const description =
+        row
+          .querySelector<HTMLInputElement>('[data-field="pool-description"]')
+          ?.value.trim() || undefined;
+      const selectionStrategy =
+        row
+          .querySelector<HTMLSelectElement>('[data-field="pool-strategy"]')
+          ?.value as PoolDefinition["selectionStrategy"] | undefined;
+      const minRemainingPercentage = Number(
+        row.querySelector<HTMLInputElement>('[data-field="pool-min-percentage"]')
+          ?.value ?? "15",
+      );
+      const cooldownSeconds = Number(
+        row.querySelector<HTMLInputElement>('[data-field="pool-cooldown-seconds"]')
+          ?.value ?? "300",
+      );
+      const quotaExhaustedCooldownSeconds = Number(
+        row.querySelector<HTMLInputElement>(
+          '[data-field="pool-quota-cooldown-seconds"]',
+        )?.value ?? "7200",
+      );
+      const maxRetryCandidates = Number(
+        row.querySelector<HTMLInputElement>(
+          '[data-field="pool-max-retry-candidates"]',
+        )?.value ?? "2",
+      );
+      const membersRaw =
+        row.querySelector<HTMLTextAreaElement>('[data-field="pool-members"]')
+          ?.value ?? "";
+      const members = membersRaw
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((selector, index) => ({
+          selector,
+          priority: index * 10,
+          enabled: true,
+        }));
+
+      return {
+        id,
+        name,
+        description,
+        enabled:
+          row.querySelector<HTMLInputElement>('[data-field="pool-enabled"]')
+            ?.checked ?? true,
+        selectionStrategy,
+        minRemainingPercentage: Number.isFinite(minRemainingPercentage)
+          ? Math.max(0, Math.min(100, Math.round(minRemainingPercentage)))
+          : 15,
+        allowUnknownQuota:
+          row.querySelector<HTMLInputElement>('[data-field="pool-allow-unknown"]')
+            ?.checked ?? true,
+        cooldownSeconds: Number.isFinite(cooldownSeconds)
+          ? Math.max(10, Math.min(86_400, Math.round(cooldownSeconds)))
+          : 300,
+        quotaExhaustedCooldownSeconds: Number.isFinite(quotaExhaustedCooldownSeconds)
+          ? Math.max(30, Math.min(86_400, Math.round(quotaExhaustedCooldownSeconds)))
+          : 7_200,
+        maxRetryCandidates: Number.isFinite(maxRetryCandidates)
+          ? Math.max(1, Math.min(5, Math.round(maxRetryCandidates)))
+          : 2,
+        fallbackToActiveSession:
+          row.querySelector<HTMLInputElement>('[data-field="pool-fallback-active"]')
+            ?.checked ?? true,
+        members,
+      } satisfies PoolDefinition;
+    })
+    .filter((pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0);
+
+  return {
+    enabled,
+    pools,
   };
 }
 
@@ -2291,6 +2643,45 @@ function renderRoutingPreviewResult(
   const matched = payload.matchedRuleName
     ? `${payload.matchedRuleName} (${payload.matchedRuleId ?? "unknown"})`
     : "未命中";
+  const poolFact = payload.resolvedPoolId
+    ? `
+        <div class="routing-preview-fact">
+          <label>命中号池</label>
+          <span>${escapeHtml(payload.resolvedPoolId)}</span>
+        </div>
+      `
+    : "";
+  const selectionFact = payload.selectionReason
+    ? `
+        <div class="routing-preview-fact">
+          <label>选择原因</label>
+          <span>${escapeHtml(payload.selectionReason)}</span>
+        </div>
+      `
+    : "";
+  const candidateFact =
+    typeof payload.candidateCount === "number"
+      ? `
+        <div class="routing-preview-fact">
+          <label>可用候选数</label>
+          <span>${escapeHtml(String(payload.candidateCount))}</span>
+        </div>
+      `
+      : "";
+  const rejectedCandidates =
+    payload.rejectedCandidates?.length
+      ? `
+        <div class="routing-preview-warning">
+          <strong>被跳过的候选账号</strong>
+          <span>${payload.rejectedCandidates
+            .map((item) => {
+              const label = item.label || item.selector || item.sessionId || "unknown";
+              return `${escapeHtml(label)}：${escapeHtml(item.reason)}`;
+            })
+            .join("；")}</span>
+        </div>
+      `
+      : "";
   node.innerHTML = `
     <div class="routing-preview-result-card ${tone}">
       <div class="routing-preview-result-head">
@@ -2313,8 +2704,12 @@ function renderRoutingPreviewResult(
           <label>解析会话</label>
           <span>${escapeHtml(payload.resolvedSessionId ?? "沿用当前活动会话")}</span>
         </div>
+        ${poolFact}
+        ${selectionFact}
+        ${candidateFact}
       </div>
       ${warnings}
+      ${rejectedCandidates}
     </div>
   `;
 }
@@ -3067,6 +3462,50 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("save-pool-settings")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "save-pool-settings",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "保存中");
+        setBanner("正在保存号池调度配置...", "info");
+        await savePoolSettings();
+        setBanner("号池调度配置已保存。命中号池的请求将按调度策略自动挑选账号。", "success");
+      } catch (error) {
+        setBanner(`保存号池配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document.getElementById("add-pool")?.addEventListener("click", () => {
+    const settings = state.poolSettings ?? {};
+    const pools = settings.pools ?? [];
+    state.poolSettings = {
+      ...settings,
+      enabled: settings.enabled ?? true,
+      pools: [
+        ...pools,
+        {
+          id: createPoolId(),
+          name: `号池-${pools.length + 1}`,
+          enabled: true,
+          selectionStrategy: "hybrid",
+          minRemainingPercentage: 15,
+          cooldownSeconds: 300,
+          quotaExhaustedCooldownSeconds: 7200,
+          maxRetryCandidates: 2,
+          allowUnknownQuota: true,
+          fallbackToActiveSession: true,
+          members: [],
+        },
+      ],
+    };
+    applyPoolSettingsToForm();
+  });
+
+  document
     .getElementById("add-routing-rule")
     ?.addEventListener("click", () => {
       const settings = state.routingSettings ?? {};
@@ -3203,6 +3642,19 @@ function bindActions(): void {
         state.accountSortDirection === "asc" ? "desc" : "asc";
       renderCodexAccounts();
     });
+
+  document.addEventListener("change", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target instanceof HTMLSelectElement &&
+      target.matches('[data-field="dispatch-mode"]')
+    ) {
+      const row = target.closest<HTMLElement>("[data-routing-rule-row]");
+      if (row) {
+        syncRoutingRuleDispatchModeUI(row);
+      }
+    }
+  });
 
   document
     .getElementById("routing-observe-client-filter")
@@ -3506,6 +3958,30 @@ function bindActions(): void {
       applyRoutingSettingsToForm();
       resetRoutingPreviewResult();
     }
+
+    if (action === "pool-remove" && button.dataset.poolId) {
+      const confirmed = await requestConfirmation({
+        title: "确认删除号池",
+        message:
+          "删除后该号池会立即从当前编辑态中移除；保存号池配置后会正式生效。若仍有路由规则引用该号池，请同步检查策略路由配置。",
+        confirmLabel: "删除号池",
+        tone: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
+      const settings = state.poolSettings ?? {};
+      const pools = (settings.pools ?? []).filter(
+        (pool) => pool.id !== button.dataset.poolId,
+      );
+      state.poolSettings = {
+        ...settings,
+        pools,
+      };
+      applyPoolSettingsToForm();
+      applyRoutingSettingsToForm();
+      resetRoutingPreviewResult();
+    }
   });
 }
 
@@ -3517,6 +3993,7 @@ async function refresh(): Promise<void> {
     sessionsResult,
     settingsResult,
     routingSettingsResult,
+    poolSettingsResult,
     securitySettingsResult,
     systemSettingsResult,
   ] = await Promise.allSettled([
@@ -3525,6 +4002,7 @@ async function refresh(): Promise<void> {
     api.getSessions(),
     api.getProviderSettings(),
     api.getRoutingSettings(),
+    api.getPoolSettings(),
     api.getSecuritySettings(),
     api.getSystemSettings(),
   ]);
@@ -3597,6 +4075,19 @@ async function refresh(): Promise<void> {
     };
   }
 
+  if (poolSettingsResult.status === "fulfilled") {
+    state.poolSettings = poolSettingsResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "pool-settings",
+      message: normalizeErrorMessage(poolSettingsResult.reason),
+    });
+    state.poolSettings = {
+      enabled: false,
+      pools: [],
+    };
+  }
+
   if (securitySettingsResult.status === "fulfilled") {
     state.securitySettings = securitySettingsResult.value.data;
   } else {
@@ -3622,6 +4113,7 @@ async function refresh(): Promise<void> {
   renderGuide();
   applySettingsToForm();
   applyRoutingSettingsToForm();
+  applyPoolSettingsToForm();
   resetRoutingPreviewResult();
   applySecuritySettingsToForm();
   applySystemSettingsToForm();

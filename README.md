@@ -10,6 +10,12 @@
 - 复用本机现有本地 OAuth 授权作为可选会话来源，当前优先兼容 OpenClaw 已登录会话
 - 提供 Electron 桌面控制台用于配置 Provider、导入和管理桌面端 Codex 账号、查看状态和切换活动授权
 
+当前三期正在增量接入：
+
+- 动态号池 / 号池调度
+  - 允许命中某条路由规则的请求在多个桌面端 Codex 账号之间按阈值、冷却和有限重试自动挑号
+  - 不会破坏现有“活动账号 / 固定账号”链路
+
 ## 项目结构
 
 - `apps/gateway`：Fastify 网关服务与 Admin API
@@ -93,6 +99,7 @@ codex-default
 - [v1 产品需求文档（PRD）](./docs/prd/local-ai-gateway-v1.md)
 - [架构总览](./docs/architecture/overview.md)
 - [概念地图](./docs/architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
+- [动态号池设计方案](./docs/architecture/%E5%8A%A8%E6%80%81%E5%8F%B7%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88.md)
 - [OpenClaw 接入与运行说明](./docs/operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
 - [Provider 扩展配置](./docs/operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [桌面控制台使用说明](./docs/operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)

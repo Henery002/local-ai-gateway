@@ -70,6 +70,7 @@ export interface GatewayStoredConfig {
   activeSessionId?: string;
   providerSettings?: GatewayProviderSettings;
   routingSettings?: GatewayRoutingSettings;
+  poolSettings?: GatewaySessionPoolSettings;
   inferenceAuthSettings?: GatewayInferenceAuthSettings;
   desktopSettings?: DesktopSystemSettings;
   createdAt: string;
@@ -113,14 +114,62 @@ export interface GatewayProviderSettings {
   ollama?: OllamaProviderSettings;
 }
 
+export type GatewayRoutingDispatchMode =
+  | "active-session"
+  | "fixed-session"
+  | "dynamic-pool";
+
+export type GatewayPoolSelectionStrategy =
+  | "priority"
+  | "quota-desc"
+  | "least-recently-used"
+  | "hybrid";
+
+export type GatewayPoolFailureClass =
+  | "auth_invalid"
+  | "quota_exhausted"
+  | "rate_limited"
+  | "network_retryable"
+  | "upstream_retryable"
+  | "non_retryable";
+
+export interface GatewaySessionPoolMember {
+  selector: string;
+  label?: string;
+  enabled?: boolean;
+  priority?: number;
+}
+
+export interface GatewaySessionPoolDefinition {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  description?: string;
+  members?: GatewaySessionPoolMember[];
+  selectionStrategy?: GatewayPoolSelectionStrategy;
+  minRemainingPercentage?: number;
+  allowUnknownQuota?: boolean;
+  cooldownSeconds?: number;
+  quotaExhaustedCooldownSeconds?: number;
+  maxRetryCandidates?: number;
+  fallbackToActiveSession?: boolean;
+}
+
+export interface GatewaySessionPoolSettings {
+  enabled?: boolean;
+  pools?: GatewaySessionPoolDefinition[];
+}
+
 export interface GatewayRoutingRuleCondition {
   clientTag?: string;
   requestedModelAlias?: string;
 }
 
 export interface GatewayRoutingRuleTarget {
+  dispatchMode?: GatewayRoutingDispatchMode;
   modelAlias?: string;
   sessionId?: string;
+  poolId?: string;
 }
 
 export interface GatewayRoutingRule {
@@ -163,8 +212,19 @@ export interface GatewayRoutingPreviewResult {
   matchedRuleName?: string;
   resolvedModelAlias: string;
   resolvedSessionId?: string;
+  resolvedPoolId?: string;
   reason: string;
   warnings: string[];
+  selectionReason?: string;
+  candidateCount?: number;
+  rejectedCandidates?: GatewayPoolRejectedCandidate[];
+}
+
+export interface GatewayPoolRejectedCandidate {
+  selector: string;
+  label?: string;
+  sessionId?: string;
+  reason: string;
 }
 
 export interface GatewayRoutingHitEvent {

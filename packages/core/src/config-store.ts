@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   DesktopSystemSettings,
   GatewayInferenceAuthSettings,
+  GatewaySessionPoolSettings,
   GatewayProviderSettings,
   GatewayRoutingSettings,
   GatewayStoredConfig,
@@ -77,6 +78,20 @@ export class ConfigStore {
     const next = {
       ...current,
       routingSettings,
+      updatedAt: toIsoNow(),
+    };
+    return this.save(next);
+  }
+
+  getPoolSettings(): GatewaySessionPoolSettings {
+    return this.load().poolSettings ?? {};
+  }
+
+  setPoolSettings(poolSettings: GatewaySessionPoolSettings): GatewayStoredConfig {
+    const current = this.load();
+    const next = {
+      ...current,
+      poolSettings,
       updatedAt: toIsoNow(),
     };
     return this.save(next);

@@ -12,9 +12,11 @@ import {
 import {
   GatewayError,
   GatewayInferenceAuthSettings,
+  GatewayPoolFailureClass,
   GatewayProviderSettings,
   GatewayRoutingPreviewInput,
   GatewayRoutingSettings,
+  GatewaySessionPoolSettings,
   SessionSummary,
 } from "@local-ai-gateway/shared";
 
@@ -104,26 +106,68 @@ function resolveClientTag(request: FastifyRequest): string | undefined {
   return undefined;
 }
 
-function isRetryableFixedSessionError(error: unknown): boolean {
+function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
   if (error instanceof GatewayError && error.code === "gateway_auth_required") {
-    return true;
+    return "auth_invalid";
   }
 
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
-  return (
+  if (
     message.includes("usage_limit_reached") ||
     message.includes("usage limit has been reached") ||
-    message.includes("rate limit")
-  );
+    message.includes("quota exhausted") ||
+    message.includes("quota_exhausted") ||
+    message.includes("reset later")
+  ) {
+    return "quota_exhausted";
+  }
+  if (message.includes("rate limit") || message.includes("429")) {
+    return "rate_limited";
+  }
+  if (
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("timeout") ||
+    message.includes("econn") ||
+    message.includes("socket")
+  ) {
+    return "network_retryable";
+  }
+  if (
+    message.includes("upstream_error") ||
+    message.includes("service unavailable") ||
+    message.includes("bad gateway") ||
+    message.includes("502") ||
+    message.includes("503") ||
+    message.includes("504")
+  ) {
+    return "upstream_retryable";
+  }
+  return "non_retryable";
+}
+
+function isRetryablePoolFailureClass(failureClass: GatewayPoolFailureClass): boolean {
+  return failureClass !== "non_retryable";
+}
+
+function isRetryableFixedSessionError(error: unknown): boolean {
+  return isRetryablePoolFailureClass(classifyPoolFailure(error));
 }
 
 function isRetryableFinalMessageError(message: string | undefined): boolean {
-  const normalized = (message ?? "").toLowerCase();
-  return (
-    normalized.includes("usage_limit_reached") ||
-    normalized.includes("usage limit has been reached") ||
-    normalized.includes("rate limit")
-  );
+  return isRetryablePoolFailureClass(classifyPoolFailure(message));
+}
+
+function resolvePoolAttemptLimit(
+  poolSettings: GatewaySessionPoolSettings,
+  poolId: string | undefined,
+): number {
+  const pool = poolSettings.pools?.find((item) => item.id === poolId);
+  const value = pool?.maxRetryCandidates;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 2;
+  }
+  return Math.max(1, Math.min(5, Math.round(value)));
 }
 
 function readClientApiKey(request: FastifyRequest): string | undefined {
@@ -214,11 +258,27 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             .getRoutingSettings()
             .rules?.find((rule) => rule.id === routingPreview.matchedRuleId)
         : undefined;
+    const dispatchMode = runtime.getEffectiveDispatchMode(matchedRule?.target);
+    const targetPoolId =
+      dispatchMode === "dynamic-pool"
+        ? matchedRule?.target?.poolId?.trim()
+        : undefined;
+    const poolAttemptLimit = resolvePoolAttemptLimit(
+      runtime.getPoolSettings(),
+      targetPoolId,
+    );
     const hasExplicitTargetSession = Boolean(
-      matchedRule?.target?.sessionId?.trim(),
+      dispatchMode === "fixed-session" && matchedRule?.target?.sessionId?.trim(),
     );
     const attemptedSessionIds = new Set<string>();
     let routingHitRecorded = false;
+    let selectedByPoolMember = Boolean(
+      targetPoolId &&
+        routingPreview.reason === "rule_matched" &&
+        routingPreview.resolvedPoolId === targetPoolId &&
+        routingPreview.selectionReason &&
+        routingPreview.selectionReason !== "fallback-to-active-session",
+    );
 
     if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
       const routedModel = runtime.getProviderAdapterForModel(routingPreview.resolvedModelAlias);
@@ -248,6 +308,19 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           });
           routingWarnings.push(`目标会话 ${routingPreview.resolvedSessionId} 未找到，已回退当前活动会话。`);
         }
+      }
+
+      if (
+        dispatchMode === "dynamic-pool" &&
+        targetPoolId &&
+        !routingPreview.resolvedSessionId &&
+        !currentSessionId
+      ) {
+        throw new GatewayError(
+          503,
+          "pool_no_available_session",
+          `号池 ${targetPoolId} 当前没有可用账号，且系统不存在可回退的活动账号。`,
+        );
       }
     }
 
@@ -325,6 +398,58 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       return fallback.sessionId;
     };
 
+    const selectNextPoolSessionId = (
+      failedSessionId: string | undefined,
+      failureClass: GatewayPoolFailureClass,
+    ): string | undefined => {
+      if (!targetPoolId || !isRetryablePoolFailureClass(failureClass)) {
+        return undefined;
+      }
+
+      if (attemptedSessionIds.size >= poolAttemptLimit) {
+        return undefined;
+      }
+
+      const failedSession = failedSessionId
+        ? runtime.listSessions().find((session) => session.id === failedSessionId)
+        : undefined;
+      if (failedSessionId && selectedByPoolMember) {
+        runtime.recordPoolSelectionFailure({
+          poolId: targetPoolId,
+          sessionId: failedSessionId,
+          failureClass,
+          resetAt: failedSession?.quota?.resetAt,
+        });
+      }
+
+      const nextSelection = runtime.selectSessionFromPool({
+        poolId: targetPoolId,
+        currentSessionId,
+        attemptedSessionIds,
+      });
+      routingWarnings.push(...nextSelection.warnings);
+      if (
+        nextSelection.selectedSessionId &&
+        nextSelection.selectedSessionId !== failedSessionId
+      ) {
+        selectedByPoolMember = Boolean(nextSelection.selectedSelector);
+        routingWarnings.push(
+          `号池 ${nextSelection.poolName} 已将请求从 ${failedSessionId ?? "unknown"} 切换到 ${nextSelection.selectedSessionId}。`,
+        );
+        runtime.logger.info("routing_pool_runtime_fallback", {
+          matchedRuleId: routingPreview.matchedRuleId,
+          poolId: targetPoolId,
+          failedSessionId,
+          fallbackSessionId: nextSelection.selectedSessionId,
+          failureClass,
+          candidateCount: nextSelection.candidateCount,
+        });
+        return nextSelection.selectedSessionId;
+      }
+
+      return undefined;
+    };
+
     try {
       const controller = new AbortController();
       request.raw.on("aborted", () => controller.abort());
@@ -350,10 +475,15 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       try {
         result = await createAttempt(resolvedSessionId);
       } catch (error) {
+        const poolFallbackSessionId = selectNextPoolSessionId(
+          resolvedSessionId,
+          classifyPoolFailure(error),
+        );
         const fallbackSessionId =
-          hasExplicitTargetSession && isRetryableFixedSessionError(error)
+          poolFallbackSessionId ??
+          (hasExplicitTargetSession && isRetryableFixedSessionError(error)
             ? selectFallbackSessionId(resolvedSessionId)
-            : undefined;
+            : undefined);
         if (!fallbackSessionId) {
           throw error;
         }
@@ -391,14 +521,21 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       let finalMessage = await result.stream.result();
       if (
         finalMessage.stopReason === "error" &&
-        hasExplicitTargetSession &&
+        (hasExplicitTargetSession || Boolean(targetPoolId)) &&
         isRetryableFinalMessageError(finalMessage.errorMessage)
       ) {
-        const fallbackSessionId = selectFallbackSessionId(usedSessionId);
+        const poolFallbackSessionId = selectNextPoolSessionId(
+          usedSessionId,
+          classifyPoolFailure(finalMessage.errorMessage),
+        );
+        const fallbackSessionId =
+          poolFallbackSessionId ??
+          selectFallbackSessionId(usedSessionId);
         if (fallbackSessionId) {
           resolvedSessionId = fallbackSessionId;
           const retryResult = await createAttempt(fallbackSessionId);
           usedSessionId = retryResult.session.id;
+          selectedByPoolMember = Boolean(targetPoolId && poolFallbackSessionId);
           finalMessage = await retryResult.stream.result();
         }
       }
@@ -424,6 +561,9 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       }
 
       if (usedSessionId) {
+        if (targetPoolId && selectedByPoolMember) {
+          runtime.recordPoolSelectionSuccess(targetPoolId, usedSessionId);
+        }
         runtime.recordInferenceResult({
           sessionId: usedSessionId,
           ok: true,
@@ -437,6 +577,17 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     } catch (error) {
       recordRoutingHitIfNeeded(usedSessionId);
       if (usedSessionId && !hasRecordedResult) {
+        if (targetPoolId && selectedByPoolMember) {
+          const failedSession = runtime
+            .listSessions()
+            .find((session) => session.id === usedSessionId);
+          runtime.recordPoolSelectionFailure({
+            poolId: targetPoolId,
+            sessionId: usedSessionId,
+            failureClass: classifyPoolFailure(error),
+            resetAt: failedSession?.quota?.resetAt,
+          });
+        }
         runtime.recordInferenceResult({
           sessionId: usedSessionId,
           ok: false,
@@ -519,6 +670,28 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     return {
       ok: true,
       data: runtime.previewRouting(body),
+    };
+  });
+
+  app.get("/admin/config/pools", async (request) => {
+    requireAdminAuth(runtime, request);
+    return {
+      ok: true,
+      data: runtime.getPoolSettings(),
+    };
+  });
+
+  app.put("/admin/config/pools", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as GatewaySessionPoolSettings;
+    const saved = runtime.configStore.setPoolSettings(body);
+    runtime.logger.info("pool_settings_saved", {
+      enabled: Boolean(body.enabled),
+      poolCount: body.pools?.length ?? 0,
+    });
+    return {
+      ok: true,
+      data: saved.poolSettings ?? {},
     };
   });
 

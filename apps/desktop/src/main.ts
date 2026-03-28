@@ -15,6 +15,7 @@ import {
   type GatewayInferenceAuthSettings,
   type GatewayRoutingPreviewInput,
   type GatewayRoutingSettings,
+  type GatewaySessionPoolSettings,
   type SessionActivitySnapshot,
   type SessionUsageRefreshSummary,
   resolveGatewayPaths,
@@ -418,6 +419,19 @@ ipcMain.handle("gateway:preview-routing", async (_event, payload: GatewayRouting
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/routing/preview", {
     method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+});
+
+ipcMain.handle("gateway:get-pool-settings", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/pools");
+});
+
+ipcMain.handle("gateway:save-pool-settings", async (_event, payload: GatewaySessionPoolSettings) => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/config/pools", {
+    method: "PUT",
     body: JSON.stringify(payload ?? {}),
   });
 });

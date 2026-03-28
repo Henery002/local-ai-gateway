@@ -7,6 +7,7 @@
 - [v1 产品需求文档（PRD）](./prd/local-ai-gateway-v1.md)
 - [架构总览](./architecture/overview.md)
 - [概念地图](./architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
+- [动态号池设计方案](./architecture/%E5%8A%A8%E6%80%81%E5%8F%B7%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88.md)
 - [OpenClaw 接入与运行说明（专项）](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
 - [第三方客户端接入模板与错误排查](./operations/%E7%AC%AC%E4%B8%89%E6%96%B9%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%8E%A5%E5%85%A5%E6%A8%A1%E6%9D%BF%E4%B8%8E%E9%94%99%E8%AF%AF%E6%8E%92%E6%9F%A5.md)
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)

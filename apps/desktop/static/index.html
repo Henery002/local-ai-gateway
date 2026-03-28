@@ -1626,6 +1626,10 @@
             <span class="nav-icon">配</span>
             <span>服务配置</span>
           </button>
+          <button class="nav-item" data-nav-target="pools" data-active="false">
+            <span class="nav-icon">池</span>
+            <span>号池调度</span>
+          </button>
           <button class="nav-item" data-nav-target="diagnostics" data-active="false">
             <span class="nav-icon">诊</span>
             <span>诊断与系统</span>
@@ -2056,6 +2060,61 @@
                 <p>当前网关真正加载并可被外部访问的 Provider 列表。</p>
               </div>
               <div id="provider-registry" class="grid-layout grid-2"></div>
+            </section>
+          </div>
+
+          <!-- View: Pools -->
+          <div class="view" data-view="pools" hidden>
+            <section>
+              <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                  <h2>号池调度</h2>
+                  <p>把多个桌面端 Codex 账号编成一个动态号池，供命中的路由规则按额度阈值、冷却和有限重试自动挑号。</p>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button id="add-pool" class="btn secondary">新增号池</button>
+                  <button id="save-pool-settings" class="btn primary">保存号池配置</button>
+                </div>
+              </div>
+
+              <div class="settings-group mb-4">
+                <div class="settings-header">
+                  <div>
+                    <h3>号池调度开关</h3>
+                    <p>关闭后，所有“号池调度”目标模式都会退化为普通路由，不会再自动切号。</p>
+                  </div>
+                  <label class="switch-label">
+                    <input id="pool-enabled" type="checkbox" /> 启用动态号池
+                  </label>
+                </div>
+                <div class="settings-body">
+                  <div class="settings-note">
+                    <strong>号池与策略路由的关系</strong>
+                    <ul>
+                      <li>策略路由只负责“把哪类请求导向哪个目标”；号池调度页负责“目标号池内部如何选账号、何时跳过、何时切下一个”。</li>
+                      <li>如果某条路由规则目标模式选择“号池调度”，并填写了某个池 ID，那么命中的请求会在该池内动态选择真实账号。</li>
+                      <li>如果你仍想手动切号，请继续使用“沿用当前活动账号”模式；这条链路不会被动态号池破坏。</li>
+                      <li>第一版动态号池只纳入桌面端已导入账号，不直接把原始本地可复用授权当作正式池成员。</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-group mb-4">
+                <div class="settings-header">
+                  <div>
+                    <h3>调度规则说明</h3>
+                    <p>先在这里定义池成员和自动切号策略，再到“服务配置 -> 策略路由”里把某类请求绑定到目标号池。</p>
+                  </div>
+                </div>
+                <div class="settings-body">
+                  <div class="settings-note compact">
+                    <strong>推荐使用方式</strong>
+                    <p>例如给 OpenClaw 配置一条 `clientTag=openclaw + model=codex-default -> 号池 A` 的策略路由，然后在号池 A 中放入多个桌面端 Codex 账号。网关会在每次请求开始前自动挑选一个满足阈值的账号；若本次请求命中的账号出现额度耗尽、鉴权失效或短期限流，会按池内策略尝试下一个候选账号。</p>
+                  </div>
+                  <div id="pool-list" class="grid-layout grid-1"></div>
+                </div>
+              </div>
             </section>
           </div>
 

@@ -15,6 +15,7 @@ export interface RuntimeDiagnosticLoadFailure {
     | "sessions"
     | "provider-settings"
     | "routing-settings"
+    | "pool-settings"
     | "security-settings"
     | "system-settings";
   message: string;
@@ -115,6 +116,7 @@ export function classifyLoadFailure(
     sessions: "账号会话加载失败",
     "provider-settings": "Provider 配置加载失败",
     "routing-settings": "路由策略配置加载失败",
+    "pool-settings": "号池调度配置加载失败",
     "security-settings": "接入鉴权配置加载失败",
     "system-settings": "系统配置加载失败",
   } as const;

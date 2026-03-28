@@ -11,6 +11,9 @@ const api = {
     ipcRenderer.invoke("gateway:save-routing-settings", payload),
   previewRouting: (payload: unknown) =>
     ipcRenderer.invoke("gateway:preview-routing", payload),
+  getPoolSettings: () => ipcRenderer.invoke("gateway:get-pool-settings"),
+  savePoolSettings: (payload: unknown) =>
+    ipcRenderer.invoke("gateway:save-pool-settings", payload),
   getSecuritySettings: () => ipcRenderer.invoke("gateway:get-security-settings"),
   saveSecuritySettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-security-settings", payload),

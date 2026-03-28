@@ -177,8 +177,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 8. 用户保存图形化配置后，Electron 调用 `PUT /admin/config/providers`
 9. 用户选择活动会话后，Electron 调用 `PUT /admin/sessions/active`
 10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果；桌面端 Provider 配置页已接入该组接口进行可视化配置
-11. `GET /admin/health` 现已附带 `routingObservability`，用于展示 5 分钟命中、累计命中、Top 规则/客户端与最近命中事件
-12. 第三方推理接口可选启用 API Key 鉴权：通过 `GET/PUT /admin/config/security` 管理（仅回传 `mode/enabled/hasApiKey`），启用后 `/v1/models` 与 `/v1/chat/completions` 需携带密钥
+11. 三期动态号池可通过 `GET/PUT /admin/config/pools` 管理号池成员、阈值、冷却与有限重试；桌面端“号池调度”页将作为独立控制入口
+12. `GET /admin/health` 现已附带 `routingObservability`，用于展示 5 分钟命中、累计命中、Top 规则/客户端与最近命中事件
+13. 第三方推理接口可选启用 API Key 鉴权：通过 `GET/PUT /admin/config/security` 管理（仅回传 `mode/enabled/hasApiKey`），启用后 `/v1/models` 与 `/v1/chat/completions` 需携带密钥
 
 ## 4. 会话模型
 
@@ -189,6 +190,7 @@ v1 采用单活动会话模型：
 - 但任一时刻只使用一个活动会话
 - 活动会话 ID 持久化在 `config.json`
 - access token 不写入本仓库
+- 三期开始引入“请求级动态号池”，但它不会改写全局活动会话，而是在请求命中某个号池后单独选择会话
 
 ## 5. 存储结构
 
@@ -207,7 +209,7 @@ v1 采用单活动会话模型：
 
 - 首版只支持文本消息和函数工具调用
 - 会话结构当前仍优先依赖 OpenClaw 的认证文件格式
-- 不支持多账号池化与自动切换
+- 三期正在增量接入“动态号池”，用于按阈值 / 冷却 / 有限重试进行请求级自动切号，但仍不做真正的额度池化
 - 不对外网暴露服务
 - 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
 - 二期路由策略层已完成“配置 + 预演 + 实时链路命中”第二步，当前支持按客户端标签/请求模型别名匹配并重写目标模型与目标会话
