@@ -17,6 +17,9 @@ export const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.4-mini",
   "gpt-5.3-codex",
   "gpt-5.2-codex",
+  "gpt-5.2",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
 ] as const;
 export type SupportedCodexUpstreamModel =
   (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number];
@@ -28,6 +31,9 @@ export const CODEX_MODEL_ALIAS_PRESETS: Record<
   "gpt-5.4-mini": "codex-5.4-mini",
   "gpt-5.3-codex": "codex-5.3",
   "gpt-5.2-codex": "codex-5.2",
+  "gpt-5.2": "codex-5.2-core",
+  "gpt-5.1-codex-max": "codex-5.1-max",
+  "gpt-5.1-codex-mini": "codex-5.1-mini",
 };
 export const OPENAI_COMPAT_PROVIDER_ID = "openai-compatible";
 export const OLLAMA_PROVIDER_ID = "ollama";

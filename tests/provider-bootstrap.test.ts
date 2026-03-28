@@ -17,6 +17,9 @@ describe("provider bootstrap", () => {
       "codex-5.4-mini",
       "codex-5.3",
       "codex-5.2",
+      "codex-5.2-core",
+      "codex-5.1-max",
+      "codex-5.1-mini",
       "openai-compatible-default",
       "ollama-default",
     ]);
@@ -118,5 +121,33 @@ describe("provider bootstrap", () => {
       .toMatchObject({
         providerModelId: "gpt-5.2-codex",
       });
+  });
+
+  it("exposes newly supported codex upstream models with stable aliases", () => {
+    const bootstrapped = bootstrapProvidersFromEnvironment(
+      {},
+      {
+        codex: {
+          upstreamModel: "gpt-5.4",
+          exposedModels: [
+            "gpt-5.2",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex-mini",
+          ],
+        },
+      },
+    );
+
+    expect(bootstrapped.models.map((model) => model.alias)).toEqual([
+      "codex-default",
+      "codex-5.2-core",
+      "codex-5.1-max",
+      "codex-5.1-mini",
+    ]);
+    expect(
+      bootstrapped.models.find((model) => model.alias === "codex-5.2-core"),
+    ).toMatchObject({
+      providerModelId: "gpt-5.2",
+    });
   });
 });

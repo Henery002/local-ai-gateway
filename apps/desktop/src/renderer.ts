@@ -1,5 +1,11 @@
 import { buildCodexAccountGroups } from "./account-groups.js";
 import {
+  CODEX_MODEL_ALIAS_PRESETS,
+  formatCodexUpstreamModelLabel,
+  SUPPORTED_CODEX_UPSTREAM_MODELS,
+  type SupportedCodexUpstreamModel,
+} from "./codex-models.js";
+import {
   formatQuotaWindowLabel,
   getAvatarToneIndex,
   getQuotaPercentage,
@@ -15,22 +21,6 @@ import {
   type RuntimeDiagnostic,
   type RuntimeDiagnosticLoadFailure,
 } from "./runtime-diagnostics.js";
-
-const SUPPORTED_CODEX_UPSTREAM_MODELS = [
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex",
-  "gpt-5.2-codex",
-] as const;
-const CODEX_ALIAS_PRESETS: Record<
-  (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number],
-  string
-> = {
-  "gpt-5.4": "codex-5.4",
-  "gpt-5.4-mini": "codex-5.4-mini",
-  "gpt-5.3-codex": "codex-5.3",
-  "gpt-5.2-codex": "codex-5.2",
-};
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
@@ -410,6 +400,7 @@ const state: {
 
 let autoRefreshTimer: number | undefined;
 let sessionActivityTimer: number | undefined;
+let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -908,9 +899,8 @@ function getActiveProviderLabel(): string {
 
 function getCodexAliasPreset(modelId: string): string {
   return (
-    CODEX_ALIAS_PRESETS[
-      modelId as (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number]
-    ] ?? "codex-custom"
+    CODEX_MODEL_ALIAS_PRESETS[modelId as SupportedCodexUpstreamModel] ??
+    "codex-custom"
   );
 }
 
@@ -1694,7 +1684,7 @@ function applySettingsToForm(): void {
     for (const modelId of SUPPORTED_CODEX_UPSTREAM_MODELS) {
       const node = document.createElement("option");
       node.value = modelId;
-      node.textContent = modelId;
+      node.textContent = formatCodexUpstreamModelLabel(modelId);
       codexSelect.appendChild(node);
     }
     codexSelect.value = codex.upstreamModel ?? "gpt-5.4";
@@ -1712,7 +1702,7 @@ function applySettingsToForm(): void {
         return `
           <label class="chip-check">
             <input type="checkbox" data-codex-exposed-model value="${escapeHtml(modelId)}" ${checked} />
-            <span>${escapeHtml(alias)} → ${escapeHtml(modelId)}</span>
+            <span>${escapeHtml(alias)} → ${escapeHtml(formatCodexUpstreamModelLabel(modelId))}</span>
           </label>
         `;
       },
@@ -2471,6 +2461,88 @@ function setOAuthStatus(
   node.setAttribute("data-tone", tone);
 }
 
+function closeConfirmModal(confirmed: boolean): void {
+  const overlay = document.getElementById("confirm-modal");
+  if (overlay) {
+    overlay.hidden = true;
+  }
+  const resolver = pendingConfirmResolver;
+  pendingConfirmResolver = undefined;
+  resolver?.(confirmed);
+}
+
+async function requestConfirmation(options: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  tone?: "danger" | "primary";
+}): Promise<boolean> {
+  const overlay = document.getElementById("confirm-modal");
+  const titleNode = document.getElementById("confirm-modal-title");
+  const messageNode = document.getElementById("confirm-modal-message");
+  const confirmButton = document.getElementById(
+    "confirm-modal-confirm",
+  ) as HTMLButtonElement | null;
+  const cancelButton = document.getElementById(
+    "confirm-modal-cancel",
+  ) as HTMLButtonElement | null;
+
+  if (!overlay || !titleNode || !messageNode || !confirmButton || !cancelButton) {
+    return window.confirm(options.message);
+  }
+
+  if (pendingConfirmResolver) {
+    closeConfirmModal(false);
+  }
+
+  titleNode.textContent = options.title;
+  messageNode.textContent = options.message;
+  confirmButton.textContent = options.confirmLabel ?? "确认继续";
+  confirmButton.classList.toggle("primary", options.tone !== "danger");
+  confirmButton.classList.toggle("danger", options.tone === "danger");
+  confirmButton.classList.toggle("ghost", false);
+  confirmButton.classList.toggle("danger-ghost", false);
+  overlay.hidden = false;
+
+  return await new Promise<boolean>((resolve) => {
+    pendingConfirmResolver = resolve;
+    cancelButton.focus();
+  });
+}
+
+function summarizeRefreshBanner(
+  summary: SessionUsageRefreshResponse | undefined,
+  options: {
+    successMessage: string;
+    emptyMessage: string;
+    unsupportedMessage: string;
+    failedOnlyMessage: string;
+  },
+): { tone: "info" | "success" | "error"; message: string } {
+  if (!summary) {
+    return {
+      tone: "info",
+      message: options.unsupportedMessage,
+    };
+  }
+  if (summary.refreshed === 0 && summary.failed === 0) {
+    return {
+      tone: "info",
+      message: options.emptyMessage,
+    };
+  }
+  if (summary.refreshed > 0) {
+    return {
+      tone: "success",
+      message: options.successMessage.replace("{count}", String(summary.refreshed)),
+    };
+  }
+  return {
+    tone: "error",
+    message: options.failedOnlyMessage,
+  };
+}
+
 function setOAuthBusyState(inFlight: boolean): void {
   state.oauthInFlight = inFlight;
   const startButton = document.getElementById(
@@ -2585,21 +2657,13 @@ function bindActions(): void {
       setButtonLoading(button, true, "刷新中");
       setBanner("正在刷新状态与 Codex 实时额度...", "info");
       const summary = await refreshWithLiveUsage();
-      if (!summary) {
-        setBanner("状态已刷新。当前桌面主进程尚未启用实时额度刷新。", "info");
-      } else if (summary.refreshed === 0 && summary.failed === 0) {
-        setBanner("状态已刷新。当前没有可刷新的桌面端账号。", "info");
-      } else if (summary.failed > 0) {
-        setBanner(
-          `状态已刷新，${summary.refreshed} 个账号额度已更新，${summary.failed} 项额度同步失败（账号仍可能可用）。`,
-          "error",
-        );
-      } else {
-        setBanner(
-          `状态已刷新，${summary.refreshed} 个账号额度已更新。`,
-          "success",
-        );
-      }
+      const banner = summarizeRefreshBanner(summary, {
+        successMessage: "状态已刷新，{count} 个账号额度已更新。",
+        emptyMessage: "状态已刷新。当前没有可刷新的桌面端账号。",
+        unsupportedMessage: "状态已刷新。当前桌面主进程尚未启用实时额度刷新。",
+        failedOnlyMessage: "状态已刷新，但当前没有账号成功同步到最新额度。",
+      });
+      setBanner(banner.message, banner.tone);
     } catch (error) {
       setBanner(`刷新失败：${String(error)}`, "error");
     } finally {
@@ -2776,21 +2840,13 @@ function bindActions(): void {
         setButtonLoading(button, true, "刷新中");
         setBanner("正在刷新全部账号的额度与状态...", "info");
         const summary = await refreshWithLiveUsage();
-        if (!summary) {
-          setBanner("账号状态已刷新。", "success");
-        } else if (summary.refreshed === 0 && summary.failed === 0) {
-          setBanner("账号状态已刷新。当前没有可刷新的桌面端账号。", "info");
-        } else if (summary.failed > 0) {
-          setBanner(
-            `账号状态已刷新，${summary.refreshed} 个账号更新成功，${summary.failed} 项额度同步失败（账号仍可能可用）。`,
-            "error",
-          );
-        } else {
-          setBanner(
-            `账号状态已刷新，${summary.refreshed} 个账号已更新。`,
-            "success",
-          );
-        }
+        const banner = summarizeRefreshBanner(summary, {
+          successMessage: "账号状态已刷新，{count} 个账号已更新。",
+          emptyMessage: "账号状态已刷新。当前没有可刷新的桌面端账号。",
+          unsupportedMessage: "账号状态已刷新。",
+          failedOnlyMessage: "账号状态已刷新，但当前没有账号成功同步到最新额度。",
+        });
+        setBanner(banner.message, banner.tone);
       } catch (error) {
         setBanner(`账号刷新失败：${String(error)}`, "error");
       } finally {
@@ -2848,9 +2904,13 @@ function bindActions(): void {
         "reset-telemetry",
       ) as HTMLButtonElement | null;
       try {
-        const confirmed = window.confirm(
-          "将清空路由命中与账号调用统计（不影响账号、配置和授权）。是否继续？",
-        );
+        const confirmed = await requestConfirmation({
+          title: "确认清空统计",
+          message:
+            "将清空路由命中与账号调用统计，但不会影响账号、配置和授权。是否继续？",
+          confirmLabel: "确认清空",
+          tone: "danger",
+        });
         if (!confirmed) {
           return;
         }
@@ -2951,8 +3011,39 @@ function bindActions(): void {
       }
     });
 
+  document
+    .getElementById("confirm-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeConfirmModal(false);
+      }
+    });
+
+  document
+    .getElementById("confirm-modal-cancel")
+    ?.addEventListener("click", () => {
+      closeConfirmModal(false);
+    });
+
+  document
+    .getElementById("confirm-modal-cancel-top")
+    ?.addEventListener("click", () => {
+      closeConfirmModal(false);
+    });
+
+  document
+    .getElementById("confirm-modal-confirm")
+    ?.addEventListener("click", () => {
+      closeConfirmModal(true);
+    });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      const confirmModal = document.getElementById("confirm-modal");
+      if (confirmModal && !confirmModal.hidden) {
+        closeConfirmModal(false);
+        return;
+      }
       closeAccountModal();
     }
   });
@@ -2987,18 +3078,13 @@ function bindActions(): void {
         setButtonLoading(refreshButton, true, "刷新中");
         setBanner(`正在刷新 ${button.dataset.sessionId} 的额度信息...`, "info");
         const summary = await refreshWithLiveUsage(button.dataset.sessionId);
-        if (!summary) {
-          setBanner("账号状态已刷新。", "success");
-        } else if (summary.refreshed === 0 && summary.failed === 0) {
-          setBanner("账号状态已刷新。当前会话暂无可更新额度。", "info");
-        } else if (summary.failed > 0) {
-          setBanner(
-            `账号状态已刷新，但仍有 ${summary.failed} 项失败。`,
-            "error",
-          );
-        } else {
-          setBanner("账号状态已刷新。", "success");
-        }
+        const banner = summarizeRefreshBanner(summary, {
+          successMessage: "账号状态已刷新。",
+          emptyMessage: "账号状态已刷新。当前会话暂无可更新额度。",
+          unsupportedMessage: "账号状态已刷新。",
+          failedOnlyMessage: "账号状态刷新失败，请稍后重试。",
+        });
+        setBanner(banner.message, banner.tone);
       } catch (error) {
         setBanner(`账号刷新失败：${String(error)}`, "error");
       } finally {
@@ -3043,9 +3129,12 @@ function bindActions(): void {
 
     if (action === "delete-codex-account" && button.dataset.sessionId) {
       try {
-        const confirmed = window.confirm(
-          "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
-        );
+        const confirmed = await requestConfirmation({
+          title: "确认删除账号",
+          message: "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
+          confirmLabel: "删除账号",
+          tone: "danger",
+        });
         if (!confirmed) {
           return;
         }
@@ -3069,6 +3158,16 @@ function bindActions(): void {
     }
 
     if (action === "routing-remove-rule" && button.dataset.ruleId) {
+      const confirmed = await requestConfirmation({
+        title: "确认删除路由规则",
+        message:
+          "删除后该策略规则将立即从当前编辑态中移除；保存路由策略后会正式生效。是否继续？",
+        confirmLabel: "删除规则",
+        tone: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
       const settings = state.routingSettings ?? {};
       const rules = (settings.rules ?? []).filter(
         (rule) => rule.id !== button.dataset.ruleId,
@@ -3250,23 +3349,19 @@ async function triggerBackgroundLiveUsageRefresh(
   try {
     const summary = await refreshWithLiveUsage();
     if (source === "init") {
-      if (!summary) {
-        setBanner("控制台已就绪。当前桌面主进程尚未启用实时额度刷新。", "info");
-      } else if (summary.refreshed === 0 && summary.failed === 0) {
-        setBanner("控制台已就绪。当前没有可刷新的桌面端账号。", "info");
+      const banner = summarizeRefreshBanner(summary, {
+        successMessage: "控制台已就绪。实时额度已完成后台同步。",
+        emptyMessage: "控制台已就绪。当前没有可刷新的桌面端账号。",
+        unsupportedMessage: "控制台已就绪。当前桌面主进程尚未启用实时额度刷新。",
+        failedOnlyMessage: "控制台已就绪，但后台额度暂未同步成功。",
+      });
+      setBanner(banner.message, banner.tone);
+    } else if (summary) {
+      if (summary.refreshed > 0) {
+        setBanner("自动刷新完成。", "success");
       } else if (summary.failed > 0) {
-        setBanner(
-          `控制台已就绪，但实时额度同步有 ${summary.failed} 项失败（不代表账号不可用）。`,
-          "error",
-        );
-      } else {
-        setBanner("控制台已就绪。实时额度已完成后台同步。", "success");
+        setBanner("自动刷新已结束，但当前没有账号成功同步到最新额度。", "error");
       }
-    } else if (summary?.failed) {
-      setBanner(
-        `自动刷新完成，但有 ${summary.failed} 项额度同步失败。`,
-        "error",
-      );
     }
     return summary;
   } catch (error) {
