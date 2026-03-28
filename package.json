@@ -2,6 +2,11 @@
   "name": "local-ai-gateway",
   "version": "0.1.0",
   "description": "面向 OpenClaw 的本地 AI 网关与 Electron 控制台",
+  "author": "Henery002",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Henery002/local-ai-gateway.git"
+  },
   "private": true,
   "type": "module",
   "main": "apps/desktop/dist/main.js",
@@ -17,6 +22,8 @@
     "dist:desktop": "npm run build && electron-builder",
     "package:desktop": "npm run build && electron-builder --dir",
     "smoke:gateway": "npm run build && node scripts/smoke-gateway.mjs",
+    "smoke:desktop-package": "node scripts/smoke-desktop-package.mjs",
+    "preflight:release": "npm run build && npm test && npm run smoke:gateway && npm run smoke:desktop-package",
     "audit:openclaw": "node scripts/audit-openclaw.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false"
