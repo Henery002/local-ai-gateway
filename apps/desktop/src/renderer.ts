@@ -219,7 +219,21 @@ type DashboardSessions = {
         lastRequestAt?: number;
       }>;
       recentRequestCount1h?: number;
+      recentByClientTag1h?: Array<{
+        clientTag: string;
+        requestCount: number;
+        successCount: number;
+        failureCount: number;
+        lastRequestAt?: number;
+      }>;
       recentRequestCount24h?: number;
+      recentByClientTag24h?: Array<{
+        clientTag: string;
+        requestCount: number;
+        successCount: number;
+        failureCount: number;
+        lastRequestAt?: number;
+      }>;
       lastRequestAt?: number;
       lastSuccessAt?: number;
       lastFailureAt?: number;
@@ -541,8 +555,16 @@ function renderRecentClientTagBadges(
   rows: Array<{ clientTag: string; requestCount: number }>,
   total: number,
 ): string {
+  return renderWindowClientTagBadges(rows, total, "最近 5 分钟暂无请求");
+}
+
+function renderWindowClientTagBadges(
+  rows: Array<{ clientTag: string; requestCount: number }>,
+  total: number,
+  emptyLabel: string,
+): string {
   if (!rows.length || total <= 0) {
-    return `<span style="font-size: 14px; color: var(--text-tertiary);">最近 5 分钟暂无请求</span>`;
+    return `<span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(emptyLabel)}</span>`;
   }
 
   return rows
@@ -1054,12 +1076,20 @@ function renderAccountActivityOverview(): void {
     : "暂无";
 
   setText(
+    "account-activity-summary-5m",
+    String(activitySummary.totalRequestCount5m),
+  );
+  setText(
     "account-activity-summary-1h",
     String(activitySummary.totalRequestCount1h),
   );
   setText(
     "account-activity-summary-24h",
     String(activitySummary.totalRequestCount24h),
+  );
+  setText(
+    "account-activity-summary-active-5m",
+    `${activitySummary.activeAccountCount5m} 个`,
   );
   setText(
     "account-activity-summary-active-1h",
@@ -1070,7 +1100,44 @@ function renderAccountActivityOverview(): void {
     `${activitySummary.activeAccountCount24h} 个`,
   );
   setText("account-activity-summary-top-client", topClientTag);
+  setText(
+    "account-activity-summary-top-client-1h",
+    activitySummary.topClientTag1h
+      ? `${normalizeClientTagLabel(activitySummary.topClientTag1h.clientTag)} (${activitySummary.topClientTag1h.requestCount})`
+      : "暂无",
+  );
+  setText(
+    "account-activity-summary-top-client-24h",
+    activitySummary.topClientTag24h
+      ? `${normalizeClientTagLabel(activitySummary.topClientTag24h.clientTag)} (${activitySummary.topClientTag24h.requestCount})`
+      : "暂无",
+  );
   setText("account-activity-summary-top-account", topAccount);
+
+  const source5m = document.getElementById("account-activity-source-5m");
+  const source1h = document.getElementById("account-activity-source-1h");
+  const source24h = document.getElementById("account-activity-source-24h");
+  if (source5m) {
+    source5m.innerHTML = renderWindowClientTagBadges(
+      activitySummary.byClientTag5m,
+      activitySummary.totalRequestCount5m,
+      "最近 5 分钟暂无来源分布",
+    );
+  }
+  if (source1h) {
+    source1h.innerHTML = renderWindowClientTagBadges(
+      activitySummary.byClientTag1h,
+      activitySummary.totalRequestCount1h,
+      "最近 1 小时暂无来源分布",
+    );
+  }
+  if (source24h) {
+    source24h.innerHTML = renderWindowClientTagBadges(
+      activitySummary.byClientTag24h,
+      activitySummary.totalRequestCount24h,
+      "最近 24 小时暂无来源分布",
+    );
+  }
 }
 
 function renderRoutingObservability(): void {
@@ -1220,6 +1287,18 @@ function renderCodexAccounts(): void {
       pinnedSessionId: state.systemSettings?.pinnedSessionId,
     },
   );
+  const activitySummary = buildAccountActivitySummary(accounts);
+  const healthyQuotaCount = accounts.filter(
+    (account) => (account.representative.quota?.percentage ?? 0) > 50,
+  ).length;
+  const warningQuotaCount = accounts.filter((account) => {
+    const percentage = account.representative.quota?.percentage;
+    return typeof percentage === "number" && percentage > 20 && percentage <= 50;
+  }).length;
+  const lowQuotaCount = accounts.filter((account) => {
+    const percentage = account.representative.quota?.percentage;
+    return typeof percentage === "number" && percentage <= 20;
+  }).length;
 
   container.innerHTML = "";
   const section = document.createElement("section");
@@ -1380,9 +1459,66 @@ function renderCodexAccounts(): void {
         </div>
         <span class="badge neutral">${accounts.length} 个账号</span>
       </div>
+      <div class="card routing-observe-panel" style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <strong style="font-size: 16px;">账号资产摘要</strong>
+            <div style="font-size: 14px; color: var(--text-secondary);">从额度状态与来源窗口两个维度观察当前本地账号资产面板。</div>
+          </div>
+          <span class="badge neutral">资产视角</span>
+        </div>
+        <div class="routing-observe-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+          <div class="routing-observe-kpi">
+            <small>额度充足</small>
+            <strong>${healthyQuotaCount} 个</strong>
+          </div>
+          <div class="routing-observe-kpi">
+            <small>额度关注</small>
+            <strong>${warningQuotaCount} 个</strong>
+          </div>
+          <div class="routing-observe-kpi">
+            <small>额度紧张</small>
+            <strong>${lowQuotaCount} 个</strong>
+          </div>
+          <div class="routing-observe-kpi">
+            <small>近 1 小时最忙账号</small>
+            <strong>${escapeHtml(
+              activitySummary.topAccount1h
+                ? `${activitySummary.topAccount1h.title} (${activitySummary.topAccount1h.requestCount})`
+                : "暂无",
+            )}</strong>
+          </div>
+        </div>
+        <div class="source-window-grid" style="margin-top: 12px;">
+          <div class="source-window-item">
+            <strong>近 5 分钟来源</strong>
+            <div class="client-tag-list">${renderWindowClientTagBadges(
+              activitySummary.byClientTag5m,
+              activitySummary.totalRequestCount5m,
+              "最近 5 分钟暂无来源分布",
+            )}</div>
+          </div>
+          <div class="source-window-item">
+            <strong>近 1 小时来源</strong>
+            <div class="client-tag-list">${renderWindowClientTagBadges(
+              activitySummary.byClientTag1h,
+              activitySummary.totalRequestCount1h,
+              "最近 1 小时暂无来源分布",
+            )}</div>
+          </div>
+          <div class="source-window-item">
+            <strong>近 24 小时来源</strong>
+            <div class="client-tag-list">${renderWindowClientTagBadges(
+              activitySummary.byClientTag24h,
+              activitySummary.totalRequestCount24h,
+              "最近 24 小时暂无来源分布",
+            )}</div>
+          </div>
+        </div>
+      </div>
       <div class="settings-note compact" style="margin-bottom: 16px;">
         <strong>账号卡片说明</strong>
-        <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；“来源分布 / 近 5 分钟”基于第三方请求里的 clientTag 聚合。</p>
+        <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；来源分布现已支持累计、近 5 分钟、近 1 小时与近 24 小时的窗口观察。</p>
       </div>
       <div class="grid-layout accounts-grid">${cards}</div>
     `;

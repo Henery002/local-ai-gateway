@@ -8,7 +8,7 @@
 
 ## Provider 结构
 
-- `provider-codex`：可复用 `~/.openclaw` 中已登录的本地 Codex OAuth 授权，也可消费桌面端导入的本地 Codex 账号
+- `provider-codex`：可复用本机已登录的本地 Codex OAuth 授权，也可消费桌面端导入的本地 Codex 账号；当前首版优先兼容 `~/.openclaw` 的会话格式
 - `provider-openai-compatible`：通过标准 `/v1/chat/completions` 拉流接入任意兼容上游
 - `provider-ollama`：通过 `/api/chat` 接入本机或局域网 Ollama
 
@@ -25,9 +25,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 - 查看 gateway 服务状态
 - 查看 provider 与会话状态
 - 导入和管理桌面端 Codex 账号
-- 发现并复用 OpenClaw 本地授权
+- 发现并复用本地可复用授权
 - 图形化填写 OpenAI-compatible / Ollama 配置
-- 展示 OpenClaw 接入片段
+- 展示第三方客户端接入模板
 - 展示账号卡片、诊断与最近错误
 - 提供本地运行与排错指引
 
@@ -43,7 +43,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 其中：
 
-- gateway service 是核心执行层，负责对接 OpenClaw 与上游 provider
+- gateway service 是核心执行层，负责对接第三方客户端与上游 provider
 - Electron 是控制面，负责服务启停、状态展示、Provider 配置与活动会话切换
 
 ## 2. 仓库模块
@@ -93,7 +93,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 职责：
 
-- 扫描本机 OpenClaw `auth-profiles.json`
+- 扫描本机可复用授权文件，当前首版优先读取 OpenClaw `auth-profiles.json`
 - 管理桌面端导入的本地 Codex 账号文件
 - 列出可用 `openai-codex` 会话
 - 解析导入账号中的邮箱、套餐、额度与重置时间快照
@@ -102,17 +102,18 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 当前 `SessionSource` 实际上会合并两类来源：
 
-- `OpenClaw 本地授权`
+- `本地可复用授权`
 - `桌面端本地导入账号`
 
 两者当前不做跨来源自动去重，而是统一进入同一个会话列表，再由桌面端按来源分组展示。
 
 其中：
 
-- `OpenClaw 本地授权` 不是桌面端自己的 Codex 账号，而是可复用的本地 OAuth 凭据来源
+- `本地可复用授权` 不是桌面端自己的 Codex 账号，而是可复用的本地 OAuth 凭据来源
 - 桌面端展示层会按 `accountId` 把这些原始 session 聚合成授权卡片，避免把多个 agent 会话误展示成多个账号
-- 用户可将某个 OpenClaw 授权一键导入为桌面端账号
-- 如果同一个账号同时出现在 OpenClaw 来源和桌面端导入来源，当前仍按两个来源分别展示
+- 用户可将某个已发现的本地授权一键导入为桌面端账号
+- 当前首版里，这类本地授权大多来自 OpenClaw 已登录会话
+- 如果同一个账号同时出现在本地授权来源和桌面端导入来源，当前仍按两个来源分别展示
 
 ### `packages/provider-codex`
 
@@ -152,9 +153,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 这意味着后续新增 OpenAI-compatible 或 Ollama adapter 时，不需要再改 gateway 主路由结构，只需要新增 adapter 并注册到 registry。
 
-### 3.1 OpenClaw 到 Codex 的主链路
+### 3.1 第三方客户端到 Codex 的主链路（以 OpenClaw 为例）
 
-1. OpenClaw 调用 `http://127.0.0.1:<gateway-port>/v1/chat/completions`（默认端口 `8787`，可在桌面端系统配置中修改）
+1. 第三方客户端调用 `http://127.0.0.1:<gateway-port>/v1/chat/completions`（默认端口 `8787`，可在桌面端系统配置中修改）
 2. gateway 在 `openai-compat` 中解析请求并转换为内部上下文
 3. `ModelRegistry` 解析模型别名，例如 `codex-default`
 4. `ProviderRegistry` 根据模型所属 provider 选择 `ProviderAdapter`
@@ -162,7 +163,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 6. `CodexAdapter` 将上下文转换为 `pi-ai` 的 `Context`
 7. `@mariozechner/pi-ai` 发起真实 Codex Responses 请求
 8. 结果通过 `openai-compat` 转换为 OpenAI-compatible JSON 或 SSE
-9. gateway 返回给 OpenClaw
+9. gateway 返回给第三方客户端
 
 ### 3.2 Electron 控制流
 
@@ -172,7 +173,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 4. 通过 Admin API 获取健康状态、provider 列表、会话列表
 5. Electron 通过 `GET /admin/config/providers` 读取本地 Provider 配置
 6. 用户可在桌面端发起 Codex OAuth 导入或 JSON 导入，本地写入 `codex-auth-profiles.json`
-7. 用户也可将某个 OpenClaw 已登录授权导入为桌面端账号
+7. 用户也可将某个已发现的本地授权导入为桌面端账号
 8. 用户保存图形化配置后，Electron 调用 `PUT /admin/config/providers`
 9. 用户选择活动会话后，Electron 调用 `PUT /admin/sessions/active`
 10. 二期路由策略层可通过 `GET/PUT /admin/config/routing` 管理规则，并通过 `POST /admin/config/routing/preview` 预演命中结果；桌面端 Provider 配置页已接入该组接口进行可视化配置
@@ -205,14 +206,14 @@ v1 采用单活动会话模型：
 ## 6. 当前已知边界
 
 - 首版只支持文本消息和函数工具调用
-- 会话结构依赖 OpenClaw 当前认证文件格式
+- 会话结构当前仍优先依赖 OpenClaw 的认证文件格式
 - 不支持多账号池化与自动切换
 - 不对外网暴露服务
 - 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
 - 二期路由策略层已完成“配置 + 预演 + 实时链路命中”第二步，当前支持按客户端标签/请求模型别名匹配并重写目标模型与目标会话
 - 推理接口鉴权当前支持 `none / api-key` 两种模式，适用于本机单用户与多应用共享两类场景
 - Codex 模型当前已支持“默认别名 + 多别名并存”模式：`codex-default` 负责默认路由，`codex-5.4 / codex-5.4-mini / codex-5.3 / codex-5.2 / codex-5.2-core / codex-5.1-max / codex-5.1-mini` 可并行暴露给第三方客户端按需选择
-- 会话活动快照当前已支持 `clientTag` 维度统计，可在桌面端账号卡片中查看主要调用来源
+- 会话活动快照当前已支持 `clientTag` 维度统计，并可从累计 / 5 分钟 / 1 小时 / 24 小时等窗口观察主要调用来源
 
 ## 7. 后续架构演进建议
 

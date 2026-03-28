@@ -201,11 +201,20 @@ describe("desktop account view model", () => {
           sourceKind: "local-import",
           activity: {
             requestCount: 18,
+            recentRequestCount5m: 4,
             recentRequestCount1h: 9,
             recentRequestCount24h: 26,
             recentByClientTag5m: [
               { clientTag: "openclaw", requestCount: 3 },
               { clientTag: "localraghub", requestCount: 1 },
+            ],
+            recentByClientTag1h: [
+              { clientTag: "openclaw", requestCount: 8 },
+              { clientTag: "localraghub", requestCount: 1 },
+            ],
+            recentByClientTag24h: [
+              { clientTag: "openclaw", requestCount: 20 },
+              { clientTag: "localraghub", requestCount: 6 },
             ],
           },
         },
@@ -219,11 +228,20 @@ describe("desktop account view model", () => {
             sourceKind: "local-import",
             activity: {
               requestCount: 18,
+              recentRequestCount5m: 4,
               recentRequestCount1h: 9,
               recentRequestCount24h: 26,
               recentByClientTag5m: [
                 { clientTag: "openclaw", requestCount: 3 },
                 { clientTag: "localraghub", requestCount: 1 },
+              ],
+              recentByClientTag1h: [
+                { clientTag: "openclaw", requestCount: 8 },
+                { clientTag: "localraghub", requestCount: 1 },
+              ],
+              recentByClientTag24h: [
+                { clientTag: "openclaw", requestCount: 20 },
+                { clientTag: "localraghub", requestCount: 6 },
               ],
             },
           },
@@ -236,9 +254,12 @@ describe("desktop account view model", () => {
             sourceKind: "local-import",
             activity: {
               requestCount: 4,
+              recentRequestCount5m: 2,
               recentRequestCount1h: 2,
               recentRequestCount24h: 5,
               recentByClientTag5m: [{ clientTag: "openclaw", requestCount: 2 }],
+              recentByClientTag1h: [{ clientTag: "openclaw", requestCount: 2 }],
+              recentByClientTag24h: [{ clientTag: "openclaw", requestCount: 5 }],
             },
           },
         ],
@@ -250,9 +271,12 @@ describe("desktop account view model", () => {
         email: "beta@example.com",
         activity: {
           requestCount: 5,
+          recentRequestCount5m: 2,
           recentRequestCount1h: 4,
           recentRequestCount24h: 8,
           recentByClientTag5m: [{ clientTag: "unknown", requestCount: 2 }],
+          recentByClientTag1h: [{ clientTag: "unknown", requestCount: 4 }],
+          recentByClientTag24h: [{ clientTag: "unknown", requestCount: 8 }],
         },
       }),
       createGroup({
@@ -261,27 +285,82 @@ describe("desktop account view model", () => {
         email: "gamma@example.com",
         activity: {
           requestCount: 1,
+          recentRequestCount5m: 0,
           recentRequestCount1h: 0,
           recentRequestCount24h: 1,
           recentByClientTag5m: [],
+          recentByClientTag1h: [],
+          recentByClientTag24h: [{ clientTag: "localraghub", requestCount: 1 }],
         },
       }),
     ];
 
     expect(buildAccountActivitySummary(groups)).toEqual({
+      totalRequestCount5m: 8,
       totalRequestCount1h: 15,
       totalRequestCount24h: 40,
+      activeAccountCount5m: 2,
       activeAccountCount1h: 2,
       activeAccountCount24h: 3,
       topClientTag5m: {
         clientTag: "openclaw",
         requestCount: 5,
       },
+      topClientTag1h: {
+        clientTag: "openclaw",
+        requestCount: 10,
+      },
+      topClientTag24h: {
+        clientTag: "openclaw",
+        requestCount: 25,
+      },
       topAccount1h: {
         sessionId: "acct_alpha_primary",
         title: "alpha@example.com",
         requestCount: 11,
       },
+      byClientTag5m: [
+        {
+          clientTag: "openclaw",
+          requestCount: 5,
+        },
+        {
+          clientTag: "unknown",
+          requestCount: 2,
+        },
+        {
+          clientTag: "localraghub",
+          requestCount: 1,
+        },
+      ],
+      byClientTag1h: [
+        {
+          clientTag: "openclaw",
+          requestCount: 10,
+        },
+        {
+          clientTag: "unknown",
+          requestCount: 4,
+        },
+        {
+          clientTag: "localraghub",
+          requestCount: 1,
+        },
+      ],
+      byClientTag24h: [
+        {
+          clientTag: "openclaw",
+          requestCount: 25,
+        },
+        {
+          clientTag: "unknown",
+          requestCount: 8,
+        },
+        {
+          clientTag: "localraghub",
+          requestCount: 7,
+        },
+      ],
     });
   });
 });

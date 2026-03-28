@@ -1,13 +1,13 @@
 # Local AI Gateway
 
-`Local AI Gateway` 是一个面向 macOS 本地单机环境的 AI 网关项目，当前优先服务 OpenClaw。
+`Local AI Gateway` 是一个面向 macOS 本地单机环境的 AI 网关项目，当前优先服务本地第三方客户端接入场景，`OpenClaw` 是已验证的一类典型接入方。
 
 首版目标：
 
 - 提供本地 `127.0.0.1` 网关服务
 - 对外暴露 OpenAI-compatible 接口
 - 首先接入 Codex provider
-- 复用本机现有 OpenClaw OAuth 授权作为可选的本地授权来源
+- 复用本机现有本地 OAuth 授权作为可选会话来源，当前优先兼容 OpenClaw 已登录会话
 - 提供 Electron 桌面控制台用于配置 Provider、导入和管理桌面端 Codex 账号、查看状态和切换活动授权
 
 ## 项目结构
@@ -15,7 +15,7 @@
 - `apps/gateway`：Fastify 网关服务与 Admin API
 - `apps/desktop`：Electron 桌面控制台与本地操作台
 - `packages/core`：配置、路径、日志、SQLite 存储、模型注册
-- `packages/openclaw-session`：OpenClaw 本地授权发现与 OAuth token 解析
+- `packages/openclaw-session`：本地可复用授权发现与 OAuth token 解析，当前首版优先兼容 OpenClaw 会话格式
 - `packages/provider-codex`：Codex 适配器，底层复用 `@mariozechner/pi-ai`
 - `packages/openai-compat`：OpenAI-compatible 请求与响应转换
 - `packages/shared`：共享常量、类型与错误模型
@@ -67,14 +67,15 @@ export LOCAL_AI_GATEWAY_DEFAULT_MODEL_ALIAS="ollama-default"
 - 桌面端自己的 Codex 账号
   - 浏览器 OAuth 自动导入
   - 本地 JSON / `auth-profiles.json` 文件导入
-- OpenClaw 已登录的本地 Codex OAuth 授权
+- 本机已登录的本地 Codex OAuth 授权
   - 自动扫描发现
   - 可直接作为网关授权来源
+  - 当前首版优先兼容 OpenClaw 会话格式
   - 可一键导入为桌面端账号
 
 ## 接入说明
 
-启动本地服务后，可将 OpenClaw 的 `baseUrl` 指向：
+启动本地服务后，可将任意支持 OpenAI-compatible 的第三方客户端 `baseUrl` 指向：
 
 ```txt
 http://127.0.0.1:8787/v1

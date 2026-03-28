@@ -8,9 +8,18 @@ export interface AccountSessionViewLike extends CodexAccountSessionLike {
   email?: string;
   activity?: {
     requestCount: number;
+    recentRequestCount5m?: number;
     recentRequestCount1h?: number;
     recentRequestCount24h?: number;
     recentByClientTag5m?: Array<{
+      clientTag: string;
+      requestCount: number;
+    }>;
+    recentByClientTag1h?: Array<{
+      clientTag: string;
+      requestCount: number;
+    }>;
+    recentByClientTag24h?: Array<{
       clientTag: string;
       requestCount: number;
     }>;
@@ -29,11 +38,21 @@ export type AccountSortKey = "default" | "name" | "quota" | "resetAt";
 export type AccountSortDirection = "asc" | "desc";
 
 export interface AccountActivitySummary {
+  totalRequestCount5m: number;
   totalRequestCount1h: number;
   totalRequestCount24h: number;
+  activeAccountCount5m: number;
   activeAccountCount1h: number;
   activeAccountCount24h: number;
   topClientTag5m?: {
+    clientTag: string;
+    requestCount: number;
+  };
+  topClientTag1h?: {
+    clientTag: string;
+    requestCount: number;
+  };
+  topClientTag24h?: {
     clientTag: string;
     requestCount: number;
   };
@@ -42,6 +61,18 @@ export interface AccountActivitySummary {
     title: string;
     requestCount: number;
   };
+  byClientTag5m: Array<{
+    clientTag: string;
+    requestCount: number;
+  }>;
+  byClientTag1h: Array<{
+    clientTag: string;
+    requestCount: number;
+  }>;
+  byClientTag24h: Array<{
+    clientTag: string;
+    requestCount: number;
+  }>;
 }
 
 export function getSessionTitle(session: AccountSessionViewLike): string {
@@ -106,14 +137,19 @@ export function getAvatarToneIndex(id: string, toneCount = 12): number {
 export function buildAccountActivitySummary<
   TSession extends AccountSessionViewLike,
 >(groups: CodexAccountGroup<TSession>[]): AccountActivitySummary {
+  let totalRequestCount5m = 0;
   let totalRequestCount1h = 0;
   let totalRequestCount24h = 0;
+  let activeAccountCount5m = 0;
   let activeAccountCount1h = 0;
   let activeAccountCount24h = 0;
-  const clientTagCounts = new Map<string, number>();
+  const clientTagCounts5m = new Map<string, number>();
+  const clientTagCounts1h = new Map<string, number>();
+  const clientTagCounts24h = new Map<string, number>();
   let topAccount1h: AccountActivitySummary["topAccount1h"];
 
   for (const group of groups) {
+    let groupRequestCount5m = 0;
     let groupRequestCount1h = 0;
     let groupRequestCount24h = 0;
 
@@ -123,20 +159,39 @@ export function buildAccountActivitySummary<
         continue;
       }
 
+      groupRequestCount5m += activity.recentRequestCount5m ?? 0;
       groupRequestCount1h += activity.recentRequestCount1h ?? 0;
       groupRequestCount24h += activity.recentRequestCount24h ?? 0;
 
       for (const row of activity.recentByClientTag5m ?? []) {
-        clientTagCounts.set(
+        clientTagCounts5m.set(
           row.clientTag,
-          (clientTagCounts.get(row.clientTag) ?? 0) + row.requestCount,
+          (clientTagCounts5m.get(row.clientTag) ?? 0) + row.requestCount,
+        );
+      }
+
+      for (const row of activity.recentByClientTag1h ?? []) {
+        clientTagCounts1h.set(
+          row.clientTag,
+          (clientTagCounts1h.get(row.clientTag) ?? 0) + row.requestCount,
+        );
+      }
+
+      for (const row of activity.recentByClientTag24h ?? []) {
+        clientTagCounts24h.set(
+          row.clientTag,
+          (clientTagCounts24h.get(row.clientTag) ?? 0) + row.requestCount,
         );
       }
     }
 
+    totalRequestCount5m += groupRequestCount5m;
     totalRequestCount1h += groupRequestCount1h;
     totalRequestCount24h += groupRequestCount24h;
 
+    if (groupRequestCount5m > 0) {
+      activeAccountCount5m += 1;
+    }
     if (groupRequestCount1h > 0) {
       activeAccountCount1h += 1;
     }
@@ -162,25 +217,56 @@ export function buildAccountActivitySummary<
     }
   }
 
-  const topClientTagEntry = [...clientTagCounts.entries()].sort((left, right) => {
-    if (right[1] !== left[1]) {
-      return right[1] - left[1];
-    }
-    return left[0].localeCompare(right[0], "zh-CN");
-  })[0];
+  const sortClientTagCounts = (map: Map<string, number>) =>
+    [...map.entries()].sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+      return left[0].localeCompare(right[0], "zh-CN");
+    });
+
+  const topClientTagEntry5m = sortClientTagCounts(clientTagCounts5m)[0];
+  const topClientTagEntry1h = sortClientTagCounts(clientTagCounts1h)[0];
+  const topClientTagEntry24h = sortClientTagCounts(clientTagCounts24h)[0];
 
   return {
+    totalRequestCount5m,
     totalRequestCount1h,
     totalRequestCount24h,
+    activeAccountCount5m,
     activeAccountCount1h,
     activeAccountCount24h,
-    topClientTag5m: topClientTagEntry
+    topClientTag5m: topClientTagEntry5m
       ? {
-          clientTag: topClientTagEntry[0],
-          requestCount: topClientTagEntry[1],
+          clientTag: topClientTagEntry5m[0],
+          requestCount: topClientTagEntry5m[1],
+        }
+      : undefined,
+    topClientTag1h: topClientTagEntry1h
+      ? {
+          clientTag: topClientTagEntry1h[0],
+          requestCount: topClientTagEntry1h[1],
+        }
+      : undefined,
+    topClientTag24h: topClientTagEntry24h
+      ? {
+          clientTag: topClientTagEntry24h[0],
+          requestCount: topClientTagEntry24h[1],
         }
       : undefined,
     topAccount1h,
+    byClientTag5m: sortClientTagCounts(clientTagCounts5m).map(([clientTag, requestCount]) => ({
+      clientTag,
+      requestCount,
+    })),
+    byClientTag1h: sortClientTagCounts(clientTagCounts1h).map(([clientTag, requestCount]) => ({
+      clientTag,
+      requestCount,
+    })),
+    byClientTag24h: sortClientTagCounts(clientTagCounts24h).map(([clientTag, requestCount]) => ({
+      clientTag,
+      requestCount,
+    })),
   };
 }
 

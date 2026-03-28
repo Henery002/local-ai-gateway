@@ -1537,6 +1537,27 @@
         color: var(--text-secondary);
       }
 
+      .source-window-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .source-window-item {
+        border-radius: 10px;
+        border: 1px solid var(--border-light);
+        background: var(--bg-surface);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .source-window-item strong {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
       .routing-event-item {
         border: 1px solid var(--border-light);
         background: var(--bg-surface);
@@ -1560,6 +1581,7 @@
         .routing-rule-grid { grid-template-columns: 1fr; }
         .routing-preview-facts { grid-template-columns: 1fr; }
         .routing-observe-grid { grid-template-columns: 1fr 1fr; }
+        .source-window-grid { grid-template-columns: 1fr; }
         .startup-check-grid { grid-template-columns: 1fr; }
         .header-stats { flex-wrap: wrap; }
         .stat-divider { display: none; }
@@ -1687,7 +1709,7 @@
                 <div class="card mini-stat"><small>网关 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
                 <div class="card mini-stat"><small>接入片段模型</small><strong id="snippet-model">加载中</strong></div>
                 <div class="card mini-stat"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
-                <div class="card mini-stat"><small>可复用授权数</small><strong id="openclaw-source-count">0</strong></div>
+                <div class="card mini-stat"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
                 <div class="card mini-stat" style="grid-column: 1 / -1;">
                   <small>默认模型选择依据</small>
                   <strong id="default-selection">加载中</strong>
@@ -1704,12 +1726,20 @@
                 </div>
                 <div class="routing-observe-grid">
                   <div class="routing-observe-kpi">
+                    <small>近 5 分钟请求</small>
+                    <strong class="hot" id="account-activity-summary-5m">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
                     <small>近 1 小时请求</small>
                     <strong class="hot" id="account-activity-summary-1h">0</strong>
                   </div>
                   <div class="routing-observe-kpi">
                     <small>近 24 小时请求</small>
                     <strong id="account-activity-summary-24h">0</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 5 分钟活跃账号</small>
+                    <strong id="account-activity-summary-active-5m">0 个</strong>
                   </div>
                   <div class="routing-observe-kpi">
                     <small>近 1 小时活跃账号</small>
@@ -1724,8 +1754,30 @@
                     <strong id="account-activity-summary-top-client">暂无</strong>
                   </div>
                   <div class="routing-observe-kpi">
+                    <small>近 1 小时主要来源</small>
+                    <strong id="account-activity-summary-top-client-1h">暂无</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
+                    <small>近 24 小时主要来源</small>
+                    <strong id="account-activity-summary-top-client-24h">暂无</strong>
+                  </div>
+                  <div class="routing-observe-kpi">
                     <small>近 1 小时最忙账号</small>
                     <strong id="account-activity-summary-top-account">暂无</strong>
+                  </div>
+                </div>
+                <div class="source-window-grid mt-4">
+                  <div class="source-window-item">
+                    <strong>近 5 分钟来源窗口</strong>
+                    <div id="account-activity-source-5m" class="client-tag-list"></div>
+                  </div>
+                  <div class="source-window-item">
+                    <strong>近 1 小时来源窗口</strong>
+                    <div id="account-activity-source-1h" class="client-tag-list"></div>
+                  </div>
+                  <div class="source-window-item">
+                    <strong>近 24 小时来源窗口</strong>
+                    <div id="account-activity-source-24h" class="client-tag-list"></div>
                   </div>
                 </div>
               </div>

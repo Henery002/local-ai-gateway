@@ -681,6 +681,8 @@ describe("gateway app", () => {
         failureCount: 0,
         nonStreamCount: 1,
         recentRequestCount5m: 1,
+        recentRequestCount1h: 1,
+        recentRequestCount24h: 1,
         byClientTag: [
           {
             clientTag: "localraghub",
@@ -688,6 +690,18 @@ describe("gateway app", () => {
           },
         ],
         recentByClientTag5m: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag1h: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag24h: [
           {
             clientTag: "localraghub",
             requestCount: 1,
@@ -967,6 +981,8 @@ describe("gateway app", () => {
         requestCount: 1,
         successCount: 1,
         recentRequestCount5m: 1,
+        recentRequestCount1h: 1,
+        recentRequestCount24h: 1,
         byClientTag: [
           {
             clientTag: "localraghub",
@@ -974,6 +990,18 @@ describe("gateway app", () => {
           },
         ],
         recentByClientTag5m: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag1h: [
+          {
+            clientTag: "localraghub",
+            requestCount: 1,
+          },
+        ],
+        recentByClientTag24h: [
           {
             clientTag: "localraghub",
             requestCount: 1,
