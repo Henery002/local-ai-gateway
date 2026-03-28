@@ -111,6 +111,7 @@ type ProviderConfigurationStatus = "active" | "disabled" | "incomplete";
 type DashboardHealth = {
   ok: boolean;
   managed: boolean;
+  version: string;
   defaultModel?: string;
   openclaw?: { baseUrl?: string; provider?: string; model?: string };
   recentErrors?: Array<{ level: string; message: string; createdAt: string }>;
@@ -168,6 +169,15 @@ type DashboardHealth = {
       warnings?: string[];
     }>;
   };
+};
+
+type StartupCheckTone = "active" | "neutral" | "incomplete" | "disabled";
+
+type StartupCheckItem = {
+  title: string;
+  description: string;
+  badgeTone: StartupCheckTone;
+  badgeLabel: string;
 };
 
 type DashboardSessions = {
@@ -1440,6 +1450,8 @@ function renderDiagnostics(): void {
     return;
   }
 
+  renderStartupChecklist();
+
   const runtimeDiagnostics = state.runtimeDiagnostics;
   if (!runtimeDiagnostics.length) {
     serviceContainer.innerHTML =
@@ -1503,6 +1515,139 @@ function renderDiagnostics(): void {
     `;
     container.appendChild(card);
   }
+}
+
+function renderStartupChecklist(): void {
+  const container = document.getElementById("startup-checklist");
+  if (!container) {
+    return;
+  }
+
+  const health = state.health;
+  const sessions = state.sessions;
+  if (!health || !sessions) {
+    container.innerHTML = "<div class='empty-card'>正在加载首次启动与升级检查信息…</div>";
+    return;
+  }
+
+  const activeSession = sessions.data.find(
+    (session) => session.id === sessions.activeSessionId,
+  );
+  const totalRequestCount = sessions.data.reduce(
+    (sum, session) => sum + (session.activity?.requestCount ?? 0),
+    0,
+  );
+  const routingHitCount = health.routingObservability?.totalMatched ?? 0;
+  const localAccountCount = getAccountGroups().localImport;
+  const hasRecentErrors =
+    (state.health?.recentErrors?.length ?? 0) > 0 ||
+    (state.lastUsageRefresh?.errors?.length ?? 0) > 0;
+  const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
+  const model = health.openclaw?.model ?? health.defaultModel ?? "codex-default";
+
+  const firstStartChecks: StartupCheckItem[] = [
+    {
+      title: "本地网关状态",
+      description: health.ok
+        ? `当前服务已就绪，入口为 ${baseUrl}`
+        : "当前服务未完全就绪，请先处理顶部或诊断页中的异常提示。",
+      badgeTone: health.ok ? "active" : "disabled",
+      badgeLabel: health.ok ? "已就绪" : "需处理",
+    },
+    {
+      title: "活动账号",
+      description: activeSession
+        ? `当前活动账号为 ${getSessionTitle(activeSession)}，默认模型为 ${model}`
+        : "还没有选中活动账号。导入账号后，请在账号页将一个可用账号设为活动账号。",
+      badgeTone: activeSession ? "active" : "incomplete",
+      badgeLabel: activeSession ? "已设置" : "未设置",
+    },
+    {
+      title: "真实第三方流量",
+      description:
+        totalRequestCount > 0
+          ? `当前已记录 ${totalRequestCount} 次真实请求，路由命中 ${routingHitCount} 次。`
+          : "当前尚未观测到任何真实第三方请求，建议先用接入模板完成一次联调。",
+      badgeTone: totalRequestCount > 0 ? "active" : "neutral",
+      badgeLabel: totalRequestCount > 0 ? "已验证" : "待联调",
+    },
+    {
+      title: "已导入桌面端账号",
+      description:
+        localAccountCount > 0
+          ? `当前已导入 ${localAccountCount} 个桌面端 Codex 账号，可继续做固定账号或灵活切号配置。`
+          : "当前尚未导入桌面端账号。可通过 OAuth、JSON 或扫描本地授权快速补齐。",
+      badgeTone: localAccountCount > 0 ? "active" : "incomplete",
+      badgeLabel: localAccountCount > 0 ? "已导入" : "待导入",
+    },
+  ];
+
+  const upgradeChecks: StartupCheckItem[] = [
+    {
+      title: "当前版本与运行方式",
+      description: `当前网关版本为 v${health.version}，控制模式为 ${health.managed ? "桌面托管" : "外部服务"}。`,
+      badgeTone: "neutral",
+      badgeLabel: "运行信息",
+    },
+    {
+      title: "升级后建议动作",
+      description:
+        "版本更新后，建议先查看一次“运行诊断与日志”，确认没有新的接入鉴权、端口或授权异常。",
+      badgeTone: hasRecentErrors ? "incomplete" : "active",
+      badgeLabel: hasRecentErrors ? "建议检查" : "正常",
+    },
+    {
+      title: "源码版发布前预检",
+      description:
+        "如果你是从源码运行或准备打包，建议执行 `npm run preflight:release`，一次性校验构建、测试、网关 smoke 与桌面目录包。",
+      badgeTone: "neutral",
+      badgeLabel: "推荐",
+    },
+    {
+      title: "端口与接入模板",
+      description:
+        "如果升级后修改了网关端口，请同步更新第三方客户端中的 baseUrl；总览页的接入模板会自动跟随当前端口和鉴权模式。",
+      badgeTone: "neutral",
+      badgeLabel: "避免遗漏",
+    },
+  ];
+
+  const renderItem = (item: StartupCheckItem): string => `
+    <div class="startup-check-item">
+      <div class="startup-check-item-top">
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="badge ${item.badgeTone}">${escapeHtml(item.badgeLabel)}</span>
+      </div>
+      <p>${escapeHtml(item.description)}</p>
+    </div>
+  `;
+
+  container.innerHTML = `
+    <div class="startup-check-card">
+      <div class="startup-check-head">
+        <div>
+          <h3>首次启动检查</h3>
+          <p>用于确认本地网关、活动账号与第三方联调是否已经形成最小可用闭环。</p>
+        </div>
+        <span class="badge ${health.ok && activeSession ? "active" : "incomplete"}">${health.ok && activeSession ? "基础闭环已形成" : "仍需检查"}</span>
+      </div>
+      <div class="startup-check-list">
+        ${firstStartChecks.map(renderItem).join("")}
+      </div>
+    </div>
+    <div class="startup-check-card">
+      <div class="startup-check-head">
+        <div>
+          <h3>升级与发布前建议</h3>
+          <p>用于版本更新、重新打包或迁移环境后，快速确认哪些动作最值得优先做。</p>
+        </div>
+        <span class="badge neutral">维护清单</span>
+      </div>
+      <div class="startup-check-list">
+        ${upgradeChecks.map(renderItem).join("")}
+      </div>
+    </div>
+  `;
 }
 
 function buildIntegrationSnippets(health: DashboardHealth): Record<IntegrationTemplateKey, string> {
@@ -2126,6 +2271,7 @@ function buildHealthFallback(): DashboardHealth {
   return {
     ok: false,
     managed: false,
+    version: "0.1.0",
     defaultModel: "codex-default",
     openclaw: {
       baseUrl: `http://127.0.0.1:${gatewayPort}/v1`,

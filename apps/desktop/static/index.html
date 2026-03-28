@@ -691,6 +691,85 @@
         gap: 6px;
       }
 
+      .startup-check-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .startup-check-card {
+        border-radius: 16px;
+        border: 1px solid rgba(37, 99, 235, 0.16);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.96) 100%);
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .startup-check-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .startup-check-head h3 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .startup-check-head p {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--text-secondary);
+      }
+
+      .startup-check-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .startup-check-item {
+        border-radius: 12px;
+        border: 1px solid var(--border-light);
+        background: rgba(248, 250, 252, 0.9);
+        padding: 12px 14px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .startup-check-item-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .startup-check-item strong {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .startup-check-item span,
+      .startup-check-item p,
+      .startup-check-item li {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--text-secondary);
+      }
+
+      .startup-check-item ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 4px;
+      }
+
       .form-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -1481,6 +1560,7 @@
         .routing-rule-grid { grid-template-columns: 1fr; }
         .routing-preview-facts { grid-template-columns: 1fr; }
         .routing-observe-grid { grid-template-columns: 1fr 1fr; }
+        .startup-check-grid { grid-template-columns: 1fr; }
         .header-stats { flex-wrap: wrap; }
         .stat-divider { display: none; }
       }
@@ -1934,6 +2014,8 @@
                 <h2>系统配置</h2>
                 <p>桌面端基础运行行为设置。</p>
               </div>
+
+              <div id="startup-checklist" class="startup-check-grid mb-4"></div>
               
               <div class="settings-group mb-4">
                 <div class="settings-body">
