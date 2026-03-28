@@ -2737,13 +2737,13 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
                     value="${escapeHtml(candidate.selector)}"
                     ${selected ? "checked" : ""}
                   />
-                  <strong title="${escapeHtml(candidate.title)}">${escapeHtml(candidate.title)}</strong>
+                  <strong title="${escapeHtml(candidate.title)}"><span class="truncate-text">${escapeHtml(candidate.title)}</span></strong>
                 </div>
                 <span class="badge ${effectiveStatusTone}" title="${escapeHtml(effectiveStatusLabel)}">${escapeHtml(effectiveStatusLabel)}</span>
               </div>
-              <div class="pool-member-option-subtitle" title="${escapeHtml(candidate.subtitle)}">${escapeHtml(candidate.subtitle)}</div>
+              <div class="pool-member-option-subtitle" title="${escapeHtml(candidate.subtitle)}"><span class="truncate-text">${escapeHtml(candidate.subtitle)}</span></div>
               <div class="pool-member-option-meta">
-                <span class="badge neutral" title="${escapeHtml(candidate.selector)}">${escapeHtml(candidate.selector)}</span>
+                <span class="badge neutral" title="${escapeHtml(candidate.selector)}"><span class="truncate-text">${escapeHtml(candidate.selector)}</span></span>
                 <span class="badge ${candidate.quotaToneClass === "quota-high" ? "success" : candidate.quotaToneClass === "quota-medium" ? "warning" : candidate.quotaToneClass === "quota-low" ? "danger" : "neutral"}" title="${escapeHtml(candidate.resetLabel)}">${escapeHtml(candidate.resetLabel)}</span>
               </div>
               <div class="pool-member-quota-row">
@@ -4319,6 +4319,7 @@ function bindActions(): void {
       const row = target.closest<HTMLElement>("[data-pool-row]");
       if (row) {
         syncPoolDraftFromRow(row);
+        renderPoolCards();
       }
     }
 
@@ -4712,6 +4713,7 @@ function bindActions(): void {
         }
       }
       syncPoolDraftFromRow(row);
+      renderPoolCards();
     }
   });
 }

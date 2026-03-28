@@ -1727,6 +1727,15 @@
       .pool-member-option-title strong {
         display: block;
         min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .truncate-text {
+        display: block;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1736,9 +1745,6 @@
         font-size: 13px;
         color: var(--text-secondary);
         min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
       .pool-member-option-meta {
@@ -1755,8 +1761,9 @@
 
       .pool-member-option-meta .badge:first-child {
         justify-content: flex-start;
+        width: 100%;
         overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .pool-member-quota-row {
@@ -2392,7 +2399,7 @@
                       <div id="gateway-auth-status" class="form-hint">当前未启用推理接口鉴权，适合本机单用户场景。</div>
                     </div>
                     <div class="form-field full" style="display: flex; justify-content: flex-end;">
-                      <button id="save-security-settings" class="btn secondary">保存鉴权配置</button>
+                      <button id="save-security-settings" class="btn primary">保存鉴权配置</button>
                     </div>
                     <div class="form-field full" style="flex-direction: row; justify-content: space-between; align-items: center;">
                       <div>
