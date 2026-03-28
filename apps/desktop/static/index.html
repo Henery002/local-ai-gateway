@@ -1565,6 +1565,69 @@
         padding: 12px;
       }
 
+      .pool-member-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .pool-member-option {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        border: 1px solid var(--border-light);
+        border-radius: 14px;
+        padding: 14px 16px;
+        background: var(--bg-surface);
+        box-shadow: var(--shadow-soft);
+        cursor: pointer;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+      }
+
+      .pool-member-option:hover {
+        border-color: var(--border-strong);
+        box-shadow: var(--shadow-medium);
+        transform: translateY(-1px);
+      }
+
+      .pool-member-option[data-selected="true"] {
+        border-color: rgba(37, 99, 235, 0.28);
+        box-shadow: 0 10px 30px rgba(37, 99, 235, 0.10);
+        background: linear-gradient(180deg, rgba(245, 249, 255, 0.98), rgba(255, 255, 255, 0.98));
+      }
+
+      .pool-member-option input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+      }
+
+      .pool-member-option-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .pool-member-option-head strong {
+        font-size: 15px;
+        line-height: 1.4;
+      }
+
+      .pool-member-option-subtitle {
+        font-size: 13px;
+        color: var(--text-secondary);
+        word-break: break-all;
+      }
+
+      .pool-member-option-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
       /* Utilities */
       .mt-4 { margin-top: 16px; }
       .mb-4 { margin-bottom: 16px; }
@@ -1585,6 +1648,7 @@
         .startup-check-grid { grid-template-columns: 1fr; }
         .header-stats { flex-wrap: wrap; }
         .stat-divider { display: none; }
+        .pool-member-grid { grid-template-columns: 1fr; }
       }
 
       @media (max-width: 1680px) {

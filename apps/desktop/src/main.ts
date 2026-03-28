@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, shell } from "electron";
@@ -99,6 +99,42 @@ class GatewayProcessManager {
     return this.managed;
   }
 
+  async recoverMissingPoolEndpoint(): Promise<boolean> {
+    const port = getConfiguredGatewayPort();
+    if (this.child) {
+      await this.restartManaged();
+      return true;
+    }
+
+    const pid = this.findListeningProcessId(port);
+    if (!pid) {
+      return false;
+    }
+
+    const command = this.readProcessCommand(pid);
+    if (!this.looksLikeLocalGatewayCommand(command)) {
+      return false;
+    }
+
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return false;
+    }
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      if (!(await this.isPortOccupied(port))) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    this.startManagedGateway();
+    await this.waitForHealthy(port);
+    return true;
+  }
+
   private startManagedGateway(): void {
     if (this.child) {
       this.child.kill("SIGTERM");
@@ -175,6 +211,47 @@ class GatewayProcessManager {
       socket.once("error", () => finish(false));
       socket.connect(port, DEFAULT_HOST);
     });
+  }
+
+  private findListeningProcessId(port: number): number | undefined {
+    try {
+      const output = execFileSync(
+        "lsof",
+        ["-ti", `tcp:${port}`, "-sTCP:LISTEN"],
+        { encoding: "utf8" },
+      )
+        .trim()
+        .split("\n")
+        .find(Boolean);
+      if (!output) {
+        return undefined;
+      }
+      const pid = Number(output);
+      return Number.isFinite(pid) ? pid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private readProcessCommand(pid: number): string {
+    try {
+      return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        encoding: "utf8",
+      }).trim();
+    } catch {
+      return "";
+    }
+  }
+
+  private looksLikeLocalGatewayCommand(command: string): boolean {
+    if (!command) {
+      return false;
+    }
+    return (
+      command.includes(gatewayEntrypoint) ||
+      (command.includes("apps/gateway/dist/cli.js") &&
+        command.includes("local-ai-gateway"))
+    );
   }
 }
 
@@ -305,6 +382,33 @@ async function callAdmin(path: string, init?: RequestInit): Promise<unknown> {
   return payload;
 }
 
+function isPoolEndpointMissing(error: unknown): boolean {
+  const message = toErrorMessage(error);
+  return message.includes("/admin/config/pools") && message.includes("404");
+}
+
+async function callAdminWithPoolCompatibility(
+  path: string,
+  init?: RequestInit,
+): Promise<unknown> {
+  try {
+    return await callAdmin(path, init);
+  } catch (error) {
+    if (!isPoolEndpointMissing(error)) {
+      throw error;
+    }
+
+    const recovered = await gatewayManager.recoverMissingPoolEndpoint();
+    if (!recovered) {
+      throw new Error(
+        "当前运行中的本地网关缺少号池配置接口，且桌面端未能自动接管旧进程。请先点击“重启服务”，或完全退出旧网关后再重试。",
+      );
+    }
+
+    return callAdmin(path, init);
+  }
+}
+
 async function buildOpenClawSnippet(): Promise<string> {
   const payload = (await callAdmin("/admin/health")) as {
     openclaw?: {
@@ -425,12 +529,12 @@ ipcMain.handle("gateway:preview-routing", async (_event, payload: GatewayRouting
 
 ipcMain.handle("gateway:get-pool-settings", async () => {
   await gatewayManager.ensureRunning();
-  return callAdmin("/admin/config/pools");
+  return callAdminWithPoolCompatibility("/admin/config/pools");
 });
 
 ipcMain.handle("gateway:save-pool-settings", async (_event, payload: GatewaySessionPoolSettings) => {
   await gatewayManager.ensureRunning();
-  return callAdmin("/admin/config/pools", {
+  return callAdminWithPoolCompatibility("/admin/config/pools", {
     method: "PUT",
     body: JSON.stringify(payload ?? {}),
   });

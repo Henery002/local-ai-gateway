@@ -389,6 +389,17 @@ type PoolSettingsResponse = {
   data: PoolSettings;
 };
 
+type PoolMemberCandidateView = {
+  selector: string;
+  title: string;
+  subtitle: string;
+  quotaLabel: string;
+  quotaToneClass: string;
+  statusLabel: string;
+  statusToneClass: string;
+  matchers: string[];
+};
+
 type SecuritySettingsInput = {
   mode?: "none" | "api-key";
   apiKey?: string;
@@ -2206,6 +2217,119 @@ function buildPoolOptions(selectedPoolId?: string): string {
   return rows.join("");
 }
 
+function buildPoolMemberCandidates(): PoolMemberCandidateView[] {
+  const sessions = (state.sessions?.data ?? []).filter(
+    (session) => session.sourceKind === "local-import",
+  );
+  const groups = buildCodexAccountGroups(
+    sessions,
+    state.sessions?.activeSessionId,
+  ).groups.filter((group) => group.sourceKind === "local-import");
+
+  return groups.map((group) => {
+    const representative = group.representative;
+    const selector =
+      representative.accountId?.trim() ||
+      representative.profileId?.trim() ||
+      representative.id;
+    const quotaPercentage = getQuotaPercentage(representative);
+    const statusLabel =
+      representative.status === "available"
+        ? "可用"
+        : representative.status === "expired"
+          ? "已过期"
+          : "无效";
+    const statusToneClass =
+      representative.status === "available"
+        ? "success"
+        : representative.status === "expired"
+          ? "warning"
+          : "neutral";
+
+    return {
+      selector,
+      title: getSessionTitle(representative),
+      subtitle:
+        representative.email ||
+        representative.accountId ||
+        representative.profileId ||
+        representative.id,
+      quotaLabel:
+        typeof quotaPercentage === "number" ? `${quotaPercentage}%` : "待同步",
+      quotaToneClass: getQuotaToneClass(quotaPercentage),
+      statusLabel,
+      statusToneClass,
+      matchers: Array.from(
+        new Set(
+          [
+            selector,
+            representative.id,
+            representative.profileId,
+            representative.accountId,
+          ].filter((item): item is string => Boolean(item && item.trim())),
+        ),
+      ),
+    };
+  });
+}
+
+function isPoolCandidateSelected(
+  pool: PoolDefinition,
+  candidate: PoolMemberCandidateView,
+): boolean {
+  return (pool.members ?? []).some((member) =>
+    candidate.matchers.includes(member.selector.trim()),
+  );
+}
+
+function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
+  const candidates = buildPoolMemberCandidates();
+  if (candidates.length === 0) {
+    return "<div class='empty-state'>当前没有可选的桌面端账号。请先在“账号资产”页导入至少一个桌面端 Codex 账号。</div>";
+  }
+
+  return `
+    <div class="pool-member-grid">
+      ${candidates
+        .map((candidate) => {
+          const selected = isPoolCandidateSelected(pool, candidate);
+          return `
+            <label class="pool-member-option" data-selected="${selected ? "true" : "false"}">
+              <input
+                type="checkbox"
+                data-field="pool-member-selector"
+                data-selector="${escapeHtml(candidate.selector)}"
+                data-label="${escapeHtml(candidate.title)}"
+                value="${escapeHtml(candidate.selector)}"
+                ${selected ? "checked" : ""}
+              />
+              <div class="pool-member-option-head">
+                <strong>${escapeHtml(candidate.title)}</strong>
+                <span class="badge ${candidate.statusToneClass}">${escapeHtml(candidate.statusLabel)}</span>
+              </div>
+              <div class="pool-member-option-subtitle">${escapeHtml(candidate.subtitle)}</div>
+              <div class="pool-member-option-meta">
+                <span class="badge neutral">${escapeHtml(candidate.selector)}</span>
+                <span class="badge ${candidate.quotaToneClass === "quota-high" ? "success" : candidate.quotaToneClass === "quota-medium" ? "warning" : candidate.quotaToneClass === "quota-low" ? "danger" : "neutral"}">${escapeHtml(candidate.quotaLabel)}</span>
+              </div>
+            </label>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function getPoolUnresolvedMembers(
+  pool: PoolDefinition,
+  candidates: PoolMemberCandidateView[],
+): string[] {
+  const knownSelectors = new Set(candidates.flatMap((candidate) => candidate.matchers));
+  return (pool.members ?? [])
+    .map((member) => member.selector.trim())
+    .filter((selector) => selector.length > 0 && !knownSelectors.has(selector));
+}
+
 function syncRoutingRuleDispatchModeUI(row: HTMLElement): void {
   const dispatchMode =
     row.querySelector<HTMLSelectElement>('[data-field="dispatch-mode"]')
@@ -2340,9 +2464,8 @@ function renderPoolCards(): void {
 
   container.innerHTML = pools
     .map((pool) => {
-      const membersText = (pool.members ?? [])
-        .map((member) => member.selector)
-        .join("\n");
+      const candidates = buildPoolMemberCandidates();
+      const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join("\n");
       return `
         <div class="routing-rule-card" data-pool-row data-pool-id="${escapeHtml(pool.id)}">
           <div class="routing-rule-top">
@@ -2374,8 +2497,13 @@ function renderPoolCards(): void {
               <input class="input-field" data-field="pool-description" placeholder="例如：给 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
             </div>
             <div class="form-field" style="grid-column: 1 / -1;">
-              <label>池成员（每行一个 sessionId / profileId / accountId）</label>
-              <textarea class="input-field" data-field="pool-members" rows="5" placeholder="每行一个账号标识，建议优先填写桌面端账号的 accountId。">${escapeHtml(membersText)}</textarea>
+              <label>池成员（推荐直接勾选桌面端账号）</label>
+              ${buildPoolMemberSelectorMarkup(pool)}
+              <div class="form-hint">优先使用账号标识作为池成员选择器；如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1;">
+              <label>额外成员标识（高级，可选）</label>
+              <textarea class="input-field" data-field="pool-members-extra" rows="3" placeholder="仅当某个账号暂时未出现在上方列表里时，再手动填写额外的 sessionId / profileId / accountId，每行一个。">${escapeHtml(unresolvedMembers)}</textarea>
             </div>
             <div class="form-field">
               <label>最低剩余额度阈值（%）</label>
@@ -2562,18 +2690,33 @@ function collectPoolSettingsFromForm(): PoolSettings {
           '[data-field="pool-max-retry-candidates"]',
         )?.value ?? "2",
       );
-      const membersRaw =
-        row.querySelector<HTMLTextAreaElement>('[data-field="pool-members"]')
+      const selectedMembers =
+        Array.from(
+          row.querySelectorAll<HTMLInputElement>(
+            '[data-field="pool-member-selector"]:checked',
+          ),
+        ).map((input, index) => ({
+          selector: (input.dataset.selector ?? input.value).trim(),
+          label: input.dataset.label?.trim() || undefined,
+          priority: index * 10,
+          enabled: true,
+        }));
+      const extraMembersRaw =
+        row.querySelector<HTMLTextAreaElement>('[data-field="pool-members-extra"]')
           ?.value ?? "";
-      const members = membersRaw
+      const extraMembers = extraMembersRaw
         .split("\n")
         .map((item) => item.trim())
         .filter(Boolean)
         .map((selector, index) => ({
           selector,
-          priority: index * 10,
+          priority: (selectedMembers.length + index) * 10,
           enabled: true,
         }));
+      const membersCombined = [...selectedMembers, ...extraMembers].filter(
+        (member, index, list) =>
+          list.findIndex((item) => item.selector === member.selector) === index,
+      );
 
       return {
         id,
@@ -2601,7 +2744,7 @@ function collectPoolSettingsFromForm(): PoolSettings {
         fallbackToActiveSession:
           row.querySelector<HTMLInputElement>('[data-field="pool-fallback-active"]')
             ?.checked ?? true,
-        members,
+        members: membersCombined,
       } satisfies PoolDefinition;
     })
     .filter((pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0);
@@ -3652,6 +3795,16 @@ function bindActions(): void {
       const row = target.closest<HTMLElement>("[data-routing-rule-row]");
       if (row) {
         syncRoutingRuleDispatchModeUI(row);
+      }
+    }
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-field="pool-member-selector"]')
+    ) {
+      const option = target.closest<HTMLElement>(".pool-member-option");
+      if (option) {
+        option.dataset.selected = target.checked ? "true" : "false";
       }
     }
   });
