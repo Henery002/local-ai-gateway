@@ -240,32 +240,33 @@ function getConfiguredGatewayPort(): number {
   return normalizeGatewayPort(getStoredDesktopSystemSettings().gatewayPort);
 }
 
+function canApplyLoginItemSetting(): boolean {
+  return app.isPackaged;
+}
+
 function applyLoginItemSetting(launchAtLogin: boolean): void {
-  if (app.isPackaged) {
-    app.setLoginItemSettings({
-      openAtLogin: launchAtLogin,
-    });
+  if (!canApplyLoginItemSetting()) {
     return;
   }
 
-  app.setLoginItemSettings({
-    openAtLogin: launchAtLogin,
-    path: process.execPath,
-    args: [app.getAppPath()],
-  });
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: launchAtLogin,
+    });
+  } catch (error) {
+    console.warn(
+      `[desktop] 无法更新开机自启动状态：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function getDesktopSystemSettings(): DesktopSystemSettings {
   const stored = getStoredDesktopSystemSettings();
-  const loginItemSettings = app.isPackaged
-    ? app.getLoginItemSettings()
-    : app.getLoginItemSettings({
-        path: process.execPath,
-        args: [app.getAppPath()],
-      });
   return {
     ...stored,
-    launchAtLogin: loginItemSettings.openAtLogin,
+    launchAtLogin: canApplyLoginItemSetting()
+      ? app.getLoginItemSettings().openAtLogin
+      : Boolean(stored.launchAtLogin),
     gatewayPort: normalizeGatewayPort(stored.gatewayPort),
   };
 }
