@@ -20,6 +20,8 @@ const api = {
   getSystemSettings: () => ipcRenderer.invoke("gateway:get-system-settings"),
   saveSystemSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-system-settings", payload),
+  exportAppData: () => ipcRenderer.invoke("gateway:export-app-data"),
+  importAppData: () => ipcRenderer.invoke("gateway:import-app-data"),
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId: string) =>
     ipcRenderer.invoke("gateway:set-active-session", sessionId),

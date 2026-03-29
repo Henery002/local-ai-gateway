@@ -57,6 +57,23 @@ declare global {
       saveSystemSettings: (
         payload: SystemSettings,
       ) => Promise<SystemSettingsResponse>;
+      exportAppData: () => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        selectedPath?: string;
+        fileCount?: number;
+        totalBytes?: number;
+      }>;
+      importAppData: () => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        selectedPath?: string;
+        safetyBackupPath?: string;
+        restoredFiles?: number;
+        restoredBytes?: number;
+        managedRestarted?: boolean;
+        requiresManualRestart?: boolean;
+      }>;
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
       refreshSessionUsage: (
@@ -743,6 +760,22 @@ function setText(id: string, value: string): void {
   if (node) {
     node.textContent = value;
   }
+}
+
+function formatBytes(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 function setBanner(
@@ -3852,6 +3885,59 @@ async function saveSecuritySettings(): Promise<void> {
   applySecuritySettingsToForm();
 }
 
+async function exportAppData(): Promise<void> {
+  const api = getGatewayApi();
+  const result = await api.exportAppData();
+  if (result.canceled) {
+    setBanner("已取消应用数据导出。", "info");
+    return;
+  }
+
+  setBanner(
+    `应用数据已导出：${result.fileCount ?? 0} 个文件，${formatBytes(result.totalBytes)}。`,
+    "success",
+  );
+}
+
+async function importAppData(): Promise<void> {
+  const confirmed = await requestConfirmation({
+    title: "确认导入应用数据",
+    message:
+      "导入会覆盖当前本机的配置、账号、统计和日志等持久化数据。系统会先自动创建一份安全备份。是否继续？",
+    confirmLabel: "确认导入",
+    tone: "danger",
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  const api = getGatewayApi();
+  const result = await api.importAppData();
+  if (result.canceled) {
+    setBanner("已取消应用数据导入。", "info");
+    return;
+  }
+
+  try {
+    await refresh();
+  } catch {
+    // 若当前不是托管 gateway，导入后可能需要人工重启，本次保留导入成功提示即可。
+  }
+
+  if (result.requiresManualRestart) {
+    setBanner(
+      `应用数据已导入，恢复 ${result.restoredFiles ?? 0} 个文件；当前非托管网关需手动重启后才能完全生效。本机安全备份：${result.safetyBackupPath ?? "已创建"}。`,
+      "success",
+    );
+    return;
+  }
+
+  setBanner(
+    `应用数据已导入，恢复 ${result.restoredFiles ?? 0} 个文件，${formatBytes(result.restoredBytes)}；本机安全备份：${result.safetyBackupPath ?? "已创建"}。`,
+    "success",
+  );
+}
+
 async function saveRoutingSettings(): Promise<void> {
   const api = getGatewayApi();
   const payload = collectRoutingSettingsFromForm();
@@ -4431,6 +4517,40 @@ function bindActions(): void {
         setBanner("系统配置已保存。", "success");
       } catch (error) {
         setBanner(`保存系统配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
+    .getElementById("export-app-data")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "export-app-data",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "导出中");
+        setBanner("正在导出应用数据备份...", "info");
+        await exportAppData();
+      } catch (error) {
+        setBanner(`导出应用数据失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
+    .getElementById("import-app-data")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "import-app-data",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "导入中");
+        setBanner("正在导入应用数据备份...", "info");
+        await importAppData();
+      } catch (error) {
+        setBanner(`导入应用数据失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }

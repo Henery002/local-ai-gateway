@@ -2633,6 +2633,15 @@
                       </select>
                       <div id="auto-refresh-hint" class="form-hint">当前将每 2 分钟自动刷新一次账号额度与状态。</div>
                     </div>
+                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                      <label>数据迁移与恢复</label>
+                      <div class="form-hint">导出当前应用数据为单文件备份，或在重装后导入恢复配置、账号、统计与本地持久化数据。导入前系统会自动在本机创建一份安全备份。</div>
+                      <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px;">
+                        <button id="export-app-data" class="btn secondary">导出应用数据</button>
+                        <button id="import-app-data" class="btn secondary">导入应用数据</button>
+                      </div>
+                      <div class="form-hint">当前备份对象包括 `config.json`、`codex-auth-profiles.json`、`gateway.db`、日志文件以及本地持久化运行数据；导入会覆盖当前本机数据。</div>
+                    </div>
                   </div>
                   <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
                     <button id="save-system-settings" class="btn primary">保存系统配置</button>

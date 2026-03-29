@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
 
@@ -9,6 +9,7 @@ import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
 
 import {
+  APP_VERSION,
   DEFAULT_HOST,
   DEFAULT_PORT,
   type GatewayInferenceAuthPublicSettings,
@@ -23,6 +24,15 @@ import {
   type DesktopSystemSettings,
   type GatewayStoredConfig,
 } from "@local-ai-gateway/shared";
+import {
+  createAppDataBackupBundle,
+  createBackupFileName,
+  getBackupBundleSizeBytes,
+  getAppDataSnapshotSummary,
+  parseAppDataBackupBundle,
+  restoreAppDataBackupBundle,
+  writeAppDataBackupBundle,
+} from "./backup-utils.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gatewayEntrypoint = join(__dirname, "../../gateway/dist/cli.js");
@@ -479,6 +489,26 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function getBackupStoreDir(): string {
+  const backupDir = join(gatewayPaths.rootDir, "backups");
+  mkdirSync(backupDir, { recursive: true });
+  return backupDir;
+}
+
+function createSafetyBackupSnapshot(): { path: string; fileCount: number; totalBytes: number } {
+  const bundle = createAppDataBackupBundle(gatewayPaths, APP_VERSION);
+  const targetPath = join(
+    getBackupStoreDir(),
+    createBackupFileName("local-ai-gateway-before-import"),
+  );
+  writeAppDataBackupBundle(targetPath, bundle);
+  return {
+    path: targetPath,
+    fileCount: bundle.files.length,
+    totalBytes: getBackupBundleSizeBytes(bundle),
+  };
+}
+
 ipcMain.handle("gateway:get-health", async () => {
   const running = await gatewayManager.ensureRunning();
   const payload = (await callAdmin("/admin/health")) as Record<string, unknown>;
@@ -873,6 +903,81 @@ ipcMain.handle("gateway:get-system-settings", async () => {
   return {
     ok: true,
     data: getDesktopSystemSettings(),
+  };
+});
+
+ipcMain.handle("gateway:export-app-data", async () => {
+  const snapshot = getAppDataSnapshotSummary(gatewayPaths);
+  const result = await dialog.showSaveDialog({
+    title: "导出 Local AI Gateway 应用数据",
+    defaultPath: join(
+      app.getPath("downloads"),
+      createBackupFileName("local-ai-gateway-backup"),
+    ),
+    filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+  });
+
+  if (result.canceled || !result.filePath) {
+    return {
+      ok: false,
+      canceled: true,
+    };
+  }
+
+  const bundle = createAppDataBackupBundle(gatewayPaths, APP_VERSION);
+  writeAppDataBackupBundle(result.filePath, bundle);
+  return {
+    ok: true,
+    selectedPath: result.filePath,
+    fileCount: bundle.files.length,
+    totalBytes: getBackupBundleSizeBytes(bundle),
+    snapshot,
+  };
+});
+
+ipcMain.handle("gateway:import-app-data", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "导入 Local AI Gateway 应用数据",
+    properties: ["openFile"],
+    filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      ok: false,
+      canceled: true,
+    };
+  }
+
+  const selectedPath = result.filePaths[0]!;
+  const bundle = parseAppDataBackupBundle(readFileSync(selectedPath, "utf8"));
+  const safetyBackup = createSafetyBackupSnapshot();
+  const wasManaged = gatewayManager.isManaged();
+
+  if (wasManaged) {
+    await gatewayManager.stopManaged();
+  }
+
+  const restored = restoreAppDataBackupBundle(gatewayPaths, bundle);
+  applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
+
+  let managedRestarted = false;
+  let requiresManualRestart = false;
+  if (wasManaged) {
+    await gatewayManager.ensureRunning();
+    managedRestarted = true;
+  } else {
+    requiresManualRestart = true;
+  }
+
+  return {
+    ok: true,
+    selectedPath,
+    safetyBackupPath: safetyBackup.path,
+    restoredFiles: restored.restoredFiles,
+    restoredBytes: restored.restoredBytes,
+    managedRestarted,
+    requiresManualRestart,
   };
 });
 
