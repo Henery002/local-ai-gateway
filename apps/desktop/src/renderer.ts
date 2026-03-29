@@ -2808,6 +2808,67 @@ function formatPoolSelectionStrategyLabel(
   return "综合策略";
 }
 
+function getPoolSelectedMemberDisplay(poolRuntime: PoolRuntimeSummary): {
+  label: string;
+  detail?: string;
+} {
+  const selectedMember = poolRuntime.members.find((member) => member.selected);
+  if (selectedMember?.sessionTitle || selectedMember?.label) {
+    return {
+      label:
+        selectedMember.sessionTitle ||
+        selectedMember.label ||
+        selectedMember.selector,
+      detail:
+        selectedMember.sessionSubtitle ||
+        selectedMember.sessionId ||
+        selectedMember.selector,
+    };
+  }
+
+  const formatted = formatSessionReadableLabel(
+    poolRuntime.selectedSessionId ?? poolRuntime.selectedSelector,
+  );
+  return {
+    label: formatted.label,
+    detail: formatted.detail ?? formatted.raw,
+  };
+}
+
+function summarizePoolSkippedMembers(
+  poolRuntime: PoolRuntimeSummary,
+): Array<{ status: string; label: string; count: number; tone: string }> {
+  const counts = new Map<string, number>();
+  for (const member of poolRuntime.members) {
+    if (member.selected || member.eligible) {
+      continue;
+    }
+    counts.set(member.status, (counts.get(member.status) ?? 0) + 1);
+  }
+
+  const definitions: Array<{
+    status: PoolRuntimeMember["status"];
+    label: string;
+    tone: string;
+  }> = [
+    { status: "quota-low", label: "低于阈值", tone: "warning" },
+    { status: "cooldown", label: "冷却中", tone: "warning" },
+    { status: "expired", label: "已过期", tone: "neutral" },
+    { status: "invalid", label: "鉴权失效", tone: "danger" },
+    { status: "missing", label: "未映射", tone: "neutral" },
+    { status: "disabled", label: "已停用", tone: "neutral" },
+    { status: "unknown-quota", label: "额度未知", tone: "neutral" },
+    { status: "available", label: "暂未参与", tone: "neutral" },
+  ];
+
+  return definitions
+    .map((definition) => ({
+      ...definition,
+      count: counts.get(definition.status) ?? 0,
+    }))
+    .filter((item) => item.count > 0);
+}
+
 function describePoolMemberDecision(input: {
   pool: PoolDefinition;
   candidate: PoolMemberCandidateView;
@@ -2912,7 +2973,24 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
   const directionLabel = panelState.sortDirection === "asc" ? "升序" : "降序";
   const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates);
   const runtimeSummary = poolRuntime
-    ? `
+    ? (() => {
+        const selectedDisplay = getPoolSelectedMemberDisplay(poolRuntime);
+        const skippedMembers = summarizePoolSkippedMembers(poolRuntime);
+        const recentFailoverCount = (poolRuntime.recentEvents ?? []).filter(
+          (event) => event.eventType === "failover",
+        ).length;
+        const runtimeExplanation = skippedMembers.length
+          ? `本轮已跳过 ${skippedMembers.map((item) => `${item.label} ${item.count} 个`).join("、")}。`
+          : "当前所有成员都处于可参与调度的状态。";
+        const skipBadgesMarkup = skippedMembers.length
+          ? skippedMembers
+              .map(
+                (item) =>
+                  `<span class="badge ${item.tone}">${escapeHtml(item.label)} ${escapeHtml(String(item.count))}</span>`,
+              )
+              .join("")
+          : '<span class="badge success">暂无被跳过成员</span>';
+        return `
       <div class="pool-runtime-summary">
         <div class="pool-runtime-kpi">
           <span>可选成员</span>
@@ -2924,7 +3002,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         </div>
         <div class="pool-runtime-kpi">
           <span>当前首选</span>
-          <strong title="${escapeHtml(poolRuntime.selectedSelector ?? "暂无")}">${escapeHtml(poolRuntime.selectedSelector ?? "暂无")}</strong>
+          <strong title="${escapeHtml(selectedDisplay.detail ?? selectedDisplay.label)}">${escapeHtml(selectedDisplay.label)}</strong>
         </div>
         <div class="pool-runtime-kpi">
           <span>最近选中</span>
@@ -2933,6 +3011,14 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         <div class="pool-runtime-kpi">
           <span>最近异常</span>
           <strong class="${poolRuntime.lastFailureAt ? "warning" : ""}">${escapeHtml(formatRecentCall(poolRuntime.lastFailureAt))}</strong>
+        </div>
+      </div>
+      <div class="pool-runtime-explanation">
+        <strong>当前调度摘要</strong>
+        <span>当前号池优先选择 ${escapeHtml(selectedDisplay.label)}。${escapeHtml(runtimeExplanation)}</span>
+        <div class="pool-runtime-badges">
+          ${skipBadgesMarkup}
+          <span class="badge neutral">最近切号 ${escapeHtml(String(recentFailoverCount))} 次</span>
         </div>
       </div>
       <div class="routing-rule-guide" style="margin-top: 0;">
@@ -2954,7 +3040,8 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         >查看最近调度事件</button>
         <span class="badge neutral">最近事件 ${escapeHtml(String(poolRuntime.recentEvents?.length ?? 0))} 条</span>
       </div>
-    `
+    `;
+      })()
     : `<div class="form-hint" style="margin-bottom: 12px;">当前尚未拿到该号池的运行时观测。通常在网关健康信息刷新后会自动出现。</div>`;
 
   return `
