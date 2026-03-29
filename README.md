@@ -215,6 +215,9 @@ npm run dev:desktop
 npm run smoke:gateway
 npm run smoke:desktop-package
 npm run preflight:release
+npm run release:manifest
+npm run package:desktop:ready
+npm run dist:desktop:ready
 npm run package:desktop
 npm run dist:desktop
 ```
