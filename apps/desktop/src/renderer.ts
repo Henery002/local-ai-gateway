@@ -570,6 +570,7 @@ const state: {
   runtimeDiagnostics: RuntimeDiagnostic[];
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
+  activePoolEventsModalId?: string;
 } = {
   activeView: "overview",
   accountSearch: "",
@@ -2749,12 +2750,14 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
             : `<span>运行时观测已加载，可直接查看成员冷却、最近失败和最近命中情况。</span>`
         }
       </div>
-      <div class="pool-event-panel">
-        <div class="pool-event-panel-head">
-          <strong>最近调度事件</strong>
-          <span>用于解释为什么这次选中了某个账号，或为何从 A 切到 B。</span>
-        </div>
-        ${buildPoolEventMarkup(pool.id)}
+      <div class="pool-runtime-actions">
+        <button
+          type="button"
+          class="btn secondary mini"
+          data-action="open-pool-events"
+          data-pool-id="${escapeHtml(pool.id)}"
+        >查看最近调度事件</button>
+        <span class="badge neutral">最近事件 ${escapeHtml(String(poolRuntime.recentEvents?.length ?? 0))} 条</span>
       </div>
     `
     : `<div class="form-hint" style="margin-bottom: 12px;">当前尚未拿到该号池的运行时观测。通常在网关健康信息刷新后会自动出现。</div>`;
@@ -3818,6 +3821,56 @@ function closeAccountModal(): void {
   );
 }
 
+function openPoolEventsModal(poolId: string): void {
+  state.activePoolEventsModalId = poolId;
+  renderPoolEventsModal();
+  const modal = document.getElementById("pool-events-modal");
+  if (modal) {
+    modal.hidden = false;
+  }
+}
+
+function closePoolEventsModal(): void {
+  state.activePoolEventsModalId = undefined;
+  const modal = document.getElementById("pool-events-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function renderPoolEventsModal(): void {
+  const modal = document.getElementById("pool-events-modal");
+  const titleNode = document.getElementById("pool-events-modal-title");
+  const bodyNode = document.getElementById("pool-events-modal-body");
+  if (!modal || !titleNode || !bodyNode) {
+    return;
+  }
+
+  const poolId = state.activePoolEventsModalId;
+  if (!poolId) {
+    modal.hidden = true;
+    return;
+  }
+
+  const pool =
+    state.poolSettings?.pools?.find((item) => item.id === poolId) ??
+    state.health?.poolObservability?.find((item) => item.poolId === poolId);
+  const poolTitle =
+    (pool && "name" in pool ? pool.name : undefined) ||
+    (pool && "poolName" in pool ? pool.poolName : undefined) ||
+    poolId;
+  titleNode.textContent = `${poolTitle} · 最近调度事件`;
+  bodyNode.innerHTML = `
+    <div class="pool-event-panel">
+      <div class="pool-event-panel-head">
+        <strong>最近调度事件</strong>
+        <span>用于解释为什么这次选中了某个账号、为什么会从 A 切到 B，以及最近是哪类失败触发了自动切号。</span>
+      </div>
+      ${buildPoolEventMarkup(poolId)}
+    </div>
+  `;
+}
+
 function setAccountTab(tab: string): void {
   for (const node of Array.from(
     document.querySelectorAll<HTMLElement>("[data-account-tab]"),
@@ -4591,6 +4644,20 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("pool-events-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closePoolEventsModal();
+      }
+    });
+
+  document
+    .getElementById("close-pool-events-modal")
+    ?.addEventListener("click", () => {
+      closePoolEventsModal();
+    });
+
+  document
     .getElementById("confirm-modal")
     ?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -4623,6 +4690,11 @@ function bindActions(): void {
         closeConfirmModal(false);
         return;
       }
+      const poolEventsModal = document.getElementById("pool-events-modal");
+      if (poolEventsModal && !poolEventsModal.hidden) {
+        closePoolEventsModal();
+        return;
+      }
       closeAccountModal();
     }
   });
@@ -4640,6 +4712,11 @@ function bindActions(): void {
     }
 
     const action = button.dataset.action;
+    if (action === "open-pool-events" && button.dataset.poolId) {
+      openPoolEventsModal(button.dataset.poolId);
+      return;
+    }
+
     if (action === "activate" && button.dataset.sessionId) {
       try {
         setBanner(`正在切换到 ${button.dataset.sessionId} ...`, "info");
@@ -4966,6 +5043,7 @@ async function refresh(): Promise<void> {
   renderDiagnostics();
   renderErrors();
   renderGuide();
+  renderPoolEventsModal();
   applySettingsToForm();
   applyRoutingSettingsToForm();
   applyPoolSettingsToForm();
@@ -5007,6 +5085,8 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   renderCodexAccounts();
   renderDiagnostics();
   renderErrors();
+  renderPoolCards();
+  renderPoolEventsModal();
 }
 
 async function refreshWithLiveUsage(

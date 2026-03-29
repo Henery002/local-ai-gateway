@@ -1088,6 +1088,10 @@
         max-width: 460px;
       }
 
+      .modal-content.pool-events-modal {
+        max-width: 860px;
+      }
+
       .modal-header {
         padding: 20px 24px;
         border-bottom: 1px solid var(--border-light);
@@ -1706,6 +1710,15 @@
         white-space: nowrap;
         font-size: 14px;
         color: var(--text-primary);
+      }
+
+      .pool-runtime-actions {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
       }
 
       .pool-event-panel {
@@ -2670,6 +2683,16 @@
           <button id="confirm-modal-cancel" class="btn secondary" type="button">取消</button>
           <button id="confirm-modal-confirm" class="btn primary" type="button">确认继续</button>
         </div>
+      </div>
+    </div>
+
+    <div id="pool-events-modal" class="modal-overlay" hidden>
+      <div class="modal-content pool-events-modal">
+        <div class="modal-header">
+          <h3 id="pool-events-modal-title">最近调度事件</h3>
+          <button id="close-pool-events-modal" class="btn ghost mini" type="button">关闭</button>
+        </div>
+        <div id="pool-events-modal-body" class="modal-body"></div>
       </div>
     </div>
 

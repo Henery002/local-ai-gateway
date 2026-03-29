@@ -318,6 +318,7 @@ export class GatewayRuntime {
     this.sessionActivity.clear();
     this.routingHits.splice(0, this.routingHits.length);
     this.poolSelectionEvents.splice(0, this.poolSelectionEvents.length);
+    this.poolMemberState.clear();
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
     this.poolSelectionInsertCount = 0;
@@ -656,6 +657,7 @@ export class GatewayRuntime {
       this.sessionActivity.set(item.sessionId, item.snapshot);
     }
     this.database.deleteSessionActivitiesExcept(Array.from(validSessionIds));
+    this.database.deletePoolMemberRuntimeStatesExcept(Array.from(validSessionIds));
     this.database.pruneSessionActivityEvents({
       maxRows: 50_000,
       retainDays: 30,
@@ -674,6 +676,24 @@ export class GatewayRuntime {
     this.poolSelectionEvents.push(
       ...this.database.getRecentPoolSelectionEvents(500),
     );
+
+    for (const item of this.database.getPoolMemberRuntimeStates(2_000)) {
+      if (!validSessionIds.has(item.sessionId)) {
+        continue;
+      }
+      this.poolMemberState.set(
+        this.buildPoolMemberStateKey(item.poolId, item.sessionId),
+        {
+          cooldownUntil: item.state.cooldownUntil,
+          lastFailureClass:
+            item.state.lastFailureClass as GatewayPoolFailureClass | undefined,
+          consecutiveFailures: item.state.consecutiveFailures ?? 0,
+          lastSelectedAt: item.state.lastSelectedAt,
+          lastSuccessAt: item.state.lastSuccessAt,
+          lastFailureAt: item.state.lastFailureAt,
+        },
+      );
+    }
   }
 
   private getDefaultSelectionSummary(): DefaultModelSelectionSummary {
@@ -926,6 +946,11 @@ export class GatewayRuntime {
     state.consecutiveFailures = 0;
     state.cooldownUntil = undefined;
     this.poolMemberState.set(this.buildPoolMemberStateKey(poolId, sessionId), state);
+    this.persistPoolMemberRuntimeState(poolId, sessionId, state);
+  }
+
+  recordPoolSelectionStarted(poolId: string, sessionId: string): void {
+    this.markPoolSelection(poolId, sessionId);
   }
 
   recordPoolSelectionEvent(event: GatewayPoolSelectionEvent): void {
@@ -983,6 +1008,7 @@ export class GatewayRuntime {
     state.consecutiveFailures += 1;
     state.cooldownUntil = cooldownUntil;
     this.poolMemberState.set(this.buildPoolMemberStateKey(input.poolId, input.sessionId), state);
+    this.persistPoolMemberRuntimeState(input.poolId, input.sessionId, state);
   }
 
   private resolveRoutingSessionSelector(
@@ -1214,6 +1240,26 @@ export class GatewayRuntime {
     const state = this.getPoolMemberRuntimeState(poolId, sessionId);
     state.lastSelectedAt = Date.now();
     this.poolMemberState.set(this.buildPoolMemberStateKey(poolId, sessionId), state);
+    this.persistPoolMemberRuntimeState(poolId, sessionId, state);
+  }
+
+  private persistPoolMemberRuntimeState(
+    poolId: string,
+    sessionId: string,
+    state: PoolMemberRuntimeState,
+  ): void {
+    this.database.upsertPoolMemberRuntimeState({
+      poolId,
+      sessionId,
+      state: {
+        cooldownUntil: state.cooldownUntil,
+        lastFailureClass: state.lastFailureClass,
+        consecutiveFailures: state.consecutiveFailures,
+        lastSelectedAt: state.lastSelectedAt,
+        lastSuccessAt: state.lastSuccessAt,
+        lastFailureAt: state.lastFailureAt,
+      },
+    });
   }
 
   private normalizePercentage(value?: number): number | undefined {

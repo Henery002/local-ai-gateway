@@ -375,6 +375,10 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       routingHitRecorded = true;
     };
 
+    if (targetPoolId && selectedByPoolMember && resolvedSessionId) {
+      runtime.recordPoolSelectionStarted(targetPoolId, resolvedSessionId);
+    }
+
     const selectFallbackSessionId = (failedSessionId?: string): string | undefined => {
       if (!hasExplicitTargetSession) {
         return undefined;
@@ -543,6 +547,9 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
         reply.raw.end();
         if (usedSessionId) {
+          if (targetPoolId && selectedByPoolMember) {
+            runtime.recordPoolSelectionSuccess(targetPoolId, usedSessionId);
+          }
           runtime.recordInferenceResult({
             sessionId: usedSessionId,
             ok: true,

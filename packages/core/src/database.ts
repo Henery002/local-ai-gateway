@@ -71,6 +71,15 @@ export class GatewayDatabase {
         reason TEXT
       );
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS pool_member_runtime_snapshots (
+        pool_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (pool_id, session_id)
+      );
+    `);
   }
 
   insertLog(record: GatewayLogRecord): void {
@@ -356,6 +365,128 @@ export class GatewayDatabase {
       );
   }
 
+  upsertPoolMemberRuntimeState(input: {
+    poolId: string;
+    sessionId: string;
+    state: {
+      cooldownUntil?: number;
+      lastFailureClass?: string;
+      consecutiveFailures: number;
+      lastSelectedAt?: number;
+      lastSuccessAt?: number;
+      lastFailureAt?: number;
+    };
+  }): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO pool_member_runtime_snapshots (
+            pool_id,
+            session_id,
+            state_json,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(pool_id, session_id) DO UPDATE SET
+            state_json = excluded.state_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.poolId,
+        input.sessionId,
+        JSON.stringify(input.state),
+        Date.now(),
+      );
+  }
+
+  getPoolMemberRuntimeStates(limit = 2_000): Array<{
+    poolId: string;
+    sessionId: string;
+    state: {
+      cooldownUntil?: number;
+      lastFailureClass?: string;
+      consecutiveFailures: number;
+      lastSelectedAt?: number;
+      lastSuccessAt?: number;
+      lastFailureAt?: number;
+    };
+  }> {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT pool_id, session_id, state_json
+          FROM pool_member_runtime_snapshots
+          ORDER BY updated_at DESC
+          LIMIT ?
+        `,
+      )
+      .all(limit) as Array<{
+      pool_id: string;
+      session_id: string;
+      state_json: string;
+    }>;
+
+    return rows
+      .map((row) => {
+        try {
+          return {
+            poolId: row.pool_id,
+            sessionId: row.session_id,
+            state: JSON.parse(row.state_json) as {
+              cooldownUntil?: number;
+              lastFailureClass?: string;
+              consecutiveFailures: number;
+              lastSelectedAt?: number;
+              lastSuccessAt?: number;
+              lastFailureAt?: number;
+            },
+          };
+        } catch {
+          return undefined;
+        }
+      })
+      .filter(
+        (
+          row,
+        ): row is {
+          poolId: string;
+          sessionId: string;
+          state: {
+            cooldownUntil?: number;
+            lastFailureClass?: string;
+            consecutiveFailures: number;
+            lastSelectedAt?: number;
+            lastSuccessAt?: number;
+            lastFailureAt?: number;
+          };
+        } => Boolean(row),
+      );
+  }
+
+  deletePoolMemberRuntimeStatesExcept(sessionIds: string[]): void {
+    if (!sessionIds.length) {
+      this.db
+        .prepare(
+          `
+            DELETE FROM pool_member_runtime_snapshots
+          `,
+        )
+        .run();
+      return;
+    }
+
+    const placeholders = sessionIds.map(() => "?").join(", ");
+    this.db
+      .prepare(
+        `
+          DELETE FROM pool_member_runtime_snapshots
+          WHERE session_id NOT IN (${placeholders})
+        `,
+      )
+      .run(...sessionIds);
+  }
+
   getRecentPoolSelectionEvents(limit = 500): GatewayPoolSelectionEvent[] {
     const rows = this.db
       .prepare(
@@ -506,6 +637,13 @@ export class GatewayDatabase {
       .prepare(
         `
           DELETE FROM pool_selection_events
+        `,
+      )
+      .run();
+    this.db
+      .prepare(
+        `
+          DELETE FROM pool_member_runtime_snapshots
         `,
       )
       .run();

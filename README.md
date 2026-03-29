@@ -1,14 +1,30 @@
+<div align="center">
+
 # Local AI Gateway
+
+### 本地单机 AI 网关与账号调度控制台
+
+把本机可用的 AI 账号能力整理成稳定的本地 Provider，  
+让 OpenClaw、localRagHub 等第三方客户端通过统一 `baseUrl` 接入。
 
 ![平台](https://img.shields.io/badge/macOS-本地优先-111827?style=flat-square)
 ![桌面端](https://img.shields.io/badge/Electron-控制台-2563eb?style=flat-square)
 ![网关协议](https://img.shields.io/badge/OpenAI-Compatible-网关-059669?style=flat-square)
 ![当前阶段](https://img.shields.io/badge/阶段-三期进行中-f59e0b?style=flat-square)
 
-一个面向 macOS 本地单机环境的 AI 网关项目。  
-它的核心目标很简单：
+[项目定位](#项目定位)
+·
+[快速开始](#快速开始)
+·
+[第三方接入](#第三方接入)
+·
+[开发阶段](#开发阶段)
+·
+[文档入口](#文档入口)
 
-**把本机可用的 AI 账号能力整理成稳定的本地 Provider，让 OpenClaw、localRagHub 等第三方客户端通过统一 `baseUrl` 接入。**
+</div>
+
+---
 
 当前主线仍然是 `Codex`，并已具备：
 

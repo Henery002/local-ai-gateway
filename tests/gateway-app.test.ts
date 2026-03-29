@@ -1361,6 +1361,230 @@ describe("gateway app", () => {
     }
   });
 
+  it("updates dynamic pool runtime timestamps for streaming requests", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:stream-a",
+      profileId: "fake:stream-a",
+      accountId: "acct_stream_a",
+      quotaPercentage: 86,
+    });
+    const sessionSource = new PoolSessionSource([sessionA]);
+    const adapter = new SessionBackedProviderAdapter(sessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionA.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-stream",
+          name: "流式测试池",
+          enabled: true,
+          selectionStrategy: "priority",
+          members: [{ selector: sessionA.accountId!, priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-stream-pool",
+          name: "stream-pool-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-stream",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          stream: true,
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().poolObservability).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            poolId: "pool-stream",
+            members: expect.arrayContaining([
+              expect.objectContaining({
+                selector: sessionA.accountId,
+                sessionId: sessionA.id,
+                selected: true,
+                lastSelectedAt: expect.any(Number),
+                lastSuccessAt: expect.any(Number),
+              }),
+            ]),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("restores dynamic pool runtime snapshots across runtime restarts", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const sessionA = createResolvedSession({
+      id: "main:fake:restore-a",
+      profileId: "fake:restore-a",
+      accountId: "acct_restore_a",
+      quotaPercentage: 81,
+    });
+
+    const firstDatabase = new GatewayDatabase(paths);
+    const firstLogger = new AppLogger(paths, firstDatabase);
+    const firstConfigStore = new ConfigStore(paths);
+    const firstSessionSource = new PoolSessionSource([sessionA]);
+    const firstAdapter = new SessionBackedProviderAdapter(firstSessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const firstProviderRegistry = new ProviderRegistry([firstAdapter]);
+    const firstRuntime = new GatewayRuntime(
+      paths,
+      firstConfigStore,
+      firstDatabase,
+      firstLogger,
+      modelRegistry,
+      firstSessionSource,
+      firstProviderRegistry,
+    );
+    firstRuntime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-restore",
+          name: "恢复测试池",
+          enabled: true,
+          selectionStrategy: "priority",
+          members: [{ selector: sessionA.accountId!, priority: 10 }],
+        },
+      ],
+    });
+
+    firstRuntime.selectSessionFromPool({ poolId: "pool-restore" });
+    firstRuntime.recordPoolSelectionSuccess("pool-restore", sessionA.id);
+    firstDatabase.close();
+
+    const secondDatabase = new GatewayDatabase(paths);
+    const secondLogger = new AppLogger(paths, secondDatabase);
+    const secondConfigStore = new ConfigStore(paths);
+    const secondSessionSource = new PoolSessionSource([sessionA]);
+    const secondProviderRegistry = new ProviderRegistry([
+      new SessionBackedProviderAdapter(secondSessionSource),
+    ]);
+    const secondRuntime = new GatewayRuntime(
+      paths,
+      secondConfigStore,
+      secondDatabase,
+      secondLogger,
+      modelRegistry,
+      secondSessionSource,
+      secondProviderRegistry,
+    );
+    const secondApp = createGatewayApp(secondRuntime);
+
+    try {
+      const adminToken = secondRuntime.configStore.getAdminToken();
+      const adminHealth = await secondApp.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().poolObservability).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            poolId: "pool-restore",
+            members: expect.arrayContaining([
+              expect.objectContaining({
+                selector: sessionA.accountId,
+                sessionId: sessionA.id,
+                lastSelectedAt: expect.any(Number),
+                lastSuccessAt: expect.any(Number),
+              }),
+            ]),
+          }),
+        ]),
+      );
+    } finally {
+      await secondApp.close();
+      secondDatabase.close();
+    }
+  });
+
   it("persists routing and session activity telemetry across runtime restarts", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);
