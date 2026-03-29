@@ -1912,6 +1912,46 @@
         line-height: 1;
       }
 
+      .pool-member-decision {
+        display: grid;
+        gap: 4px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(248, 250, 252, 0.9);
+      }
+
+      .pool-member-decision strong {
+        font-size: 14px;
+        line-height: 1.4;
+        color: var(--text-primary);
+      }
+
+      .pool-member-decision span {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--text-secondary);
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .pool-member-decision.info {
+        border-color: rgba(37, 99, 235, 0.18);
+        background: rgba(239, 246, 255, 0.9);
+      }
+
+      .pool-member-decision.success {
+        border-color: rgba(16, 185, 129, 0.18);
+        background: rgba(236, 253, 245, 0.94);
+      }
+
+      .pool-member-decision.warning {
+        border-color: rgba(245, 158, 11, 0.22);
+        background: rgba(255, 251, 235, 0.95);
+      }
+
       .pool-quota-text {
         color: var(--text-primary);
       }

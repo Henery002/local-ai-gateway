@@ -2675,6 +2675,83 @@ function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): st
   `;
 }
 
+function formatPoolSelectionStrategyLabel(
+  strategy?: PoolDefinition["selectionStrategy"],
+): string {
+  if (strategy === "priority") {
+    return "成员顺序";
+  }
+  if (strategy === "quota-desc") {
+    return "剩余额度";
+  }
+  if (strategy === "least-recently-used") {
+    return "最近最少使用";
+  }
+  return "综合策略";
+}
+
+function describePoolMemberDecision(input: {
+  pool: PoolDefinition;
+  candidate: PoolMemberCandidateView;
+  member?: PoolRuntimeMember;
+}): { tone: "neutral" | "info" | "success" | "warning"; title: string; body: string } | undefined {
+  const runtime = getPoolRuntime(input.pool.id);
+  const member = input.member;
+  if (!runtime || !member) {
+    return undefined;
+  }
+
+  if (member.selected) {
+    return {
+      tone: "success",
+      title: "本轮已选中",
+      body:
+        runtime.selectionReason ||
+        "当前请求会优先使用该账号；如本次请求失败，系统才会考虑切到下一个候选。",
+    };
+  }
+
+  if (!member.eligible) {
+    return {
+      tone:
+        member.status === "cooldown" || member.status === "quota-low"
+          ? "warning"
+          : "neutral",
+      title: `当前已跳过：${member.statusLabel}`,
+      body: member.note || "当前该成员不满足本轮调度条件，因此不会参与新请求选择。",
+    };
+  }
+
+  const selectedMember = runtime.members.find((item) => item.selected);
+  const selectedTitle =
+    selectedMember?.sessionTitle ||
+    selectedMember?.label ||
+    selectedMember?.selector;
+  if (selectedMember && selectedMember.selector !== member.selector) {
+    const strategyLabel = formatPoolSelectionStrategyLabel(runtime.selectionStrategy);
+    let body = `当前号池按${strategyLabel}优先选择了 ${selectedTitle ?? "其他成员"}，该账号仍保持可选，会在后续请求或失败回退时参与调度。`;
+    if (runtime.selectionStrategy === "quota-desc" && typeof member.quotaPercentage === "number") {
+      body = `当前号池按剩余额度优先选择了 ${selectedTitle ?? "其他成员"}；该账号当前剩余额度为 ${member.quotaPercentage}% ，仍会在后续请求中参与调度。`;
+    } else if (
+      runtime.selectionStrategy === "least-recently-used" &&
+      member.lastSelectedAt
+    ) {
+      body = `当前号池按最近最少使用优先选择了 ${selectedTitle ?? "其他成员"}；该账号最近在 ${formatRecentCall(member.lastSelectedAt)} 被使用过，因此暂未成为首选。`;
+    }
+    return {
+      tone: "info",
+      title: "当前未轮到",
+      body,
+    };
+  }
+
+  return {
+    tone: "neutral",
+    title: "当前可选",
+    body: "该账号满足当前号池条件，但最近还没有形成新的调度决策。",
+  };
+}
+
 function isPoolCandidateSelected(
   pool: PoolDefinition,
   candidate: PoolMemberCandidateView,
@@ -2832,6 +2909,11 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         .map((candidate) => {
           const selected = isPoolCandidateSelected(pool, candidate);
           const runtimeMember = getPoolRuntimeMember(pool, candidate);
+          const decisionHint = describePoolMemberDecision({
+            pool,
+            candidate,
+            member: runtimeMember,
+          });
           const effectiveStatusTone = runtimeMember
             ? getPoolRuntimeMemberTone(runtimeMember)
             : candidate.statusToneClass;
@@ -2878,6 +2960,16 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
               <div class="acc-quota-bar">
                 <div class="acc-quota-fill ${quotaFillClass}" style="width: ${escapeHtml(String(Math.max(0, Math.min(100, candidate.quotaPercentage ?? 0))))}%"></div>
               </div>
+              ${
+                decisionHint
+                  ? `
+                    <div class="pool-member-decision ${decisionHint.tone}">
+                      <strong>${escapeHtml(decisionHint.title)}</strong>
+                      <span title="${escapeHtml(decisionHint.body)}">${escapeHtml(decisionHint.body)}</span>
+                    </div>
+                  `
+                  : ""
+              }
               ${buildPoolMemberRuntimeMarkup(runtimeMember)}
             </label>
           `;
