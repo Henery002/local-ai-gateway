@@ -1,8 +1,10 @@
-<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#111827" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="11.5" y="3.5" width="8" height="8" rx="2.2" opacity="0.28" />
-  <rect x="7.25" y="7.75" width="8.5" height="8.5" rx="2.25" opacity="0.52" />
-  <rect x="3" y="12" width="9" height="9" rx="2.35" />
-  <path d="M 7.4 13.9 Q 7.4 16 5.35 16 Q 7.4 16 7.4 18.05 Q 7.4 16 9.45 16 Q 7.4 16 7.4 13.9 Z" fill="#111827" stroke="none" />
-  <path d="M 17 12.9 C 20.2 14.1, 19.7 18.4, 14.7 18.9" />
-  <path d="M 15.4 17.2 L 13.65 19 L 16 19.45" />
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="11.5" y="3.6" width="8" height="8" rx="2.2" stroke="#DDD6FE" stroke-width="1.65" opacity="0.56" />
+  <rect x="7.25" y="7.85" width="8.5" height="8.5" rx="2.3" stroke="#C4B5FD" stroke-width="1.75" opacity="0.86" />
+  <rect x="3.1" y="12.05" width="8.9" height="8.9" rx="2.35" fill="#8B5CF6" stroke="#DDD6FE" stroke-width="0.8" />
+  <path d="M 7.45 14.05 Q 7.45 16.05 5.45 16.05 Q 7.45 16.05 7.45 18.05 Q 7.45 16.05 9.45 16.05 Q 7.45 16.05 7.45 14.05 Z" fill="#FFFFFF" opacity="__SPARK_OPACITY__" />
+  <g transform="rotate(__ANGLE__ 16.8 15.9)">
+    <path d="M 16.8 11.25 A 4.65 4.65 0 0 1 20.85 16.05" stroke="#F472B6" stroke-width="1.85" />
+    <path d="M 19.05 14.65 L 21.05 16.05 L 18.8 17.05" fill="#F472B6" />
+  </g>
 </svg>

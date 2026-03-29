@@ -48,7 +48,10 @@ import {
 } from "./backup-utils.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const gatewayEntrypoint = join(__dirname, "../../gateway/dist/cli.js");
+const appContentRoot = app.isPackaged ? join(process.resourcesPath, "app.asar") : join(__dirname, "../../..");
+const gatewayEntrypoint = app.isPackaged
+  ? join(appContentRoot, "apps/gateway/dist/cli.js")
+  : join(__dirname, "../../gateway/dist/cli.js");
 const preloadPath = join(__dirname, "../static/preload.cjs");
 const indexHtmlPath = join(__dirname, "../static/index.html");
 const iconAssetDir = join(__dirname, "../assets/icons/generated");
@@ -59,6 +62,8 @@ const desktopSessionSource = new OpenClawSessionSource(undefined, gatewayPaths.c
 const DESKTOP_UI_ZOOM_LEVEL = -1;
 const BACKUP_STORE_MAX_FILES = 20;
 const BACKUP_STORE_RETAIN_DAYS = 30;
+const ACTIVE_TRAY_FRAME_COUNT = 12;
+const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
@@ -77,6 +82,9 @@ let codexOAuthInProgress = false;
 let mainWindow: BrowserWindow | undefined;
 let statusTray: Tray | undefined;
 let trayRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let trayAnimationTimer: ReturnType<typeof setInterval> | undefined;
+let trayAnimationFrame = 0;
+let trayVisualState: TrayVisualState = "idle";
 
 class GatewayProcessManager {
   private child?: ChildProcess;
@@ -180,11 +188,12 @@ class GatewayProcessManager {
     }
 
     const port = getConfiguredGatewayPort();
-    const child = spawn("node", [gatewayEntrypoint], {
-      cwd: join(__dirname, "../../.."),
+    const child = spawn(app.isPackaged ? process.execPath : "node", [gatewayEntrypoint], {
+      cwd: app.isPackaged ? process.resourcesPath : appContentRoot,
       env: {
         ...process.env,
         LOCAL_AI_GATEWAY_PORT: String(port),
+        ...(app.isPackaged ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       },
       stdio: "ignore",
     });
@@ -469,22 +478,59 @@ async function buildOpenClawSnippet(): Promise<string> {
   return lines.join("\n");
 }
 
-function getTrayIconBaseName(state: TrayVisualState): string {
-  if (state === "error") {
-    return "tray-error";
-  }
-
+function getTrayAppearance(): "dark" | "light" {
   const appearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  return appearance;
+}
+
+function getTrayIconBaseName(state: TrayVisualState, frame = 0): string {
+  const appearance = getTrayAppearance();
+  if (state === "active") {
+    return `tray-active-${appearance}-${frame % ACTIVE_TRAY_FRAME_COUNT}`;
+  }
   return `tray-${state}-${appearance}`;
 }
 
-function loadTrayIcon(state: TrayVisualState) {
-  const iconPath = join(iconAssetDir, `${getTrayIconBaseName(state)}.png`);
+function loadTrayIcon(state: TrayVisualState, frame = 0) {
+  const iconPath = join(iconAssetDir, `${getTrayIconBaseName(state, frame)}.png`);
   const image = nativeImage.createFromPath(iconPath);
   if (image.isEmpty()) {
     return undefined;
   }
   return image.resize({ width: 18, height: 18 });
+}
+
+function stopTrayAnimation(): void {
+  if (trayAnimationTimer) {
+    clearInterval(trayAnimationTimer);
+    trayAnimationTimer = undefined;
+  }
+  trayAnimationFrame = 0;
+}
+
+function applyTrayImage(state: TrayVisualState): void {
+  if (!statusTray) {
+    return;
+  }
+  const icon = loadTrayIcon(state, trayAnimationFrame);
+  if (icon) {
+    statusTray.setImage(icon);
+  }
+}
+
+function ensureTrayAnimation(): void {
+  if (!statusTray || trayAnimationTimer || trayVisualState !== "active") {
+    return;
+  }
+
+  trayAnimationTimer = setInterval(() => {
+    if (!statusTray || trayVisualState !== "active") {
+      stopTrayAnimation();
+      return;
+    }
+    trayAnimationFrame = (trayAnimationFrame + 1) % ACTIVE_TRAY_FRAME_COUNT;
+    applyTrayImage("active");
+  }, ACTIVE_TRAY_FRAME_INTERVAL_MS);
 }
 
 async function resolveTraySnapshot(): Promise<TraySnapshot> {
@@ -554,10 +600,13 @@ async function refreshTrayStatus(): Promise<void> {
   }
 
   const snapshot = await resolveTraySnapshot();
-  const icon = loadTrayIcon(snapshot.state);
-  if (icon) {
-    statusTray.setImage(icon);
+  trayVisualState = snapshot.state;
+  if (snapshot.state === "active") {
+    ensureTrayAnimation();
+  } else {
+    stopTrayAnimation();
   }
+  applyTrayImage(snapshot.state);
 
   statusTray.setToolTip(`Local AI Gateway · ${snapshot.label}`);
   statusTray.setContextMenu(
@@ -618,6 +667,7 @@ function setupStatusTray(): void {
     void showMainWindow();
   });
   nativeTheme.on("updated", () => {
+    trayAnimationFrame = 0;
     void refreshTrayStatus();
   });
   void refreshTrayStatus();
@@ -1372,6 +1422,7 @@ app.on("before-quit", () => {
     clearInterval(trayRefreshTimer);
     trayRefreshTimer = undefined;
   }
+  stopTrayAnimation();
   statusTray?.destroy();
   statusTray = undefined;
 });

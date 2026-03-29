@@ -8,6 +8,7 @@ import { Resvg } from "@resvg/resvg-js";
 const rootDir = process.cwd();
 const sourceDir = resolve(rootDir, "apps/desktop/assets/icons/source");
 const generatedDir = resolve(rootDir, "apps/desktop/assets/icons/generated");
+const ACTIVE_TRAY_FRAME_COUNT = 12;
 
 function ensureCommand(command) {
   try {
@@ -23,6 +24,10 @@ function ensureDir(dir) {
 
 function renderSvgToPng(svgPath, size, outputPath) {
   const svg = readFileSync(svgPath, "utf8");
+  renderSvgStringToPng(svg, size, outputPath);
+}
+
+function renderSvgStringToPng(svg, size, outputPath) {
   const renderer = new Resvg(svg, {
     fitTo: {
       mode: "width",
@@ -73,18 +78,35 @@ function buildIcnsFromMaster(masterPngPath) {
 }
 
 function buildTrayIcons() {
-  const variants = [
+  const staticVariants = [
     ["tray-idle-light.svg", "tray-idle-light"],
     ["tray-idle-dark.svg", "tray-idle-dark"],
-    ["tray-active-light.svg", "tray-active-light"],
-    ["tray-active-dark.svg", "tray-active-dark"],
-    ["tray-error.svg", "tray-error"],
+    ["tray-error-light.svg", "tray-error-light"],
+    ["tray-error-dark.svg", "tray-error-dark"],
   ];
-  for (const [inputName, outputBase] of variants) {
+  for (const [inputName, outputBase] of staticVariants) {
     const svgPath = join(sourceDir, inputName);
     const hiResPath = join(generatedDir, `${outputBase}@2x.png`);
     renderSvgToPng(svgPath, 36, hiResPath);
     resizePng(hiResPath, 18, join(generatedDir, `${outputBase}.png`));
+  }
+
+  const activeVariants = [
+    ["tray-active-light.svg", "tray-active-light"],
+    ["tray-active-dark.svg", "tray-active-dark"],
+  ];
+  for (const [inputName, outputBase] of activeVariants) {
+    const svgTemplate = readFileSync(join(sourceDir, inputName), "utf8");
+    for (let frameIndex = 0; frameIndex < ACTIVE_TRAY_FRAME_COUNT; frameIndex += 1) {
+      const angle = (360 / ACTIVE_TRAY_FRAME_COUNT) * frameIndex;
+      const sparkOpacity = frameIndex % 3 === 0 ? "1" : frameIndex % 3 === 1 ? "0.92" : "0.8";
+      const svg = svgTemplate
+        .replaceAll("__ANGLE__", angle.toFixed(2))
+        .replaceAll("__SPARK_OPACITY__", sparkOpacity);
+      const hiResPath = join(generatedDir, `${outputBase}-${frameIndex}@2x.png`);
+      renderSvgStringToPng(svg, 36, hiResPath);
+      resizePng(hiResPath, 18, join(generatedDir, `${outputBase}-${frameIndex}.png`));
+    }
   }
 }
 
