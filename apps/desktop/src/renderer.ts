@@ -2582,6 +2582,87 @@ function formatPoolEventTypeLabel(
   return eventType === "failover" ? "自动切号" : "首次选中";
 }
 
+function findSessionSummaryByIdentifier(
+  identifier?: string,
+): DashboardSessions["data"][number] | undefined {
+  const normalized = identifier?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return (state.sessions?.data ?? []).find(
+    (session) =>
+      session.id === normalized ||
+      session.profileId === normalized ||
+      session.accountId === normalized,
+  );
+}
+
+function formatSessionReadableLabel(identifier?: string): {
+  label: string;
+  detail?: string;
+  raw: string;
+} {
+  const raw = identifier?.trim() || "unknown";
+  const session = findSessionSummaryByIdentifier(identifier);
+  if (!session) {
+    return {
+      label: raw,
+      raw,
+    };
+  }
+  const label =
+    getSessionTitle(session) ||
+    session.email ||
+    session.displayName ||
+    session.accountId ||
+    session.profileId ||
+    session.id;
+  const detailCandidates = [
+    session.email,
+    session.displayName,
+    session.accountId,
+    session.profileId,
+    session.id,
+  ].filter((value): value is string => Boolean(value && value.trim()));
+  const detail = detailCandidates.find((value) => value !== label);
+  return {
+    label,
+    detail,
+    raw,
+  };
+}
+
+function formatPoolEventSessionLabel(event: {
+  eventType: "selected" | "failover";
+  selectedSessionId?: string;
+  fromSessionId?: string;
+  toSessionId?: string;
+}): { title: string; detail?: string; raw: string } {
+  if (event.eventType === "failover") {
+    const from = formatSessionReadableLabel(event.fromSessionId);
+    const to = formatSessionReadableLabel(
+      event.toSessionId ?? event.selectedSessionId,
+    );
+    const detailParts = [from.detail, to.detail].filter(
+      (value): value is string => Boolean(value),
+    );
+    return {
+      title: `${from.label} -> ${to.label}`,
+      detail:
+        detailParts.length > 0
+          ? detailParts.join(" -> ")
+          : undefined,
+      raw: `${from.raw} -> ${to.raw}`,
+    };
+  }
+  const selected = formatSessionReadableLabel(event.selectedSessionId);
+  return {
+    title: selected.label,
+    detail: selected.detail,
+    raw: selected.raw,
+  };
+}
+
 function buildPoolEventMarkup(poolId: string): string {
   const events = getPoolRuntime(poolId)?.recentEvents ?? [];
   if (!events.length) {
@@ -2597,10 +2678,7 @@ function buildPoolEventMarkup(poolId: string): string {
       ${events
         .map((event) => {
           const tone = event.eventType === "failover" ? "warning" : "active";
-          const sessionLabel =
-            event.eventType === "failover"
-              ? `${event.fromSessionId ?? "unknown"} -> ${event.toSessionId ?? event.selectedSessionId ?? "unknown"}`
-              : event.selectedSessionId ?? "unknown";
+          const sessionLabel = formatPoolEventSessionLabel(event);
           const subtitleParts = [
             event.clientTag ? `来源 ${event.clientTag}` : undefined,
             event.requestedModelAlias
@@ -2614,10 +2692,17 @@ function buildPoolEventMarkup(poolId: string): string {
             <div class="pool-event-item">
               <div class="pool-event-head">
                 <span class="badge ${tone}">${escapeHtml(formatPoolEventTypeLabel(event.eventType))}</span>
-                <strong title="${escapeHtml(sessionLabel)}">${escapeHtml(sessionLabel)}</strong>
+                <strong title="${escapeHtml(sessionLabel.raw)}">${escapeHtml(sessionLabel.title)}</strong>
                 <span class="pool-event-time">${escapeHtml(formatRecentCall(event.timestamp))}</span>
               </div>
-              <div class="pool-event-subtitle">${escapeHtml(subtitleParts.join(" · ") || "暂无附加上下文")}</div>
+              <div class="pool-event-subtitle">${escapeHtml(
+                [
+                  sessionLabel.detail ? `账号 ${sessionLabel.detail}` : undefined,
+                  ...subtitleParts,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "暂无附加上下文",
+              )}</div>
               ${
                 event.reason
                   ? `<div class="pool-event-reason">${escapeHtml(event.reason)}</div>`
@@ -2700,7 +2785,7 @@ function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): st
           .join("")}
       </div>
       ${
-        member.note
+        member.note && (member.selected || member.eligible)
           ? `<div class="form-hint">${escapeHtml(member.note)}</div>`
           : ""
       }
@@ -2965,8 +3050,20 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
                 : candidate.quotaToneClass === "quota-high"
                   ? "pool-quota-text high"
                   : "pool-quota-text";
+          const runtimeStatus = runtimeMember?.status ?? "unknown";
+          const isDeemphasized = Boolean(
+            runtimeMember &&
+              !runtimeMember.selected &&
+              (!runtimeMember.eligible ||
+                runtimeStatus === "quota-low" ||
+                runtimeStatus === "invalid" ||
+                runtimeStatus === "missing" ||
+                runtimeStatus === "disabled" ||
+                runtimeStatus === "expired" ||
+                runtimeStatus === "unknown-quota"),
+          );
           return `
-            <label class="pool-member-option" data-selected="${selected ? "true" : "false"}">
+            <label class="pool-member-option" data-selected="${selected ? "true" : "false"}" data-eligible="${runtimeMember?.eligible === false ? "false" : "true"}" data-runtime-status="${escapeHtml(runtimeStatus)}" data-deemphasized="${isDeemphasized ? "true" : "false"}">
               <div class="pool-member-option-head">
                 <div class="pool-member-option-title">
                   <input

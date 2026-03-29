@@ -1776,7 +1776,10 @@
         font-size: 14px;
         line-height: 1.5;
         color: var(--text-primary);
-        overflow-wrap: anywhere;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: min(560px, 100%);
       }
 
       .pool-event-time {
@@ -1827,6 +1830,31 @@
         border-color: rgba(37, 99, 235, 0.28);
         box-shadow: 0 10px 30px rgba(37, 99, 235, 0.10);
         background: linear-gradient(180deg, rgba(245, 249, 255, 0.98), rgba(255, 255, 255, 0.98));
+      }
+
+      .pool-member-option[data-deemphasized="true"] {
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.86), rgba(255, 255, 255, 0.92));
+        border-color: rgba(148, 163, 184, 0.16);
+        box-shadow: 0 8px 20px rgba(148, 163, 184, 0.08);
+      }
+
+      .pool-member-option[data-deemphasized="true"]:not([data-selected="true"]) {
+        opacity: 0.8;
+      }
+
+      .pool-member-option[data-deemphasized="true"] .pool-member-option-subtitle,
+      .pool-member-option[data-deemphasized="true"] .pool-member-runtime-item span,
+      .pool-member-option[data-deemphasized="true"] .pool-member-decision span {
+        color: var(--text-tertiary);
+      }
+
+      .pool-member-option[data-deemphasized="true"] .pool-member-runtime-item,
+      .pool-member-option[data-deemphasized="true"] .pool-member-decision {
+        background: rgba(248, 250, 252, 0.8);
+      }
+
+      .pool-member-option[data-deemphasized="true"] .acc-quota-bar {
+        opacity: 0.72;
       }
 
       .pool-member-option input[type="checkbox"] {
