@@ -57,6 +57,7 @@ declare global {
       saveSystemSettings: (
         payload: SystemSettings,
       ) => Promise<SystemSettingsResponse>;
+      getAppDataStatus: () => Promise<AppDataStatusResponse>;
       exportAppData: () => Promise<{
         ok: boolean;
         canceled?: boolean;
@@ -64,7 +65,19 @@ declare global {
         fileCount?: number;
         totalBytes?: number;
       }>;
-      importAppData: () => Promise<{
+      previewImportAppData: () => Promise<{
+        ok: boolean;
+        canceled?: boolean;
+        data?: {
+          selectedPath: string;
+          fileName: string;
+          exportedAt?: string;
+          appVersion?: string;
+          fileCount: number;
+          totalBytes: number;
+        };
+      }>;
+      importAppData: (selectedPath?: string) => Promise<{
         ok: boolean;
         canceled?: boolean;
         selectedPath?: string;
@@ -74,6 +87,7 @@ declare global {
         managedRestarted?: boolean;
         requiresManualRestart?: boolean;
       }>;
+      openBackupsFolder: () => Promise<string>;
       getSessions: () => Promise<DashboardSessions>;
       setActiveSession: (sessionId: string) => Promise<any>;
       refreshSessionUsage: (
@@ -558,6 +572,24 @@ type SystemSettingsResponse = {
   data: SystemSettings;
 };
 
+type AppDataStatus = {
+  rootDir: string;
+  backupDir: string;
+  fileCount: number;
+  totalBytes: number;
+  latestBackup?: {
+    path: string;
+    fileName: string;
+    createdAt?: number;
+    sizeBytes?: number;
+  };
+};
+
+type AppDataStatusResponse = {
+  ok: boolean;
+  data: AppDataStatus;
+};
+
 type DashboardView =
   | "overview"
   | "accounts"
@@ -576,6 +608,7 @@ const state: {
   poolSettings?: PoolSettings;
   securitySettings?: SecuritySettings;
   systemSettings?: SystemSettings;
+  appDataStatus?: AppDataStatus;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
   activeView: DashboardView;
@@ -1816,6 +1849,7 @@ function renderDiagnostics(): void {
   }
 
   renderStartupChecklist();
+  renderAppDataStatus();
 
   const runtimeDiagnostics = state.runtimeDiagnostics;
   if (!runtimeDiagnostics.length) {
@@ -1880,6 +1914,34 @@ function renderDiagnostics(): void {
     `;
     container.appendChild(card);
   }
+}
+
+function renderAppDataStatus(): void {
+  const container = document.getElementById("app-data-status");
+  if (!container) {
+    return;
+  }
+
+  const status = state.appDataStatus;
+  if (!status) {
+    container.innerHTML = "<div class='form-hint'>正在加载本地数据概况…</div>";
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="routing-rule-guide" style="margin-top: 10px;">
+      <span>当前本地持久化数据：${escapeHtml(String(status.fileCount))} 个文件，约 ${escapeHtml(formatBytes(status.totalBytes))}。</span>
+      <span>应用数据目录：${escapeHtml(status.rootDir)}</span>
+      <span>备份目录：${escapeHtml(status.backupDir)}</span>
+      ${
+        status.latestBackup
+          ? `<span>最近安全备份：${escapeHtml(status.latestBackup.fileName)} · ${escapeHtml(
+              formatDate(status.latestBackup.createdAt),
+            )} · ${escapeHtml(formatBytes(status.latestBackup.sizeBytes))}</span>`
+          : "<span>当前还没有历史安全备份文件。</span>"
+      }
+    </div>
+  `;
 }
 
 function renderStartupChecklist(): void {
@@ -4077,26 +4139,43 @@ async function exportAppData(): Promise<void> {
     return;
   }
 
+  try {
+    state.appDataStatus = (await api.getAppDataStatus()).data;
+    renderAppDataStatus();
+  } catch {
+    // 导出成功不依赖状态刷新，失败时保留成功提示即可。
+  }
+
   setBanner(
-    `应用数据已导出：${result.fileCount ?? 0} 个文件，${formatBytes(result.totalBytes)}。`,
+    `应用数据已导出到 ${result.selectedPath ?? "目标位置"}：${result.fileCount ?? 0} 个文件，${formatBytes(result.totalBytes)}。`,
     "success",
   );
 }
 
 async function importAppData(): Promise<void> {
+  const api = getGatewayApi();
+  const preview = await api.previewImportAppData();
+  if (preview.canceled || !preview.data) {
+    setBanner("已取消应用数据导入。", "info");
+    return;
+  }
+
   const confirmed = await requestConfirmation({
     title: "确认导入应用数据",
-    message:
-      "导入会覆盖当前本机的配置、账号、统计和日志等持久化数据。系统会先自动创建一份安全备份。是否继续？",
+    message: `将导入备份 ${preview.data.fileName}（导出时间 ${formatDate(
+      preview.data.exportedAt ? Date.parse(preview.data.exportedAt) : undefined,
+    )}，应用版本 ${preview.data.appVersion ?? "unknown"}，${preview.data.fileCount} 个文件，约 ${formatBytes(
+      preview.data.totalBytes,
+    )}）。导入会覆盖当前本机的配置、账号、统计和日志等持久化数据，并先自动创建一份安全备份。是否继续？`,
     confirmLabel: "确认导入",
     tone: "danger",
   });
   if (!confirmed) {
+    setBanner("已取消应用数据导入。", "info");
     return;
   }
 
-  const api = getGatewayApi();
-  const result = await api.importAppData();
+  const result = await api.importAppData(preview.data.selectedPath);
   if (result.canceled) {
     setBanner("已取消应用数据导入。", "info");
     return;
@@ -4106,6 +4185,13 @@ async function importAppData(): Promise<void> {
     await refresh();
   } catch {
     // 若当前不是托管 gateway，导入后可能需要人工重启，本次保留导入成功提示即可。
+  }
+
+  try {
+    state.appDataStatus = (await api.getAppDataStatus()).data;
+    renderAppDataStatus();
+  } catch {
+    // 恢复后若状态暂不可读取，不影响主流程。
   }
 
   if (result.requiresManualRestart) {
@@ -4741,6 +4827,22 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("open-backups-folder")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "open-backups-folder",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "打开中");
+        await getGatewayApi().openBackupsFolder();
+      } catch (error) {
+        setBanner(`打开备份目录失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
     .getElementById("save-security-settings")
     ?.addEventListener("click", async () => {
       const button = document.getElementById(
@@ -5324,6 +5426,7 @@ async function refresh(): Promise<void> {
     poolSettingsResult,
     securitySettingsResult,
     systemSettingsResult,
+    appDataStatusResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
@@ -5333,6 +5436,7 @@ async function refresh(): Promise<void> {
     api.getPoolSettings(),
     api.getSecuritySettings(),
     api.getSystemSettings(),
+    api.getAppDataStatus(),
   ]);
   const loadFailures: RuntimeDiagnosticLoadFailure[] = [];
 
@@ -5428,6 +5532,16 @@ async function refresh(): Promise<void> {
       enabled: false,
       hasApiKey: false,
     };
+  }
+
+  if (appDataStatusResult.status === "fulfilled") {
+    state.appDataStatus = appDataStatusResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "app-data-status",
+      message: normalizeErrorMessage(appDataStatusResult.reason),
+    });
+    state.appDataStatus = undefined;
   }
 
   updateRuntimeDiagnostics(loadFailures);

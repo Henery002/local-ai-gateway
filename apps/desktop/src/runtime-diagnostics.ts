@@ -17,7 +17,8 @@ export interface RuntimeDiagnosticLoadFailure {
     | "routing-settings"
     | "pool-settings"
     | "security-settings"
-    | "system-settings";
+    | "system-settings"
+    | "app-data-status";
   message: string;
 }
 
@@ -119,6 +120,7 @@ export function classifyLoadFailure(
     "pool-settings": "号池调度配置加载失败",
     "security-settings": "接入鉴权配置加载失败",
     "system-settings": "系统配置加载失败",
+    "app-data-status": "应用数据概况加载失败",
   } as const;
 
   return {

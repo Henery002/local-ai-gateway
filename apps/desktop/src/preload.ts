@@ -20,8 +20,12 @@ const api = {
   getSystemSettings: () => ipcRenderer.invoke("gateway:get-system-settings"),
   saveSystemSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-system-settings", payload),
+  getAppDataStatus: () => ipcRenderer.invoke("gateway:get-app-data-status"),
   exportAppData: () => ipcRenderer.invoke("gateway:export-app-data"),
-  importAppData: () => ipcRenderer.invoke("gateway:import-app-data"),
+  previewImportAppData: () => ipcRenderer.invoke("gateway:preview-import-app-data"),
+  importAppData: (selectedPath?: string) =>
+    ipcRenderer.invoke("gateway:import-app-data", selectedPath),
+  openBackupsFolder: () => ipcRenderer.invoke("gateway:open-backups-folder"),
   getSessions: () => ipcRenderer.invoke("gateway:get-sessions"),
   setActiveSession: (sessionId: string) =>
     ipcRenderer.invoke("gateway:set-active-session", sessionId),

@@ -1,6 +1,6 @@
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
 
@@ -509,6 +509,45 @@ function createSafetyBackupSnapshot(): { path: string; fileCount: number; totalB
   };
 }
 
+function statSafe(filePath: string): ReturnType<typeof statSync> | undefined {
+  try {
+    return statSync(filePath);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeStatNumber(value: number | bigint | undefined): number | undefined {
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function getLatestBackupSnapshot(): {
+  path: string;
+  fileName: string;
+  createdAt?: number;
+  sizeBytes?: number;
+} | undefined {
+  const backupDir = getBackupStoreDir();
+  const latest = readdirSync(backupDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => {
+      const absolutePath = join(backupDir, entry.name);
+      const stat = statSafe(absolutePath);
+      return {
+        path: absolutePath,
+        fileName: entry.name,
+        createdAt: normalizeStatNumber(stat?.mtimeMs),
+        sizeBytes: normalizeStatNumber(stat?.size),
+      };
+    })
+    .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))[0];
+
+  return latest;
+}
+
 ipcMain.handle("gateway:get-health", async () => {
   const running = await gatewayManager.ensureRunning();
   const payload = (await callAdmin("/admin/health")) as Record<string, unknown>;
@@ -935,7 +974,26 @@ ipcMain.handle("gateway:export-app-data", async () => {
   };
 });
 
-ipcMain.handle("gateway:import-app-data", async () => {
+ipcMain.handle("gateway:get-app-data-status", async () => {
+  const snapshot = getAppDataSnapshotSummary(gatewayPaths);
+  const latestBackup = getLatestBackupSnapshot();
+  return {
+    ok: true,
+    data: {
+      rootDir: gatewayPaths.rootDir,
+      backupDir: getBackupStoreDir(),
+      fileCount: snapshot.fileCount,
+      totalBytes: snapshot.totalBytes,
+      latestBackup,
+    },
+  };
+});
+
+ipcMain.handle("gateway:open-backups-folder", async () => {
+  return shell.openPath(getBackupStoreDir());
+});
+
+ipcMain.handle("gateway:preview-import-app-data", async () => {
   const result = await dialog.showOpenDialog({
     title: "导入 Local AI Gateway 应用数据",
     properties: ["openFile"],
@@ -951,6 +1009,47 @@ ipcMain.handle("gateway:import-app-data", async () => {
 
   const selectedPath = result.filePaths[0]!;
   const bundle = parseAppDataBackupBundle(readFileSync(selectedPath, "utf8"));
+  return {
+    ok: true,
+    canceled: false,
+    data: {
+      selectedPath,
+      fileName: basename(selectedPath),
+      exportedAt: bundle.exportedAt,
+      appVersion: bundle.appVersion,
+      fileCount: bundle.files.length,
+      totalBytes: getBackupBundleSizeBytes(bundle),
+    },
+  };
+});
+
+ipcMain.handle("gateway:import-app-data", async (_event, selectedPath?: string) => {
+  let targetPath = selectedPath?.trim();
+  if (!targetPath) {
+    const result = await dialog.showOpenDialog({
+      title: "导入 Local AI Gateway 应用数据",
+      properties: ["openFile"],
+      filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return {
+        ok: false,
+        canceled: true,
+      };
+    }
+
+    targetPath = result.filePaths[0]!;
+  }
+
+  if (!targetPath) {
+    return {
+      ok: false,
+      canceled: true,
+    };
+  }
+
+  const bundle = parseAppDataBackupBundle(readFileSync(targetPath, "utf8"));
   const safetyBackup = createSafetyBackupSnapshot();
   const wasManaged = gatewayManager.isManaged();
 
@@ -972,7 +1071,7 @@ ipcMain.handle("gateway:import-app-data", async () => {
 
   return {
     ok: true,
-    selectedPath,
+    selectedPath: targetPath,
     safetyBackupPath: safetyBackup.path,
     restoredFiles: restored.restoredFiles,
     restoredBytes: restored.restoredBytes,
