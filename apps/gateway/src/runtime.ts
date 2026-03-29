@@ -13,6 +13,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   GatewayHealth,
+  GatewayInferenceObservability,
   GatewayInferenceAuthPublicSettings,
   GatewayPoolFailureClass,
   GatewayPoolMemberObservability,
@@ -69,6 +70,15 @@ type PoolSelectionResult = {
   warnings: string[];
 };
 
+type InferenceRequestRuntimeState = {
+  requestId: string;
+  startedAt: number;
+  clientTag?: string;
+  requestedModelAlias?: string;
+  sessionId?: string;
+  poolId?: string;
+};
+
 export class GatewayRuntime {
   readonly startedAt = new Date();
   readonly sessionSource: SessionSource;
@@ -78,9 +88,12 @@ export class GatewayRuntime {
   private readonly routingHits: GatewayRoutingHitEvent[] = [];
   private readonly poolSelectionEvents: GatewayPoolSelectionEvent[] = [];
   private readonly poolMemberState = new Map<string, PoolMemberRuntimeState>();
+  private readonly inFlightRequests = new Map<string, InferenceRequestRuntimeState>();
   private sessionActivityInsertCount = 0;
   private routingHitInsertCount = 0;
   private poolSelectionInsertCount = 0;
+  private inferenceRequestSequence = 0;
+  private lastInferenceFinishedAt?: number;
 
   constructor(
     readonly paths: GatewayPaths,
@@ -284,8 +297,52 @@ export class GatewayRuntime {
       defaultSelection: this.getDefaultSelectionSummary(),
       routingObservability: this.getRoutingObservability(),
       poolObservability: this.getPoolObservability(),
+      inferenceObservability: this.getInferenceObservability(),
       inferenceAuth: this.getInferenceAuthPublicSettings(),
     };
+  }
+
+  beginInferenceActivity(input: {
+    clientTag?: string;
+    requestedModelAlias?: string;
+    sessionId?: string;
+    poolId?: string;
+  }): string {
+    this.inferenceRequestSequence += 1;
+    const requestId = `req-${Date.now()}-${this.inferenceRequestSequence}`;
+    this.inFlightRequests.set(requestId, {
+      requestId,
+      startedAt: Date.now(),
+      clientTag: input.clientTag,
+      requestedModelAlias: input.requestedModelAlias,
+      sessionId: input.sessionId,
+      poolId: input.poolId,
+    });
+    return requestId;
+  }
+
+  updateInferenceActivity(
+    requestId: string,
+    patch: {
+      sessionId?: string;
+      poolId?: string;
+    },
+  ): void {
+    const current = this.inFlightRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+    this.inFlightRequests.set(requestId, {
+      ...current,
+      sessionId: patch.sessionId ?? current.sessionId,
+      poolId: patch.poolId ?? current.poolId,
+    });
+  }
+
+  finishInferenceActivity(requestId: string): void {
+    if (this.inFlightRequests.delete(requestId)) {
+      this.lastInferenceFinishedAt = Date.now();
+    }
   }
 
   getInferenceAuthPublicSettings(): GatewayInferenceAuthPublicSettings {
@@ -319,6 +376,8 @@ export class GatewayRuntime {
     this.routingHits.splice(0, this.routingHits.length);
     this.poolSelectionEvents.splice(0, this.poolSelectionEvents.length);
     this.poolMemberState.clear();
+    this.inFlightRequests.clear();
+    this.lastInferenceFinishedAt = undefined;
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
     this.poolSelectionInsertCount = 0;
@@ -492,6 +551,22 @@ export class GatewayRuntime {
     return {
       model,
       adapter: this.providerRegistry.getAdapterForModel(model),
+    };
+  }
+
+  private getInferenceObservability(): GatewayInferenceObservability {
+    const latestActive = Array.from(this.inFlightRequests.values()).sort(
+      (left, right) => right.startedAt - left.startedAt,
+    )[0];
+
+    return {
+      inFlightCount: this.inFlightRequests.size,
+      lastStartedAt: latestActive?.startedAt,
+      lastFinishedAt: this.lastInferenceFinishedAt,
+      currentSessionId: latestActive?.sessionId,
+      currentPoolId: latestActive?.poolId,
+      currentClientTag: latestActive?.clientTag,
+      currentModelAlias: latestActive?.requestedModelAlias,
     };
   }
 

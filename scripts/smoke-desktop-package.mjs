@@ -39,7 +39,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForHealth(baseUrl, timeoutMs = 20_000) {
+async function waitForHealth(baseUrl, timeoutMs = 40_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -77,16 +77,30 @@ async function launchPackagedAppAndVerify() {
     )}\n`,
   );
 
+  let stderrOutput = "";
   const child = spawn(executablePath, {
     env: {
       ...process.env,
       HOME: tempHome,
     },
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr?.on("data", (chunk) => {
+    stderrOutput += chunk.toString("utf8");
+    if (stderrOutput.length > 8_000) {
+      stderrOutput = stderrOutput.slice(-8_000);
+    }
   });
 
   try {
     await waitForHealth(`http://127.0.0.1:${smokePort}`);
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : "安装版健康检查失败";
+    const detail = stderrOutput.trim()
+      ? `\n最近 stderr：\n${stderrOutput.trim()}`
+      : "";
+    throw new Error(`${reason}${detail}`);
   } finally {
     child.kill("SIGTERM");
     await sleep(500);

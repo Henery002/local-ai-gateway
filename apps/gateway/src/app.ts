@@ -336,6 +336,12 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     if (!resolved) {
       throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
     }
+    const inferenceRequestId = runtime.beginInferenceActivity({
+      clientTag,
+      requestedModelAlias: resolvedModelAlias,
+      sessionId: resolvedSessionId,
+      poolId: targetPoolId,
+    });
 
     const recordRoutingHitIfNeeded = (sessionId?: string) => {
       if (
@@ -511,9 +517,17 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           throw error;
         }
         resolvedSessionId = fallbackSessionId;
+        runtime.updateInferenceActivity(inferenceRequestId, {
+          sessionId: resolvedSessionId,
+          poolId: targetPoolId,
+        });
         result = await createAttempt(resolvedSessionId);
       }
       usedSessionId = result.session.id;
+      runtime.updateInferenceActivity(inferenceRequestId, {
+        sessionId: usedSessionId,
+        poolId: targetPoolId,
+      });
       if (
         targetPoolId &&
         selectedByPoolMember &&
@@ -577,8 +591,16 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           selectFallbackSessionId(usedSessionId);
         if (fallbackSessionId) {
           resolvedSessionId = fallbackSessionId;
+          runtime.updateInferenceActivity(inferenceRequestId, {
+            sessionId: resolvedSessionId,
+            poolId: targetPoolId,
+          });
           const retryResult = await createAttempt(fallbackSessionId);
           usedSessionId = retryResult.session.id;
+          runtime.updateInferenceActivity(inferenceRequestId, {
+            sessionId: usedSessionId,
+            poolId: targetPoolId,
+          });
           selectedByPoolMember = Boolean(targetPoolId && poolFallbackSessionId);
           finalMessage = await retryResult.stream.result();
         }
@@ -645,6 +667,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         });
       }
       throw error;
+    } finally {
+      runtime.finishInferenceActivity(inferenceRequestId);
     }
   });
 

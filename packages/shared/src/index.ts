@@ -494,7 +494,18 @@ export interface GatewayHealth {
   defaultSelection?: DefaultModelSelectionSummary;
   routingObservability?: GatewayRoutingObservability;
   poolObservability?: GatewayPoolObservability[];
+  inferenceObservability?: GatewayInferenceObservability;
   inferenceAuth?: GatewayInferenceAuthPublicSettings;
+}
+
+export interface GatewayInferenceObservability {
+  inFlightCount: number;
+  lastStartedAt?: number;
+  lastFinishedAt?: number;
+  currentSessionId?: string;
+  currentPoolId?: string;
+  currentClientTag?: string;
+  currentModelAlias?: string;
 }
 
 export interface GatewayLogRecord {

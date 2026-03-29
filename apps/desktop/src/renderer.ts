@@ -1933,6 +1933,7 @@ function renderAppDataStatus(): void {
       <span>当前本地持久化数据：${escapeHtml(String(status.fileCount))} 个文件，约 ${escapeHtml(formatBytes(status.totalBytes))}。</span>
       <span>应用数据目录：${escapeHtml(status.rootDir)}</span>
       <span>备份目录：${escapeHtml(status.backupDir)}</span>
+      <span>开发环境与安装版默认共用同一应用数据目录；仅删除应用程序文件不会清空这里的数据。</span>
       ${
         status.latestBackup
           ? `<span>最近安全备份：${escapeHtml(status.latestBackup.fileName)} · ${escapeHtml(

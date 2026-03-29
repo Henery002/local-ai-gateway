@@ -21,15 +21,21 @@ import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
 
 import {
+  APP_NAME,
   APP_VERSION,
   DEFAULT_HOST,
   DEFAULT_PORT,
+  type GatewayInferenceObservability,
+  type GatewayPoolObservability,
+  type GatewayRoutingHitEvent,
   type GatewayInferenceAuthPublicSettings,
   type GatewayInferenceAuthSettings,
   type GatewayRoutingPreviewInput,
   type GatewayRoutingSettings,
+  type GatewaySessionPoolDefinition,
   type GatewaySessionPoolSettings,
   type SessionActivitySnapshot,
+  type SessionSummary,
   type SessionUsageRefreshSummary,
   resolveGatewayPaths,
   toIsoNow,
@@ -67,12 +73,24 @@ const BACKUP_STORE_MAX_FILES = 20;
 const BACKUP_STORE_RETAIN_DAYS = 30;
 const ACTIVE_TRAY_FRAME_COUNT = 12;
 const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
+const TRAY_REFRESH_INTERVAL_MS = 2_500;
+const TRAY_ACTIVE_WINDOW_MS = 3_000;
+const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
   state: TrayVisualState;
   label: string;
   detail: string;
+  clientLabel?: string;
+  modelAlias?: string;
+  activePoolName?: string;
+  activePoolThreshold?: number;
+  activeSessionLabel?: string;
+  activeSessionQuotaPercentage?: number;
+  activeSessionResetAt?: number;
+  inFlightCount?: number;
+  recentlyFinished?: boolean;
 };
 
 type PendingCodexOAuthFlow = {
@@ -511,8 +529,154 @@ async function buildOpenClawSnippet(): Promise<string> {
 }
 
 function getTrayAppearance(): "dark" | "light" {
-  const appearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
-  return appearance;
+  return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+}
+
+function formatClientTagLabel(clientTag?: string): string | undefined {
+  if (!clientTag) {
+    return undefined;
+  }
+  if (clientTag === "openclaw") {
+    return "OpenClaw";
+  }
+  if (clientTag === "localraghub") {
+    return "localRagHub";
+  }
+  if (clientTag === "unknown") {
+    return "未标记";
+  }
+  return clientTag;
+}
+
+function formatSessionLabel(session?: SessionSummary): string | undefined {
+  if (!session) {
+    return undefined;
+  }
+  return (
+    session.displayName?.trim() ||
+    session.email?.trim() ||
+    session.accountId?.trim() ||
+    session.profileId?.trim() ||
+    session.id
+  );
+}
+
+function formatRelativeDuration(targetAt?: number): string | undefined {
+  if (!targetAt || !Number.isFinite(targetAt)) {
+    return undefined;
+  }
+  const diff = Math.max(0, targetAt - Date.now());
+  if (diff === 0) {
+    return "即将到期";
+  }
+  const totalMinutes = Math.floor(diff / 60_000);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return `${days}天${hours > 0 ? ` ${hours}小时` : ""}`;
+  }
+  if (hours > 0) {
+    return `${hours}小时${minutes > 0 ? ` ${minutes}分钟` : ""}`;
+  }
+  return `${Math.max(1, minutes)}分钟`;
+}
+
+function formatRelativePast(timestamp?: number): string | undefined {
+  if (!timestamp || !Number.isFinite(timestamp)) {
+    return undefined;
+  }
+  const diff = Math.max(0, Date.now() - timestamp);
+  const totalSeconds = Math.floor(diff / 1000);
+  if (totalSeconds < 5) {
+    return "刚刚";
+  }
+  if (totalSeconds < 60) {
+    return `${totalSeconds} 秒前`;
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    return `${totalMinutes} 分钟前`;
+  }
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) {
+    return `${totalHours} 小时前`;
+  }
+  return `${Math.floor(totalHours / 24)} 天前`;
+}
+
+function buildQuotaBar(percentage?: number): string | undefined {
+  if (typeof percentage !== "number" || !Number.isFinite(percentage)) {
+    return undefined;
+  }
+  const normalized = Math.max(0, Math.min(100, percentage));
+  const filled = Math.max(0, Math.min(10, Math.round(normalized / 10)));
+  return `${"█".repeat(filled)}${"░".repeat(10 - filled)}`;
+}
+
+function getQuotaTonePrefix(percentage?: number): string {
+  if (typeof percentage !== "number" || !Number.isFinite(percentage)) {
+    return "⚪";
+  }
+  if (percentage >= 60) {
+    return "🟢";
+  }
+  if (percentage >= 25) {
+    return "🟡";
+  }
+  return "🔴";
+}
+
+function formatQuotaLine(percentage?: number): string | undefined {
+  if (typeof percentage !== "number" || !Number.isFinite(percentage)) {
+    return undefined;
+  }
+  const quotaBar = buildQuotaBar(percentage);
+  return `${getQuotaTonePrefix(percentage)} ${percentage}%${quotaBar ? `  ${quotaBar}` : ""}`;
+}
+
+function resolveCurrentPool(
+  poolObservability: GatewayPoolObservability[],
+  currentPoolId?: string,
+  activeSessionId?: string,
+  latestRouting?: GatewayRoutingHitEvent,
+): GatewayPoolObservability | undefined {
+  if (currentPoolId) {
+    const exact = poolObservability.find((pool) => pool.poolId === currentPoolId);
+    if (exact) {
+      return exact;
+    }
+  }
+
+  const latestPoolEvent = poolObservability
+    .flatMap((pool) =>
+      (pool.recentEvents ?? []).map((event) => ({
+        pool,
+        event,
+      })),
+    )
+    .sort((left, right) => right.event.timestamp - left.event.timestamp)[0];
+
+  if (
+    latestPoolEvent &&
+    Date.now() - latestPoolEvent.event.timestamp <= TRAY_ACTIVE_WINDOW_MS * 4
+  ) {
+    return latestPoolEvent.pool;
+  }
+
+  if (latestRouting?.resolvedSessionId) {
+    const matched = poolObservability.find(
+      (pool) => pool.selectedSessionId === latestRouting.resolvedSessionId,
+    );
+    if (matched) {
+      return matched;
+    }
+  }
+
+  if (activeSessionId) {
+    return poolObservability.find((pool) => pool.selectedSessionId === activeSessionId);
+  }
+  return undefined;
 }
 
 function getTrayIconBaseName(state: TrayVisualState, frame = 0): string {
@@ -529,7 +693,9 @@ function loadTrayIcon(state: TrayVisualState, frame = 0) {
   if (image.isEmpty()) {
     return undefined;
   }
-  return image.resize({ width: 18, height: 18 });
+  const resized = image.resize({ width: 18, height: 18, quality: "best" });
+  resized.setTemplateImage(true);
+  return resized;
 }
 
 function stopTrayAnimation(): void {
@@ -568,31 +734,86 @@ function ensureTrayAnimation(): void {
 async function resolveTraySnapshot(): Promise<TraySnapshot> {
   try {
     await gatewayManager.ensureRunning();
-    const payload = (await callAdmin("/admin/health")) as Record<string, unknown>;
-    const activeSessionId =
-      typeof payload.activeSessionId === "string" ? payload.activeSessionId : undefined;
-    const routing =
-      typeof payload.routingObservability === "object" && payload.routingObservability
-        ? (payload.routingObservability as Record<string, unknown>)
-        : undefined;
-    const lastMatchedAt =
-      typeof routing?.lastMatchedAt === "number" ? routing.lastMatchedAt : undefined;
-    const matchedLast5m =
-      typeof routing?.matchedLast5m === "number" ? routing.matchedLast5m : 0;
+    const [healthPayload, sessionPayload, poolSettingsPayload] = await Promise.all([
+      callAdmin("/admin/health") as Promise<{
+        activeSessionId?: string;
+        inferenceObservability?: GatewayInferenceObservability;
+        routingObservability?: {
+          lastMatchedAt?: number;
+          matchedLast5m?: number;
+          recent?: GatewayRoutingHitEvent[];
+        };
+        poolObservability?: GatewayPoolObservability[];
+      }>,
+      callAdmin("/admin/sessions") as Promise<{
+        activeSessionId?: string;
+        data?: SessionSummary[];
+      }>,
+      callAdminWithPoolCompatibility("/admin/config/pools")
+        .then((payload) => payload as GatewaySessionPoolSettings)
+        .catch(() => undefined),
+    ]);
 
-    if (!activeSessionId) {
+    const activeSessionId = healthPayload.activeSessionId ?? sessionPayload.activeSessionId;
+    const inference = healthPayload.inferenceObservability;
+    const routing = healthPayload.routingObservability;
+    const lastMatchedAt = routing?.lastMatchedAt;
+    const matchedLast5m = routing?.matchedLast5m ?? 0;
+    const latestRouting = routing?.recent?.[0];
+    const sessions = sessionPayload.data ?? [];
+    const currentSessionId = inference?.currentSessionId ?? activeSessionId;
+    const activeSession = sessions.find((session) => session.id === currentSessionId);
+    const poolObservability = healthPayload.poolObservability ?? [];
+    const currentPool = resolveCurrentPool(
+      poolObservability,
+      inference?.currentPoolId,
+      currentSessionId,
+      latestRouting,
+    );
+    const currentPoolDefinition = poolSettingsPayload?.pools?.find(
+      (pool) => pool.id === currentPool?.poolId,
+    );
+    const activeSessionLabel = formatSessionLabel(activeSession);
+    const clientLabel = formatClientTagLabel(
+      inference?.currentClientTag ?? latestRouting?.clientTag,
+    );
+    const modelAlias =
+      inference?.currentModelAlias ??
+      latestRouting?.requestedModelAlias ??
+      latestRouting?.resolvedModelAlias;
+    const isActivelyBridging = (inference?.inFlightCount ?? 0) > 0;
+    const justFinished =
+      !isActivelyBridging &&
+      Boolean(
+        inference?.lastFinishedAt &&
+          Date.now() - inference.lastFinishedAt <= TRAY_RECENT_FINISH_GRACE_MS,
+      );
+
+    if (!activeSessionId && !currentSessionId) {
       return {
         state: "error",
         label: "授权异常",
         detail: "当前没有可用活动账号",
+        activePoolName: currentPool?.poolName,
       };
     }
 
-    if (lastMatchedAt && Date.now() - lastMatchedAt <= 90_000) {
+    if (isActivelyBridging || justFinished) {
       return {
         state: "active",
-        label: "中转桥接中",
-        detail: "最近 90 秒内有请求经过本地网关",
+        label: isActivelyBridging ? "中转桥接中" : "请求刚结束",
+        detail: isActivelyBridging
+          ? `正在桥接 ${clientLabel ?? "第三方客户端"} 请求`
+          : "请求已完成，正在回落为空闲态",
+        clientLabel,
+        modelAlias,
+        activePoolName: currentPool?.poolName,
+        activePoolThreshold: currentPoolDefinition?.minRemainingPercentage,
+        activeSessionLabel,
+        activeSessionQuotaPercentage: activeSession?.quota?.percentage,
+        activeSessionResetAt: activeSession?.quota?.resetAt,
+        inFlightCount: inference?.inFlightCount ?? 0,
+        recentlyFinished: justFinished,
       };
     }
 
@@ -603,6 +824,13 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         matchedLast5m > 0
           ? `最近 5 分钟累计命中 ${matchedLast5m} 次`
           : "网关已就绪，当前没有新请求",
+      clientLabel,
+      modelAlias,
+      activePoolName: currentPool?.poolName,
+      activePoolThreshold: currentPoolDefinition?.minRemainingPercentage,
+      activeSessionLabel,
+      activeSessionQuotaPercentage: activeSession?.quota?.percentage,
+      activeSessionResetAt: activeSession?.quota?.resetAt,
     };
   } catch (error) {
     return {
@@ -630,7 +858,7 @@ async function showMainWindow(): Promise<void> {
   }
 }
 
-async function refreshTrayStatus(): Promise<void> {
+async function refreshTrayStatus(showMenu = false): Promise<void> {
   if (!statusTray) {
     return;
   }
@@ -645,8 +873,23 @@ async function refreshTrayStatus(): Promise<void> {
   applyTrayImage(snapshot.state);
 
   statusTray.setToolTip(`Local AI Gateway · ${snapshot.label}`);
-  statusTray.setContextMenu(
-    Menu.buildFromTemplate([
+  const quotaLine = formatQuotaLine(snapshot.activeSessionQuotaPercentage);
+  const recentSourceLine =
+    snapshot.clientLabel || snapshot.modelAlias
+      ? `${snapshot.clientLabel ?? "未标记"} · ${snapshot.modelAlias ?? "codex-default"}`
+      : undefined;
+  const currentThresholdLine =
+    typeof snapshot.activePoolThreshold === "number"
+      ? `低于 ${snapshot.activePoolThreshold}% 自动跳过`
+      : undefined;
+  const menu = Menu.buildFromTemplate([
+      {
+        label: APP_NAME,
+        enabled: false,
+      },
+      {
+        type: "separator",
+      },
       {
         label: `当前状态：${snapshot.label}`,
         enabled: false,
@@ -655,13 +898,89 @@ async function refreshTrayStatus(): Promise<void> {
         label: snapshot.detail,
         enabled: false,
       },
+      ...(typeof snapshot.inFlightCount === "number" && snapshot.inFlightCount > 0
+        ? [
+            {
+              label: `并发请求：${snapshot.inFlightCount} 个`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(recentSourceLine
+        ? [
+            {
+              label: `当前来源：${recentSourceLine}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(snapshot.activePoolName
+        ? [
+            {
+              label: `当前号池：${snapshot.activePoolName}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(snapshot.activeSessionLabel
+        ? [
+            {
+              label: `当前账号：${snapshot.activeSessionLabel}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(quotaLine
+        ? [
+            {
+              label: `剩余额度：${quotaLine}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(snapshot.activeSessionResetAt
+        ? [
+            {
+              label: `重置时间：${formatRelativeDuration(snapshot.activeSessionResetAt) ?? "待同步"}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(currentThresholdLine
+        ? [
+            {
+              label: `阈值策略：${currentThresholdLine}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(snapshot.recentlyFinished
+        ? [
+            {
+              label: "状态切换：请求刚结束，图标即将恢复空闲态",
+              enabled: false,
+            },
+          ]
+        : []),
       {
         type: "separator",
       },
       {
-        label: "打开控制台",
+        label: "打开主界面",
         click: () => {
           void showMainWindow();
+        },
+      },
+      {
+        label: "打开日志目录",
+        click: () => {
+          void shell.openPath(gatewayPaths.logsDir);
+        },
+      },
+      {
+        label: "打开数据目录",
+        click: () => {
+          void shell.openPath(gatewayPaths.rootDir);
         },
       },
       {
@@ -684,8 +1003,11 @@ async function refreshTrayStatus(): Promise<void> {
           app.quit();
         },
       },
-    ]),
-  );
+    ]);
+  statusTray.setContextMenu(menu);
+  if (showMenu) {
+    statusTray.popUpContextMenu(menu);
+  }
 }
 
 function setupStatusTray(): void {
@@ -700,7 +1022,10 @@ function setupStatusTray(): void {
 
   statusTray = new Tray(icon);
   statusTray.on("click", () => {
-    void showMainWindow();
+    void refreshTrayStatus(true);
+  });
+  statusTray.on("right-click", () => {
+    void refreshTrayStatus(true);
   });
   nativeTheme.on("updated", () => {
     trayAnimationFrame = 0;
@@ -709,7 +1034,7 @@ function setupStatusTray(): void {
   void refreshTrayStatus();
   trayRefreshTimer = setInterval(() => {
     void refreshTrayStatus();
-  }, 15_000);
+  }, TRAY_REFRESH_INTERVAL_MS);
 }
 
 function pruneBackupStoreDir(): void {
