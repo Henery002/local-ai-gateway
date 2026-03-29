@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+
+import { Resvg } from "@resvg/resvg-js";
 
 const rootDir = process.cwd();
 const sourceDir = resolve(rootDir, "apps/desktop/assets/icons/source");
@@ -20,22 +22,16 @@ function ensureDir(dir) {
 }
 
 function renderSvgToPng(svgPath, size, outputPath) {
-  const tempDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-icon-"));
-  try {
-    execFileSync("qlmanage", ["-t", "-s", String(size), "-o", tempDir, svgPath], {
-      stdio: "ignore",
-    });
-    const rendered = readdirSync(tempDir)
-      .filter((entry) => entry.endsWith(".png"))
-      .map((entry) => join(tempDir, entry))[0];
-    if (!rendered) {
-      throw new Error(`未能从 ${basename(svgPath)} 生成 PNG`);
-    }
-    rmSync(outputPath, { force: true });
-    renameSync(rendered, outputPath);
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  const svg = readFileSync(svgPath, "utf8");
+  const renderer = new Resvg(svg, {
+    fitTo: {
+      mode: "width",
+      value: size,
+    },
+    background: "rgba(0,0,0,0)",
+  });
+  const png = renderer.render().asPng();
+  writeFileSync(outputPath, png);
 }
 
 function resizePng(inputPath, size, outputPath) {
@@ -93,7 +89,6 @@ function buildTrayIcons() {
 }
 
 function main() {
-  ensureCommand("qlmanage");
   ensureCommand("sips");
   ensureCommand("iconutil");
   ensureDir(generatedDir);

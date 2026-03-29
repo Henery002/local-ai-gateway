@@ -484,9 +484,7 @@ function loadTrayIcon(state: TrayVisualState) {
   if (image.isEmpty()) {
     return undefined;
   }
-  const resized = image.resize({ width: 18, height: 18 });
-  resized.setTemplateImage(true);
-  return resized;
+  return image.resize({ width: 18, height: 18 });
 }
 
 async function resolveTraySnapshot(): Promise<TraySnapshot> {

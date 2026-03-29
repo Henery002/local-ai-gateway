@@ -44,6 +44,7 @@
     "fastify": "^5.6.1"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.6.0",
     "electron": "^37.3.1",
     "electron-builder": "^26.0.12",
