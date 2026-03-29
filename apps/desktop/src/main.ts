@@ -1,5 +1,5 @@
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
@@ -52,6 +52,9 @@ const appContentRoot = app.isPackaged ? join(process.resourcesPath, "app.asar") 
 const gatewayEntrypoint = app.isPackaged
   ? join(appContentRoot, "apps/gateway/dist/cli.js")
   : join(__dirname, "../../gateway/dist/cli.js");
+const gatewayServerEntrypoint = app.isPackaged
+  ? join(appContentRoot, "apps/gateway/dist/server.js")
+  : join(__dirname, "../../gateway/dist/server.js");
 const preloadPath = join(__dirname, "../static/preload.cjs");
 const indexHtmlPath = join(__dirname, "../static/index.html");
 const iconAssetDir = join(__dirname, "../assets/icons/generated");
@@ -77,6 +80,10 @@ type PendingCodexOAuthFlow = {
   rejectManualInput: (error: Error) => void;
 };
 
+type HostedGatewayHandle = {
+  close: (signal?: string) => Promise<void>;
+};
+
 let pendingCodexOAuthFlow: PendingCodexOAuthFlow | undefined;
 let codexOAuthInProgress = false;
 let mainWindow: BrowserWindow | undefined;
@@ -88,6 +95,7 @@ let trayVisualState: TrayVisualState = "idle";
 
 class GatewayProcessManager {
   private child?: ChildProcess;
+  private hostedGateway?: HostedGatewayHandle;
   private managed = false;
   private ensuring?: Promise<{ managed: boolean }>;
 
@@ -102,11 +110,11 @@ class GatewayProcessManager {
     }
 
     this.ensuring = (async () => {
-      if (!existsSync(gatewayEntrypoint)) {
+      if (!existsSync(app.isPackaged ? gatewayServerEntrypoint : gatewayEntrypoint)) {
         throw new Error("Gateway build output was not found. Run `npm run build` first.");
       }
 
-      this.startManagedGateway();
+      await this.startManagedGateway();
       await this.waitForHealthy(port);
       return { managed: this.managed };
     })();
@@ -120,24 +128,26 @@ class GatewayProcessManager {
 
   async restartManaged(): Promise<void> {
     const port = getConfiguredGatewayPort();
-    if (!this.child) {
-      this.startManagedGateway();
+    if (!this.child && !this.hostedGateway) {
+      await this.startManagedGateway();
       await this.waitForHealthy(port);
       return;
     }
 
-    this.child.kill("SIGTERM");
-    this.startManagedGateway();
+    await this.stopManaged();
+    await this.startManagedGateway();
     await this.waitForHealthy(port);
   }
 
   async stopManaged(): Promise<void> {
-    if (!this.child) {
-      return;
+    if (this.child) {
+      this.child.kill("SIGTERM");
+      this.child = undefined;
     }
-
-    this.child.kill("SIGTERM");
-    this.child = undefined;
+    if (this.hostedGateway) {
+      await this.hostedGateway.close("SIGTERM");
+      this.hostedGateway = undefined;
+    }
     this.managed = false;
   }
 
@@ -176,24 +186,46 @@ class GatewayProcessManager {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
-    this.startManagedGateway();
+    await this.startManagedGateway();
     await this.waitForHealthy(port);
     return true;
   }
 
-  private startManagedGateway(): void {
+  private async startManagedGateway(): Promise<void> {
+    const port = getConfiguredGatewayPort();
+    if (app.isPackaged) {
+      if (this.hostedGateway) {
+        await this.hostedGateway.close("restart");
+        this.hostedGateway = undefined;
+      }
+
+      const { startGatewayServer } = await import(pathToFileURL(gatewayServerEntrypoint).href) as {
+        startGatewayServer: (options?: {
+          env?: NodeJS.ProcessEnv;
+          host?: string;
+          port?: number;
+        }) => Promise<HostedGatewayHandle>;
+      };
+      this.hostedGateway = await startGatewayServer({
+        env: process.env,
+        host: DEFAULT_HOST,
+        port,
+      });
+      this.child = undefined;
+      this.managed = true;
+      return;
+    }
+
     if (this.child) {
       this.child.kill("SIGTERM");
       this.child = undefined;
     }
 
-    const port = getConfiguredGatewayPort();
-    const child = spawn(app.isPackaged ? process.execPath : "node", [gatewayEntrypoint], {
-      cwd: app.isPackaged ? process.resourcesPath : appContentRoot,
+    const child = spawn("node", [gatewayEntrypoint], {
+      cwd: appContentRoot,
       env: {
         ...process.env,
         LOCAL_AI_GATEWAY_PORT: String(port),
-        ...(app.isPackaged ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       },
       stdio: "ignore",
     });
@@ -204,7 +236,7 @@ class GatewayProcessManager {
       }
 
       if (code === 75) {
-        this.startManagedGateway();
+        void this.startManagedGateway();
       }
     });
     this.child = child;
@@ -591,7 +623,11 @@ async function showMainWindow(): Promise<void> {
     return;
   }
 
-  await createWindow();
+  try {
+    await createWindow();
+  } catch (error) {
+    handleStartupError(error);
+  }
 }
 
 async function refreshTrayStatus(): Promise<void> {
@@ -729,6 +765,16 @@ async function createWindow(): Promise<void> {
   });
 
   await window.loadFile(indexHtmlPath);
+}
+
+function handleStartupError(error: unknown): void {
+  const message = toErrorMessage(error);
+  console.error("[desktop] 启动失败:", message);
+  dialog.showErrorBox(
+    "Local AI Gateway 启动失败",
+    `桌面端未能成功启动本地网关或加载控制台界面。\n\n原因：${message}\n\n请先确认当前安装包为最新版本，或重新运行“重启服务”后再试。`,
+  );
+  app.quit();
 }
 
 function waitForManualCodexOAuthInput(): Promise<string> {
@@ -1405,12 +1451,12 @@ app.whenReady().then(() => {
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
   pruneBackupStoreDir();
   setupStatusTray();
-  void createWindow();
+  void createWindow().catch(handleStartupError);
 });
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    void createWindow();
+    void createWindow().catch(handleStartupError);
     return;
   }
 

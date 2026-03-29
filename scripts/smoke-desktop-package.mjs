@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 const rootDir = process.cwd();
 const arch = process.arch === "arm64" ? "mac-arm64" : "mac";
@@ -14,6 +15,8 @@ const infoPlistPath = join(appBundlePath, "Contents", "Info.plist");
 const asarPath = join(appBundlePath, "Contents", "Resources", "app.asar");
 const asarUnpackedPath = join(appBundlePath, "Contents", "Resources", "app.asar.unpacked");
 const bundleIconPath = join(appBundlePath, "Contents", "Resources", "icon.icns");
+const executablePath = join(appBundlePath, "Contents", "MacOS", "Local AI Gateway");
+const smokePort = 18_787;
 
 function ensureFileExists(path, label) {
   if (!existsSync(path)) {
@@ -29,6 +32,65 @@ function ensureAsarContains(pattern, label) {
 
   if (!output.includes(pattern)) {
     throw new Error(`${label} 未打入 app.asar：${pattern}`);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForHealth(baseUrl, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/healthz`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    await sleep(400);
+  }
+  throw new Error(`安装版健康检查超时：${baseUrl}/healthz`);
+}
+
+async function launchPackagedAppAndVerify() {
+  const tempHome = mkdtempSync(join(tmpdir(), "local-ai-gateway-smoke-home-"));
+  const tempAppDataDir = join(
+    tempHome,
+    "Library",
+    "Application Support",
+    "local-ai-gateway",
+  );
+  mkdirSync(tempAppDataDir, { recursive: true });
+  writeFileSync(
+    join(tempAppDataDir, "config.json"),
+    `${JSON.stringify(
+      {
+        desktopSettings: {
+          gatewayPort: smokePort,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const child = spawn(executablePath, {
+    env: {
+      ...process.env,
+      HOME: tempHome,
+    },
+    stdio: "ignore",
+  });
+
+  try {
+    await waitForHealth(`http://127.0.0.1:${smokePort}`);
+  } finally {
+    child.kill("SIGTERM");
+    await sleep(500);
+    rmSync(tempHome, { recursive: true, force: true });
   }
 }
 
@@ -62,6 +124,7 @@ ensureAsarContains("/node_modules/@mariozechner/pi-ai/package.json", "pi-ai 运�
 ensureAsarContains("/node_modules/fastify/package.json", "Fastify 运行时依赖");
 ensureAsarContains("/packages/openclaw-session/package.json", "OpenClaw Session 工作区元数据");
 ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
+ensureAsarContains("/apps/gateway/dist/server.js", "安装版主进程托管的 gateway 模块");
 ensureAsarContains("/apps/desktop/assets/icons/generated/app-icon.png", "Dock/窗口图标资源");
 ensureAsarContains("/apps/desktop/assets/icons/generated/tray-idle-light.png", "状态栏空闲图标资源");
 ensureAsarContains("/apps/desktop/assets/icons/generated/tray-active-light.png", "状态栏活跃图标资源");
@@ -76,5 +139,8 @@ const betterSqliteNode = join(
   "better_sqlite3.node",
 );
 ensureFileExists(betterSqliteNode, "better-sqlite3 原生模块");
+
+console.log("[smoke:desktop-package] 验证安装版可执行文件可成功拉起本地网关…");
+await launchPackagedAppAndVerify();
 
 console.log(`[smoke:desktop-package] 通过：${appBundlePath}`);

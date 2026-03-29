@@ -22,4 +22,24 @@ describe("desktop build output", () => {
     },
     15_000,
   );
+
+  it(
+    "does not keep packaged gateway startup on ELECTRON_RUN_AS_NODE child mode",
+    () => {
+      execFileSync("npx", ["tsc", "-b", "apps/desktop", "--force"], {
+        cwd: process.cwd(),
+        stdio: "pipe",
+      });
+
+      const mainOutput = readFileSync(
+        resolve(process.cwd(), "apps/desktop/dist/main.js"),
+        "utf8",
+      );
+
+      expect(mainOutput).not.toContain("ELECTRON_RUN_AS_NODE");
+      expect(mainOutput).toContain("gateway/dist/server.js");
+      expect(mainOutput).toContain("startGatewayServer");
+    },
+    15_000,
+  );
 });
