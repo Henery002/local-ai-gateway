@@ -68,6 +68,9 @@
 
 ### 修复
 
+- 修复安装包启动时报 `ERR_MODULE_NOT_FOUND` 的问题：根运行时依赖现已显式声明，打包配置会携带 `node_modules`、工作区 `package.json` 与 `better-sqlite3` 原生模块。
+- `smoke:desktop-package` 新增安装包运行时依赖校验，防止 `pi-ai / fastify / better-sqlite3` 漏打包后仍误判为可发布。
+- 桌面打包链路新增 `run-electron-builder.mjs`，构建后会自动把 `better-sqlite3` 恢复到当前 Node ABI，避免打包后本地测试与预检被 Electron ABI 污染。
 - 修复旧 gateway 进程缺少 `/admin/config/pools` 时号池页面加载与保存返回 `404` 的问题：桌面端现在会尝试识别并接管旧版本地 gateway 进程，再自动重试号池配置请求。
 - 修复号池成员卡片的状态色与额度语义不足问题：补齐状态标签、额度数值颜色、进度条与长字符串省略悬浮展示。
 - 调整桌面构建回归测试的超时阈值，避免随着桌面端代码体量增长出现构建已成功但测试假超时的情况。

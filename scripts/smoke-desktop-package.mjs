@@ -12,10 +12,22 @@ const appBundlePath = resolve(
 );
 const infoPlistPath = join(appBundlePath, "Contents", "Info.plist");
 const asarPath = join(appBundlePath, "Contents", "Resources", "app.asar");
+const asarUnpackedPath = join(appBundlePath, "Contents", "Resources", "app.asar.unpacked");
 
 function ensureFileExists(path, label) {
   if (!existsSync(path)) {
     throw new Error(`${label} 不存在：${path}`);
+  }
+}
+
+function ensureAsarContains(pattern, label) {
+  const output = execFileSync("npx", ["asar", "list", asarPath], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+
+  if (!output.includes(pattern)) {
+    throw new Error(`${label} 未打入 app.asar：${pattern}`);
   }
 }
 
@@ -24,12 +36,8 @@ execFileSync("npm", ["run", "build"], {
   cwd: rootDir,
   stdio: "inherit",
 });
-execFileSync("npx", ["electron-builder", "--dir"], {
+execFileSync("node", ["scripts/run-electron-builder.mjs", "--dir"], {
   cwd: rootDir,
-  env: {
-    ...process.env,
-    CSC_IDENTITY_AUTO_DISCOVERY: "false",
-  },
   stdio: "inherit",
 });
 
@@ -37,10 +45,26 @@ console.log("[smoke:desktop-package] 检查桌面产物…");
 ensureFileExists(appBundlePath, "桌面应用包");
 ensureFileExists(infoPlistPath, "Info.plist");
 ensureFileExists(asarPath, "app.asar");
+ensureFileExists(asarUnpackedPath, "app.asar.unpacked");
 
 const infoPlist = readFileSync(infoPlistPath, "utf8");
 if (!infoPlist.includes("<string>Local AI Gateway</string>")) {
   throw new Error("Info.plist 未包含预期的产品名 `Local AI Gateway`。");
 }
+
+ensureAsarContains("/node_modules/@mariozechner/pi-ai/package.json", "pi-ai 运行时依赖");
+ensureAsarContains("/node_modules/fastify/package.json", "Fastify 运行时依赖");
+ensureAsarContains("/packages/openclaw-session/package.json", "OpenClaw Session 工作区元数据");
+ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
+
+const betterSqliteNode = join(
+  asarUnpackedPath,
+  "node_modules",
+  "better-sqlite3",
+  "build",
+  "Release",
+  "better_sqlite3.node",
+);
+ensureFileExists(betterSqliteNode, "better-sqlite3 原生模块");
 
 console.log(`[smoke:desktop-package] 通过：${appBundlePath}`);
