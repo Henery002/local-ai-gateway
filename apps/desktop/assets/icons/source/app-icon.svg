@@ -36,26 +36,28 @@
     </filter>
   </defs>
 
-  <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)" stroke="#E2E8F0" stroke-width="4" />
+  <g transform="translate(64 64) scale(0.875)">
+    <rect width="1024" height="1024" rx="230" fill="url(#bgGrad)" stroke="#E2E8F0" stroke-width="4" />
 
-  <g transform="translate(10, -10)">
-    <rect x="420" y="160" width="440" height="440" rx="110" fill="url(#cardBack)" filter="url(#shadow-sm)" stroke="#ffffff" stroke-width="8" stroke-opacity="0.3" />
-    <path d="M 440 270 Q 420 160 530 160" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.4" />
+    <g transform="translate(10, -10)">
+      <rect x="420" y="160" width="440" height="440" rx="110" fill="url(#cardBack)" filter="url(#shadow-sm)" stroke="#ffffff" stroke-width="8" stroke-opacity="0.3" />
+      <path d="M 440 270 Q 420 160 530 160" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.4" />
 
-    <rect x="290" y="290" width="440" height="440" rx="110" fill="url(#cardMid)" filter="url(#shadow-lg)" stroke="#ffffff" stroke-width="8" stroke-opacity="0.4" />
-    <path d="M 310 400 Q 290 290 400 290" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.4" />
+      <rect x="290" y="290" width="440" height="440" rx="110" fill="url(#cardMid)" filter="url(#shadow-lg)" stroke="#ffffff" stroke-width="8" stroke-opacity="0.4" />
+      <path d="M 310 400 Q 290 290 400 290" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.4" />
 
-    <path d="M 760 260 C 1000 350, 950 650, 680 650" fill="none" stroke="url(#loopGrad)" stroke-width="36" stroke-linecap="round" filter="url(#glow)" />
-    <polygon points="690,600 640,650 690,700" fill="#EC4899" filter="url(#glow)" />
+      <path d="M 760 260 C 1000 350, 950 650, 680 650" fill="none" stroke="url(#loopGrad)" stroke-width="36" stroke-linecap="round" filter="url(#glow)" />
+      <polygon points="690,600 640,650 690,700" fill="#EC4899" filter="url(#glow)" />
 
-    <rect x="160" y="420" width="440" height="440" rx="110" fill="url(#cardFront)" filter="url(#shadow-xl)" stroke="#ffffff" stroke-width="10" stroke-opacity="0.5" />
-    <path d="M 180 530 Q 160 420 270 420" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.4" />
+      <rect x="160" y="420" width="440" height="440" rx="110" fill="url(#cardFront)" filter="url(#shadow-xl)" stroke="#ffffff" stroke-width="10" stroke-opacity="0.5" />
+      <path d="M 180 530 Q 160 420 270 420" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.4" />
 
-    <g transform="translate(230, 520)">
-      <path d="M 90 220 L 150 60 L 210 220" fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
-      <line x1="110" y1="160" x2="190" y2="160" stroke="#ffffff" stroke-width="40" stroke-linecap="round" />
-      <line x1="270" y1="120" x2="270" y2="220" stroke="#ffffff" stroke-width="44" stroke-linecap="round" />
-      <path d="M 270 10 Q 270 50 230 50 Q 270 50 270 90 Q 270 50 310 50 Q 270 50 270 10 Z" fill="#ffffff" filter="url(#glow)" />
+      <g transform="translate(230, 520)">
+        <path d="M 90 220 L 150 60 L 210 220" fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
+        <line x1="110" y1="160" x2="190" y2="160" stroke="#ffffff" stroke-width="40" stroke-linecap="round" />
+        <line x1="270" y1="120" x2="270" y2="220" stroke="#ffffff" stroke-width="44" stroke-linecap="round" />
+        <path d="M 270 10 Q 270 50 230 50 Q 270 50 270 90 Q 270 50 310 50 Q 270 50 270 10 Z" fill="#ffffff" filter="url(#glow)" />
+      </g>
     </g>
   </g>
 </svg>

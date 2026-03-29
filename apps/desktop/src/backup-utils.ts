@@ -5,6 +5,8 @@ import type { GatewayPaths } from "@local-ai-gateway/shared";
 
 export const APP_DATA_BACKUP_FORMAT = "local-ai-gateway-backup";
 export const APP_DATA_BACKUP_VERSION = 1;
+const BACKUP_RETAIN_MAX_FILES = 20;
+const BACKUP_RETAIN_DAYS = 30;
 
 export interface AppDataBackupEntry {
   relativePath: string;
@@ -179,6 +181,49 @@ export function getAppDataSnapshotSummary(paths: GatewayPaths): {
       (total, filePath) => total + normalizeStatSize(statSafe(filePath)?.size),
       0,
     ),
+  };
+}
+
+export function pruneStoredBackups(
+  backupDir: string,
+  options: {
+    maxFiles?: number;
+    retainDays?: number;
+  } = {},
+): { removedFiles: number; removedBytes: number } {
+  mkdirSync(backupDir, { recursive: true });
+  const maxFiles = Math.max(1, options.maxFiles ?? BACKUP_RETAIN_MAX_FILES);
+  const retainDays = Math.max(1, options.retainDays ?? BACKUP_RETAIN_DAYS);
+  const minTimestamp = Date.now() - retainDays * 24 * 60 * 60 * 1000;
+  const entries = readdirSync(backupDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => {
+      const absolutePath = join(backupDir, entry.name);
+      const stat = statSafe(absolutePath);
+      return {
+        absolutePath,
+        createdAt: normalizeStatSize(stat?.mtimeMs),
+        sizeBytes: normalizeStatSize(stat?.size),
+      };
+    })
+    .sort((left, right) => right.createdAt - left.createdAt);
+
+  let removedFiles = 0;
+  let removedBytes = 0;
+
+  entries.forEach((entry, index) => {
+    const shouldRemove = entry.createdAt < minTimestamp || index >= maxFiles;
+    if (!shouldRemove) {
+      return;
+    }
+    rmSync(entry.absolutePath, { force: true });
+    removedFiles += 1;
+    removedBytes += entry.sizeBytes;
+  });
+
+  return {
+    removedFiles,
+    removedBytes,
   };
 }
 

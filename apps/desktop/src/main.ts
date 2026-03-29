@@ -42,6 +42,7 @@ import {
   getBackupBundleSizeBytes,
   getAppDataSnapshotSummary,
   parseAppDataBackupBundle,
+  pruneStoredBackups,
   restoreAppDataBackupBundle,
   writeAppDataBackupBundle,
 } from "./backup-utils.js";
@@ -55,6 +56,9 @@ const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
 const importedCodexAccountStore = new ImportedCodexAccountStore(gatewayPaths.codexProfilesPath);
 const desktopSessionSource = new OpenClawSessionSource(undefined, gatewayPaths.codexProfilesPath);
+const DESKTOP_UI_ZOOM_LEVEL = -1;
+const BACKUP_STORE_MAX_FILES = 20;
+const BACKUP_STORE_RETAIN_DAYS = 30;
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
@@ -480,7 +484,9 @@ function loadTrayIcon(state: TrayVisualState) {
   if (image.isEmpty()) {
     return undefined;
   }
-  return image.resize({ width: 18, height: 18 });
+  const resized = image.resize({ width: 18, height: 18 });
+  resized.setTemplateImage(true);
+  return resized;
 }
 
 async function resolveTraySnapshot(): Promise<TraySnapshot> {
@@ -622,6 +628,33 @@ function setupStatusTray(): void {
   }, 15_000);
 }
 
+function pruneBackupStoreDir(): void {
+  pruneStoredBackups(getBackupStoreDir(), {
+    maxFiles: BACKUP_STORE_MAX_FILES,
+    retainDays: BACKUP_STORE_RETAIN_DAYS,
+  });
+}
+
+function applyDesktopZoom(window: BrowserWindow): void {
+  const lockZoom = () => {
+    window.webContents.setZoomLevel(DESKTOP_UI_ZOOM_LEVEL);
+  };
+
+  void window.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
+  lockZoom();
+  window.webContents.on("did-finish-load", lockZoom);
+  window.webContents.on("zoom-changed", lockZoom);
+  window.webContents.on("before-input-event", (event, input) => {
+    if (!(input.meta || input.control)) {
+      return;
+    }
+    if (["+", "=", "-", "_", "0"].includes(input.key)) {
+      event.preventDefault();
+      lockZoom();
+    }
+  });
+}
+
 async function createWindow(): Promise<void> {
   await gatewayManager.ensureRunning();
 
@@ -639,6 +672,7 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
     },
   });
+  applyDesktopZoom(window);
   mainWindow = window;
   window.on("closed", () => {
     if (mainWindow === window) {
@@ -694,6 +728,7 @@ function createSafetyBackupSnapshot(): { path: string; fileCount: number; totalB
     createBackupFileName("local-ai-gateway-before-import"),
   );
   writeAppDataBackupBundle(targetPath, bundle);
+  pruneBackupStoreDir();
   return {
     path: targetPath,
     fileCount: bundle.files.length,
@@ -1320,6 +1355,7 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
 
 app.whenReady().then(() => {
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
+  pruneBackupStoreDir();
   setupStatusTray();
   void createWindow();
 });
