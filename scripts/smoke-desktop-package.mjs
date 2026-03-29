@@ -13,6 +13,7 @@ const appBundlePath = resolve(
 const infoPlistPath = join(appBundlePath, "Contents", "Info.plist");
 const asarPath = join(appBundlePath, "Contents", "Resources", "app.asar");
 const asarUnpackedPath = join(appBundlePath, "Contents", "Resources", "app.asar.unpacked");
+const bundleIconPath = join(appBundlePath, "Contents", "Resources", "icon.icns");
 
 function ensureFileExists(path, label) {
   if (!existsSync(path)) {
@@ -36,6 +37,10 @@ execFileSync("npm", ["run", "build"], {
   cwd: rootDir,
   stdio: "inherit",
 });
+execFileSync("npm", ["run", "generate:icons"], {
+  cwd: rootDir,
+  stdio: "inherit",
+});
 execFileSync("node", ["scripts/run-electron-builder.mjs", "--dir"], {
   cwd: rootDir,
   stdio: "inherit",
@@ -46,6 +51,7 @@ ensureFileExists(appBundlePath, "桌面应用包");
 ensureFileExists(infoPlistPath, "Info.plist");
 ensureFileExists(asarPath, "app.asar");
 ensureFileExists(asarUnpackedPath, "app.asar.unpacked");
+ensureFileExists(bundleIconPath, "应用图标资源");
 
 const infoPlist = readFileSync(infoPlistPath, "utf8");
 if (!infoPlist.includes("<string>Local AI Gateway</string>")) {
@@ -56,6 +62,10 @@ ensureAsarContains("/node_modules/@mariozechner/pi-ai/package.json", "pi-ai 运�
 ensureAsarContains("/node_modules/fastify/package.json", "Fastify 运行时依赖");
 ensureAsarContains("/packages/openclaw-session/package.json", "OpenClaw Session 工作区元数据");
 ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
+ensureAsarContains("/apps/desktop/assets/icons/generated/app-icon.png", "Dock/窗口图标资源");
+ensureAsarContains("/apps/desktop/assets/icons/generated/tray-idle-light.png", "状态栏空闲图标资源");
+ensureAsarContains("/apps/desktop/assets/icons/generated/tray-active-light.png", "状态栏活跃图标资源");
+ensureAsarContains("/apps/desktop/assets/icons/generated/tray-error.png", "状态栏异常图标资源");
 
 const betterSqliteNode = join(
   asarUnpackedPath,

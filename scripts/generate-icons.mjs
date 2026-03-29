@@ -1,0 +1,115 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+
+const rootDir = process.cwd();
+const sourceDir = resolve(rootDir, "apps/desktop/assets/icons/source");
+const generatedDir = resolve(rootDir, "apps/desktop/assets/icons/generated");
+
+function ensureCommand(command) {
+  try {
+    execFileSync("which", [command], { stdio: "ignore" });
+  } catch {
+    throw new Error(`缺少系统命令：${command}`);
+  }
+}
+
+function ensureDir(dir) {
+  mkdirSync(dir, { recursive: true });
+}
+
+function renderSvgToPng(svgPath, size, outputPath) {
+  const tempDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-icon-"));
+  try {
+    execFileSync("qlmanage", ["-t", "-s", String(size), "-o", tempDir, svgPath], {
+      stdio: "ignore",
+    });
+    const rendered = readdirSync(tempDir)
+      .filter((entry) => entry.endsWith(".png"))
+      .map((entry) => join(tempDir, entry))[0];
+    if (!rendered) {
+      throw new Error(`未能从 ${basename(svgPath)} 生成 PNG`);
+    }
+    rmSync(outputPath, { force: true });
+    renameSync(rendered, outputPath);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function resizePng(inputPath, size, outputPath) {
+  execFileSync("sips", ["-z", String(size), String(size), inputPath, "--out", outputPath], {
+    stdio: "ignore",
+  });
+}
+
+function buildIcnsFromMaster(masterPngPath) {
+  const tempDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-iconset-"));
+  const iconsetDir = join(tempDir, "app-icon.iconset");
+  ensureDir(iconsetDir);
+  const sizes = [
+    ["icon_16x16.png", 16],
+    ["icon_16x16@2x.png", 32],
+    ["icon_32x32.png", 32],
+    ["icon_32x32@2x.png", 64],
+    ["icon_128x128.png", 128],
+    ["icon_128x128@2x.png", 256],
+    ["icon_256x256.png", 256],
+    ["icon_256x256@2x.png", 512],
+    ["icon_512x512.png", 512],
+    ["icon_512x512@2x.png", 1024],
+  ];
+  try {
+    for (const [fileName, size] of sizes) {
+      resizePng(masterPngPath, size, join(iconsetDir, fileName));
+    }
+    execFileSync(
+      "iconutil",
+      ["-c", "icns", iconsetDir, "-o", join(generatedDir, "app-icon.icns")],
+      {
+        stdio: "ignore",
+      },
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function buildTrayIcons() {
+  const variants = [
+    ["tray-idle-light.svg", "tray-idle-light"],
+    ["tray-idle-dark.svg", "tray-idle-dark"],
+    ["tray-active-light.svg", "tray-active-light"],
+    ["tray-active-dark.svg", "tray-active-dark"],
+    ["tray-error.svg", "tray-error"],
+  ];
+  for (const [inputName, outputBase] of variants) {
+    const svgPath = join(sourceDir, inputName);
+    const hiResPath = join(generatedDir, `${outputBase}@2x.png`);
+    renderSvgToPng(svgPath, 36, hiResPath);
+    resizePng(hiResPath, 18, join(generatedDir, `${outputBase}.png`));
+  }
+}
+
+function main() {
+  ensureCommand("qlmanage");
+  ensureCommand("sips");
+  ensureCommand("iconutil");
+  ensureDir(generatedDir);
+  rmSync(join(generatedDir, "app-icon.iconset"), { recursive: true, force: true });
+
+  const appIconSvgPath = join(sourceDir, "app-icon.svg");
+  if (!existsSync(appIconSvgPath)) {
+    throw new Error(`缺少主图标 SVG：${appIconSvgPath}`);
+  }
+
+  const appIconPngPath = join(generatedDir, "app-icon.png");
+  renderSvgToPng(appIconSvgPath, 1024, appIconPngPath);
+  buildIcnsFromMaster(appIconPngPath);
+  buildTrayIcons();
+
+  console.log(`[generate:icons] 已生成图标资源：${generatedDir}`);
+}
+
+main();

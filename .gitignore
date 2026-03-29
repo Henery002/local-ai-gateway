@@ -30,3 +30,4 @@ logs_*.sqlite-wal
 # Local app data
 .local-ai-gateway/
 .history/
+apps/desktop/assets/icons/generated/

@@ -2,9 +2,11 @@ appId: com.henery.local-ai-gateway
 productName: Local AI Gateway
 directories:
   output: release
+  buildResources: apps/desktop/assets/icons/generated
 files:
   - apps/**/dist/**
   - apps/desktop/static/**
+  - apps/desktop/assets/**/*
   - packages/**/dist/**
   - packages/**/package.json
   - node_modules/**/*
@@ -23,7 +25,10 @@ asarUnpack:
   - node_modules/better-sqlite3/**/*
 mac:
   category: public.app-category.developer-tools
+  icon: app-icon.icns
   target:
     - zip
     - dmg
+dmg:
+  icon: app-icon.icns
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"

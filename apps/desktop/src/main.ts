@@ -4,7 +4,19 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
 
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  Tray,
+  nativeImage,
+  nativeTheme,
+  net,
+  shell,
+} from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
 
@@ -38,9 +50,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const gatewayEntrypoint = join(__dirname, "../../gateway/dist/cli.js");
 const preloadPath = join(__dirname, "../static/preload.cjs");
 const indexHtmlPath = join(__dirname, "../static/index.html");
+const iconAssetDir = join(__dirname, "../assets/icons/generated");
+const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
 const importedCodexAccountStore = new ImportedCodexAccountStore(gatewayPaths.codexProfilesPath);
 const desktopSessionSource = new OpenClawSessionSource(undefined, gatewayPaths.codexProfilesPath);
+
+type TrayVisualState = "idle" | "active" | "error";
+type TraySnapshot = {
+  state: TrayVisualState;
+  label: string;
+  detail: string;
+};
 
 type PendingCodexOAuthFlow = {
   resolveManualInput: (value: string) => void;
@@ -49,6 +70,9 @@ type PendingCodexOAuthFlow = {
 
 let pendingCodexOAuthFlow: PendingCodexOAuthFlow | undefined;
 let codexOAuthInProgress = false;
+let mainWindow: BrowserWindow | undefined;
+let statusTray: Tray | undefined;
+let trayRefreshTimer: ReturnType<typeof setInterval> | undefined;
 
 class GatewayProcessManager {
   private child?: ChildProcess;
@@ -441,17 +465,185 @@ async function buildOpenClawSnippet(): Promise<string> {
   return lines.join("\n");
 }
 
+function getTrayIconBaseName(state: TrayVisualState): string {
+  if (state === "error") {
+    return "tray-error";
+  }
+
+  const appearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  return `tray-${state}-${appearance}`;
+}
+
+function loadTrayIcon(state: TrayVisualState) {
+  const iconPath = join(iconAssetDir, `${getTrayIconBaseName(state)}.png`);
+  const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    return undefined;
+  }
+  return image.resize({ width: 18, height: 18 });
+}
+
+async function resolveTraySnapshot(): Promise<TraySnapshot> {
+  try {
+    await gatewayManager.ensureRunning();
+    const payload = (await callAdmin("/admin/health")) as Record<string, unknown>;
+    const activeSessionId =
+      typeof payload.activeSessionId === "string" ? payload.activeSessionId : undefined;
+    const routing =
+      typeof payload.routingObservability === "object" && payload.routingObservability
+        ? (payload.routingObservability as Record<string, unknown>)
+        : undefined;
+    const lastMatchedAt =
+      typeof routing?.lastMatchedAt === "number" ? routing.lastMatchedAt : undefined;
+    const matchedLast5m =
+      typeof routing?.matchedLast5m === "number" ? routing.matchedLast5m : 0;
+
+    if (!activeSessionId) {
+      return {
+        state: "error",
+        label: "授权异常",
+        detail: "当前没有可用活动账号",
+      };
+    }
+
+    if (lastMatchedAt && Date.now() - lastMatchedAt <= 90_000) {
+      return {
+        state: "active",
+        label: "中转桥接中",
+        detail: "最近 90 秒内有请求经过本地网关",
+      };
+    }
+
+    return {
+      state: "idle",
+      label: "空闲待机",
+      detail:
+        matchedLast5m > 0
+          ? `最近 5 分钟累计命中 ${matchedLast5m} 次`
+          : "网关已就绪，当前没有新请求",
+    };
+  } catch (error) {
+    return {
+      state: "error",
+      label: "服务异常",
+      detail: toErrorMessage(error),
+    };
+  }
+}
+
+async function showMainWindow(): Promise<void> {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  await createWindow();
+}
+
+async function refreshTrayStatus(): Promise<void> {
+  if (!statusTray) {
+    return;
+  }
+
+  const snapshot = await resolveTraySnapshot();
+  const icon = loadTrayIcon(snapshot.state);
+  if (icon) {
+    statusTray.setImage(icon);
+  }
+
+  statusTray.setToolTip(`Local AI Gateway · ${snapshot.label}`);
+  statusTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: `当前状态：${snapshot.label}`,
+        enabled: false,
+      },
+      {
+        label: snapshot.detail,
+        enabled: false,
+      },
+      {
+        type: "separator",
+      },
+      {
+        label: "打开控制台",
+        click: () => {
+          void showMainWindow();
+        },
+      },
+      {
+        label: "重启本地网关",
+        click: () => {
+          void gatewayManager
+            .restartManaged()
+            .catch(() => undefined)
+            .finally(() => {
+              void refreshTrayStatus();
+            });
+        },
+      },
+      {
+        type: "separator",
+      },
+      {
+        label: "退出",
+        click: () => {
+          app.quit();
+        },
+      },
+    ]),
+  );
+}
+
+function setupStatusTray(): void {
+  if (process.platform !== "darwin" || statusTray) {
+    return;
+  }
+
+  const icon = loadTrayIcon("idle");
+  if (!icon) {
+    return;
+  }
+
+  statusTray = new Tray(icon);
+  statusTray.on("click", () => {
+    void showMainWindow();
+  });
+  nativeTheme.on("updated", () => {
+    void refreshTrayStatus();
+  });
+  void refreshTrayStatus();
+  trayRefreshTimer = setInterval(() => {
+    void refreshTrayStatus();
+  }, 15_000);
+}
+
 async function createWindow(): Promise<void> {
   await gatewayManager.ensureRunning();
+
+  if (process.platform === "darwin" && existsSync(appIconPath)) {
+    app.dock?.setIcon(appIconPath);
+  }
 
   const window = new BrowserWindow({
     width: 980,
     height: 760,
+    icon: existsSync(appIconPath) ? appIconPath : undefined,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+  mainWindow = window;
+  window.on("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = undefined;
+    }
   });
 
   await window.loadFile(indexHtmlPath);
@@ -654,10 +846,12 @@ ipcMain.handle("gateway:get-sessions", async () => {
 
 ipcMain.handle("gateway:set-active-session", async (_event, sessionId: string) => {
   await gatewayManager.ensureRunning();
-  return callAdmin("/admin/sessions/active", {
+  const result = await callAdmin("/admin/sessions/active", {
     method: "PUT",
     body: JSON.stringify({ sessionId }),
   });
+  void refreshTrayStatus();
+  return result;
 });
 
 async function refreshDesktopManagedUsage(
@@ -753,6 +947,7 @@ ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string)
     }
   }
 
+  void refreshTrayStatus();
   return {
     ok: true,
     data: removed,
@@ -764,12 +959,15 @@ ipcMain.handle("gateway:restart", async () => {
 
   if (gatewayManager.isManaged()) {
     await gatewayManager.restartManaged();
+    void refreshTrayStatus();
     return { ok: true, restarted: true, managed: true };
   }
 
-  return callAdmin("/admin/service/restart", {
+  const result = await callAdmin("/admin/service/restart", {
     method: "POST",
   });
+  void refreshTrayStatus();
+  return result;
 });
 
 ipcMain.handle("gateway:copy-openclaw-snippet", async () => {
@@ -1069,6 +1267,7 @@ ipcMain.handle("gateway:import-app-data", async (_event, selectedPath?: string) 
     requiresManualRestart = true;
   }
 
+  void refreshTrayStatus();
   return {
     ok: true,
     selectedPath: targetPath,
@@ -1112,6 +1311,7 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
     }
   }
 
+  void refreshTrayStatus();
   return {
     ok: true,
     data: getDesktopSystemSettings(),
@@ -1120,7 +1320,26 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
 
 app.whenReady().then(() => {
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
+  setupStatusTray();
   void createWindow();
+});
+
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    void createWindow();
+    return;
+  }
+
+  void showMainWindow();
+});
+
+app.on("before-quit", () => {
+  if (trayRefreshTimer) {
+    clearInterval(trayRefreshTimer);
+    trayRefreshTimer = undefined;
+  }
+  statusTray?.destroy();
+  statusTray = undefined;
 });
 
 app.on("window-all-closed", () => {
