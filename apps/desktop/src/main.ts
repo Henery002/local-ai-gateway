@@ -77,6 +77,7 @@ const TRAY_REFRESH_INTERVAL_MS = 2_500;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
+const IGNORABLE_STDIO_ERROR_CODES = new Set(["EIO", "EPIPE", "ENXIO"]);
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
@@ -115,6 +116,62 @@ let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
 let allowAppQuit = false;
+
+function isIgnorableStdioError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeCode =
+    "code" in error && typeof error.code === "string" ? error.code : undefined;
+  if (maybeCode && IGNORABLE_STDIO_ERROR_CODES.has(maybeCode)) {
+    return true;
+  }
+
+  const maybeMessage =
+    "message" in error && typeof error.message === "string" ? error.message : "";
+  return (
+    maybeMessage.includes("write EIO") ||
+    maybeMessage.includes("write EPIPE") ||
+    maybeMessage.includes("ENXIO")
+  );
+}
+
+function installStdioFaultGuards(): void {
+  const mark = "__localAIGatewaySafeConsoleInstalled";
+  if ((globalThis as Record<string, unknown>)[mark]) {
+    return;
+  }
+  (globalThis as Record<string, unknown>)[mark] = true;
+
+  const wrapConsoleMethod = <T extends (...args: unknown[]) => void>(method: T): T =>
+    ((...args: unknown[]) => {
+      try {
+        method(...args);
+      } catch (error) {
+        if (!isIgnorableStdioError(error)) {
+          throw error;
+        }
+      }
+    }) as T;
+
+  console.log = wrapConsoleMethod(console.log.bind(console));
+  console.info = wrapConsoleMethod(console.info.bind(console));
+  console.warn = wrapConsoleMethod(console.warn.bind(console));
+  console.error = wrapConsoleMethod(console.error.bind(console));
+  console.debug = wrapConsoleMethod(console.debug.bind(console));
+
+  const swallowIgnorableStreamError = (error: Error) => {
+    if (!isIgnorableStdioError(error)) {
+      throw error;
+    }
+  };
+
+  process.stdout?.on("error", swallowIgnorableStreamError);
+  process.stderr?.on("error", swallowIgnorableStreamError);
+}
+
+installStdioFaultGuards();
 
 class GatewayProcessManager {
   private child?: ChildProcess;
