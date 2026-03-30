@@ -76,6 +76,7 @@ const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
 const TRAY_REFRESH_INTERVAL_MS = 2_500;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
+const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
@@ -108,8 +109,12 @@ let mainWindow: BrowserWindow | undefined;
 let statusTray: Tray | undefined;
 let trayRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationTimer: ReturnType<typeof setInterval> | undefined;
+let trayUsageRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationFrame = 0;
 let trayVisualState: TrayVisualState = "idle";
+let trayUsageRefreshInFlight: Promise<void> | undefined;
+let lastTrayUsageRefreshAt = 0;
+let allowAppQuit = false;
 
 class GatewayProcessManager {
   private child?: ChildProcess;
@@ -427,6 +432,7 @@ function applyLoginItemSetting(launchAtLogin: boolean): void {
   try {
     app.setLoginItemSettings({
       openAtLogin: launchAtLogin,
+      openAsHidden: true,
     });
   } catch (error) {
     console.warn(
@@ -706,6 +712,58 @@ function stopTrayAnimation(): void {
   trayAnimationFrame = 0;
 }
 
+async function refreshTrayUsageIfNeeded(force = false): Promise<void> {
+  const refreshIntervalMs = Math.max(
+    TRAY_USAGE_REFRESH_MIN_INTERVAL_MS,
+    normalizeAutoRefreshIntervalSeconds(
+      getStoredDesktopSystemSettings().autoRefreshIntervalSeconds,
+    ) * 1_000,
+  );
+  const now = Date.now();
+  if (!force && now - lastTrayUsageRefreshAt < refreshIntervalMs) {
+    return;
+  }
+
+  if (trayUsageRefreshInFlight) {
+    return trayUsageRefreshInFlight;
+  }
+
+  trayUsageRefreshInFlight = (async () => {
+    try {
+      await refreshDesktopManagedUsage();
+      lastTrayUsageRefreshAt = Date.now();
+    } catch (error) {
+      console.warn(
+        `[desktop] 状态栏后台额度刷新失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      trayUsageRefreshInFlight = undefined;
+    }
+  })();
+
+  return trayUsageRefreshInFlight;
+}
+
+function configureTrayUsageRefreshTimer(): void {
+  if (trayUsageRefreshTimer) {
+    clearInterval(trayUsageRefreshTimer);
+    trayUsageRefreshTimer = undefined;
+  }
+
+  const refreshIntervalMs = Math.max(
+    TRAY_USAGE_REFRESH_MIN_INTERVAL_MS,
+    normalizeAutoRefreshIntervalSeconds(
+      getStoredDesktopSystemSettings().autoRefreshIntervalSeconds,
+    ) * 1_000,
+  );
+
+  trayUsageRefreshTimer = setInterval(() => {
+    void refreshTrayUsageIfNeeded(false).finally(() => {
+      void refreshTrayStatus();
+    });
+  }, refreshIntervalMs);
+}
+
 function applyTrayImage(state: TrayVisualState): void {
   if (!statusTray) {
     return;
@@ -842,6 +900,9 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
 }
 
 async function showMainWindow(): Promise<void> {
+  if (process.platform === "darwin") {
+    app.dock?.show();
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) {
       mainWindow.restore();
@@ -858,9 +919,22 @@ async function showMainWindow(): Promise<void> {
   }
 }
 
+function hideMainWindowToTray(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+  if (process.platform === "darwin") {
+    app.dock?.hide();
+  }
+}
+
 async function refreshTrayStatus(showMenu = false): Promise<void> {
   if (!statusTray) {
     return;
+  }
+
+  if (showMenu) {
+    await refreshTrayUsageIfNeeded(true);
   }
 
   const snapshot = await resolveTraySnapshot();
@@ -998,8 +1072,9 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: "退出",
+        label: "退出并停止网关",
         click: () => {
+          allowAppQuit = true;
           app.quit();
         },
       },
@@ -1031,6 +1106,7 @@ function setupStatusTray(): void {
     trayAnimationFrame = 0;
     void refreshTrayStatus();
   });
+  configureTrayUsageRefreshTimer();
   void refreshTrayStatus();
   trayRefreshTimer = setInterval(() => {
     void refreshTrayStatus();
@@ -1083,6 +1159,12 @@ async function createWindow(): Promise<void> {
   });
   applyDesktopZoom(window);
   mainWindow = window;
+  window.on("close", (event) => {
+    if (process.platform === "darwin" && !allowAppQuit) {
+      event.preventDefault();
+      hideMainWindowToTray();
+    }
+  });
   window.on("closed", () => {
     if (mainWindow === window) {
       mainWindow = undefined;
@@ -1758,6 +1840,7 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
     desktopSettings: next,
   });
   applyLoginItemSetting(next.launchAtLogin ?? false);
+  configureTrayUsageRefreshTimer();
 
   if ((previous.gatewayPort ?? DEFAULT_PORT) !== (next.gatewayPort ?? DEFAULT_PORT)) {
     if (gatewayManager.isManaged()) {
@@ -1773,9 +1856,17 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
 });
 
 app.whenReady().then(() => {
+  const launchedAtLogin =
+    canApplyLoginItemSetting() && app.getLoginItemSettings().wasOpenedAtLogin;
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
   pruneBackupStoreDir();
   setupStatusTray();
+  if (launchedAtLogin) {
+    if (process.platform === "darwin") {
+      app.dock?.hide();
+    }
+    return;
+  }
   void createWindow().catch(handleStartupError);
 });
 
@@ -1788,10 +1879,19 @@ app.on("activate", () => {
   void showMainWindow();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (process.platform === "darwin" && !allowAppQuit) {
+    event.preventDefault();
+    hideMainWindowToTray();
+    return;
+  }
   if (trayRefreshTimer) {
     clearInterval(trayRefreshTimer);
     trayRefreshTimer = undefined;
+  }
+  if (trayUsageRefreshTimer) {
+    clearInterval(trayUsageRefreshTimer);
+    trayUsageRefreshTimer = undefined;
   }
   stopTrayAnimation();
   statusTray?.destroy();
