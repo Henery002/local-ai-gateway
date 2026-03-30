@@ -116,6 +116,7 @@ let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
 let allowAppQuit = false;
+let hasShownMainProcessFatalDialog = false;
 
 function isIgnorableStdioError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
@@ -161,6 +162,54 @@ function installStdioFaultGuards(): void {
   console.error = wrapConsoleMethod(console.error.bind(console));
   console.debug = wrapConsoleMethod(console.debug.bind(console));
 
+  const wrapStreamWrite = (stream?: NodeJS.WriteStream) => {
+    if (!stream) {
+      return;
+    }
+
+    const guardedStream = stream as NodeJS.WriteStream & {
+      __localAIGatewaySafeWriteInstalled?: boolean;
+    };
+    if (guardedStream.__localAIGatewaySafeWriteInstalled) {
+      return;
+    }
+    guardedStream.__localAIGatewaySafeWriteInstalled = true;
+
+    const originalWrite = guardedStream.write.bind(guardedStream);
+    guardedStream.write = ((...args: Parameters<typeof originalWrite>) => {
+      const callbackIndex =
+        typeof args[args.length - 1] === "function" ? args.length - 1 : -1;
+      const originalCallback =
+        callbackIndex >= 0
+          ? (args[callbackIndex] as ((error?: Error | null) => void))
+          : undefined;
+
+      if (callbackIndex >= 0 && originalCallback) {
+        args[callbackIndex] = ((error?: Error | null) => {
+          if (error && isIgnorableStdioError(error)) {
+            return originalCallback(undefined);
+          }
+          return originalCallback(error);
+        }) as Parameters<typeof originalWrite>[number];
+      }
+
+      try {
+        return originalWrite(...args);
+      } catch (error) {
+        if (!isIgnorableStdioError(error)) {
+          throw error;
+        }
+        if (originalCallback) {
+          originalCallback(undefined);
+        }
+        return false;
+      }
+    }) as typeof guardedStream.write;
+  };
+
+  wrapStreamWrite(process.stdout);
+  wrapStreamWrite(process.stderr);
+
   const swallowIgnorableStreamError = (error: Error) => {
     if (!isIgnorableStdioError(error)) {
       throw error;
@@ -172,6 +221,39 @@ function installStdioFaultGuards(): void {
 }
 
 installStdioFaultGuards();
+
+process.on("uncaughtException", (error) => {
+  if (isIgnorableStdioError(error)) {
+    return;
+  }
+
+  const message = toErrorMessage(error);
+  try {
+    console.error("[desktop] 主进程未捕获异常:", message);
+  } catch {
+    // ignore logging failures
+  }
+
+  if (!hasShownMainProcessFatalDialog) {
+    hasShownMainProcessFatalDialog = true;
+    dialog.showErrorBox(
+      "Local AI Gateway 主进程异常",
+      `桌面主进程出现未捕获异常。\n\n原因：${message}\n\n如果问题持续出现，请重新安装最新构建或把该报错反馈给开发记录。`,
+    );
+  }
+});
+
+process.on("unhandledRejection", (reason) => {
+  if (isIgnorableStdioError(reason)) {
+    return;
+  }
+
+  try {
+    console.error("[desktop] 主进程未处理 Promise 拒绝:", toErrorMessage(reason));
+  } catch {
+    // ignore logging failures
+  }
+});
 
 class GatewayProcessManager {
   private child?: ChildProcess;
