@@ -506,6 +506,12 @@ export interface GatewayInferenceObservability {
   currentPoolId?: string;
   currentClientTag?: string;
   currentModelAlias?: string;
+  blockedClients?: Array<{
+    clientTag: string;
+    retryAfterSeconds: number;
+    lastFailureClass?: GatewayPoolFailureClass;
+    lastFailureAt?: number;
+  }>;
 }
 
 export interface GatewayLogRecord {
@@ -613,12 +619,13 @@ export function getCodexAliasForUpstreamModel(
 
 export function redactSensitiveValue(value: unknown): unknown {
   if (typeof value === "string") {
-    const lower = value.toLowerCase();
+    const trimmed = value.trim();
     if (
-      lower.includes("bearer ") ||
-      lower.includes("authorization") ||
-      lower.includes("refresh") ||
-      lower.includes("access")
+      /^bearer\s+[a-z0-9._\-+/=]{12,}$/i.test(trimmed) ||
+      /^(sk|sess|rt|at)-[a-z0-9._-]{10,}$/i.test(trimmed) ||
+      (/^[a-z0-9+/_=-]{80,}$/i.test(trimmed) &&
+        /[a-z]/.test(trimmed) &&
+        /\d/.test(trimmed))
     ) {
       return "[redacted]";
     }
@@ -633,7 +640,9 @@ export function redactSensitiveValue(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => {
         if (
-          /token|authorization|refresh|access|cookie/i.test(key)
+          /(token|authorization|api[-_]?key|cookie|secret|password|refresh[_-]?token|access[_-]?token)/i.test(
+            key,
+          )
         ) {
           return [key, "[redacted]"];
         }

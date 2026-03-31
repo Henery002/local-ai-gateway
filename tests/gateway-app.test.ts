@@ -367,6 +367,49 @@ class FailableSessionBackedProviderAdapter extends SessionBackedProviderAdapter 
   }
 }
 
+class ThrowBeforeFirstChunkStream implements ProviderStream {
+  constructor(
+    private readonly upstream: ProviderStream,
+    private readonly error: Error,
+  ) {}
+
+  async *[Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
+    throw this.error;
+  }
+
+  async result(): Promise<AssistantMessage> {
+    return this.upstream.result();
+  }
+}
+
+class StreamFailableSessionBackedProviderAdapter extends SessionBackedProviderAdapter {
+  constructor(
+    sessionSource: SessionSource,
+    private readonly failures: Record<string, Array<Error | string>>,
+  ) {
+    super(sessionSource);
+  }
+
+  override async createStream(
+    model: GatewayModelDefinition,
+    context: GatewayConversationContext,
+    options: GatewayChatOptions = {},
+  ): Promise<ProviderStreamResult> {
+    const result = await super.createStream(model, context, options);
+    const sessionId = result.session.id;
+    const queue = this.failures[sessionId];
+    if (!queue?.length) {
+      return result;
+    }
+    const next = queue.shift();
+    const error = next instanceof Error ? next : new Error(next);
+    return {
+      ...result,
+      stream: new ThrowBeforeFirstChunkStream(result.stream, error),
+    };
+  }
+}
+
 function createResolvedSession(input: {
   id: string;
   profileId: string;
@@ -1044,6 +1087,127 @@ describe("gateway app", () => {
     }
   });
 
+  it("degrades fixed-session routing to configured pool members when fixed account fails", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const fixedSession = createResolvedSession({
+      id: "main:fake:fixed-pool",
+      profileId: "fake:fixed-pool",
+      accountId: "acct_fixed_pool",
+      quotaPercentage: 80,
+    });
+    const poolBackupSession = createResolvedSession({
+      id: "main:fake:pool-backup",
+      profileId: "fake:pool-backup",
+      accountId: "acct_pool_backup",
+      quotaPercentage: 76,
+    });
+    const activeOtherSession = createResolvedSession({
+      id: "main:fake:active-other",
+      profileId: "fake:active-other",
+      accountId: "acct_active_other",
+      quotaPercentage: 92,
+    });
+    const sessionSource = new PoolSessionSource([
+      fixedSession,
+      poolBackupSession,
+      activeOtherSession,
+    ]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [fixedSession.id]: [new Error("usage_limit_reached")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(activeOtherSession.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-fixed-fallback",
+          name: "固定账号失败回退池",
+          enabled: true,
+          selectionStrategy: "priority",
+          maxRetryCandidates: 2,
+          members: [
+            { selector: fixedSession.accountId!, priority: 10 },
+            { selector: poolBackupSession.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-openclaw-fixed-with-pool",
+          name: "openclaw-fixed-with-pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "fixed-session",
+            modelAlias: "fake-default",
+            sessionId: fixedSession.accountId,
+            poolId: "pool-fixed-fallback",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([
+        fixedSession.id,
+        poolBackupSession.id,
+      ]);
+      expect(adapter.lastOptions?.sessionId).toBe(poolBackupSession.id);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("resolves dynamic pool members by quota threshold during preview and live routing", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);
@@ -1481,6 +1645,115 @@ describe("gateway app", () => {
     }
   });
 
+  it("retries another pool member when streaming fails before first chunk", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:stream-pre-a",
+      profileId: "fake:stream-pre-a",
+      accountId: "acct_stream_pre_a",
+      quotaPercentage: 88,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:stream-pre-b",
+      profileId: "fake:stream-pre-b",
+      accountId: "acct_stream_pre_b",
+      quotaPercentage: 74,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new StreamFailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("network reconnecting")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionA.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-stream-pre-first-chunk",
+          name: "流式首字节切号池",
+          enabled: true,
+          selectionStrategy: "priority",
+          maxRetryCandidates: 2,
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-stream-pre-first-chunk",
+          name: "stream-pre-first-chunk",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-stream-pre-first-chunk",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          stream: true,
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/event-stream");
+      expect(response.body).toContain("data: [DONE]");
+      expect(adapter.attemptedSessionIds).toEqual([sessionA.id, sessionB.id]);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("restores dynamic pool runtime snapshots across runtime restarts", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);
@@ -1829,6 +2102,138 @@ describe("gateway app", () => {
       });
       expect(validKey.statusCode).toBe(200);
       expect(validKey.json().data[0]?.id).toBe("fake-default");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("opens client circuit and returns 429 with retry-after after repeated retryable failures", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionSource = new FakeSessionSource();
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionSource.session.id]: [
+        new Error("network timeout"),
+        new Error("network timeout"),
+        new Error("network timeout"),
+        new Error("network timeout"),
+        new Error("network timeout"),
+      ],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionSource.session.id);
+    const app = createGatewayApp(runtime);
+
+    try {
+      for (let index = 0; index < 4; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+            "x-client-tag": "openclaw",
+          },
+          payload: {
+            model: "fake-default",
+            messages: [{ role: "user", content: "ping" }],
+          },
+        });
+        expect(response.statusCode).toBe(502);
+      }
+
+      const blocked = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(blocked.statusCode).toBe(429);
+      expect(blocked.json().error.type).toBe("client_temporarily_blocked");
+      expect(Number(blocked.headers["retry-after"])).toBeGreaterThan(0);
+      expect(adapter.attemptedSessionIds).toHaveLength(4);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      expect(adminHealth.json().inferenceObservability?.blockedClients).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            clientTag: "openclaw",
+            lastFailureClass: "network_retryable",
+          }),
+        ]),
+      );
+
+      const resetCircuit = await app.inject({
+        method: "POST",
+        url: "/admin/telemetry/circuit/reset",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+        },
+      });
+      expect(resetCircuit.statusCode).toBe(200);
+      expect(resetCircuit.json()).toMatchObject({
+        ok: true,
+        cleared: 1,
+      });
+
+      const afterReset = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+      expect(afterReset.statusCode).toBe(502);
+      expect(adapter.attemptedSessionIds).toHaveLength(5);
     } finally {
       await app.close();
       database.close();

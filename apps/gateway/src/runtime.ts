@@ -79,6 +79,14 @@ type InferenceRequestRuntimeState = {
   poolId?: string;
 };
 
+type ClientCircuitState = {
+  windowStartedAt: number;
+  failureCount: number;
+  openUntil?: number;
+  lastFailureAt?: number;
+  lastFailureClass?: GatewayPoolFailureClass;
+};
+
 export class GatewayRuntime {
   readonly startedAt = new Date();
   readonly sessionSource: SessionSource;
@@ -94,6 +102,10 @@ export class GatewayRuntime {
   private poolSelectionInsertCount = 0;
   private inferenceRequestSequence = 0;
   private lastInferenceFinishedAt?: number;
+  private readonly clientCircuitState = new Map<string, ClientCircuitState>();
+  private readonly clientCircuitThreshold = 4;
+  private readonly clientCircuitWindowMs = 45_000;
+  private readonly clientCircuitCooldownMs = 45_000;
 
   constructor(
     readonly paths: GatewayPaths,
@@ -345,6 +357,129 @@ export class GatewayRuntime {
     }
   }
 
+  checkClientCircuit(clientTag?: string): {
+    blocked: boolean;
+    clientTag: string;
+    retryAfterSeconds?: number;
+  } {
+    const normalizedClientTag = this.normalizeClientTag(clientTag);
+    const state = this.clientCircuitState.get(normalizedClientTag);
+    if (!state?.openUntil) {
+      return {
+        blocked: false,
+        clientTag: normalizedClientTag,
+      };
+    }
+
+    const now = Date.now();
+    if (state.openUntil > now) {
+      return {
+        blocked: true,
+        clientTag: normalizedClientTag,
+        retryAfterSeconds: Math.max(1, Math.ceil((state.openUntil - now) / 1000)),
+      };
+    }
+
+    this.clientCircuitState.delete(normalizedClientTag);
+    return {
+      blocked: false,
+      clientTag: normalizedClientTag,
+    };
+  }
+
+  recordClientCircuitSuccess(clientTag?: string): void {
+    const normalizedClientTag = this.normalizeClientTag(clientTag);
+    this.clientCircuitState.delete(normalizedClientTag);
+  }
+
+  resetClientCircuit(clientTag?: string): { cleared: number } {
+    if (clientTag?.trim()) {
+      const normalizedClientTag = this.normalizeClientTag(clientTag);
+      const existed = this.clientCircuitState.delete(normalizedClientTag);
+      return { cleared: existed ? 1 : 0 };
+    }
+    const cleared = this.clientCircuitState.size;
+    this.clientCircuitState.clear();
+    return { cleared };
+  }
+
+  recordClientCircuitFailure(input: {
+    clientTag?: string;
+    failureClass: GatewayPoolFailureClass;
+  }): void {
+    if (input.failureClass === "non_retryable") {
+      return;
+    }
+
+    const normalizedClientTag = this.normalizeClientTag(input.clientTag);
+    const now = Date.now();
+    const current = this.clientCircuitState.get(normalizedClientTag);
+    const state: ClientCircuitState = current
+      ? { ...current }
+      : { windowStartedAt: now, failureCount: 0 };
+
+    if (now - state.windowStartedAt > this.clientCircuitWindowMs) {
+      state.windowStartedAt = now;
+      state.failureCount = 0;
+      state.openUntil = undefined;
+    }
+
+    state.failureCount += 1;
+    state.lastFailureAt = now;
+    state.lastFailureClass = input.failureClass;
+
+    if (state.failureCount >= this.clientCircuitThreshold) {
+      const retryAfterSeconds = this.suggestRetryAfterSeconds({
+        clientTag: normalizedClientTag,
+        failureClass: input.failureClass,
+      });
+      const cooldownMs = Math.max(
+        this.clientCircuitCooldownMs,
+        (retryAfterSeconds ?? 0) * 1000,
+      );
+      state.openUntil = now + cooldownMs;
+      state.failureCount = 0;
+      state.windowStartedAt = now;
+      this.logger.warn("client_circuit_opened", {
+        clientTag: normalizedClientTag,
+        failureClass: input.failureClass,
+        retryAfterSeconds: Math.max(1, Math.ceil(cooldownMs / 1000)),
+      });
+    }
+
+    this.clientCircuitState.set(normalizedClientTag, state);
+  }
+
+  suggestRetryAfterSeconds(input: {
+    clientTag?: string;
+    failureClass: GatewayPoolFailureClass;
+  }): number | undefined {
+    if (input.failureClass === "non_retryable") {
+      return undefined;
+    }
+
+    const normalizedClientTag = this.normalizeClientTag(input.clientTag);
+    const state = this.clientCircuitState.get(normalizedClientTag);
+    const now = Date.now();
+    if (state?.openUntil && state.openUntil > now) {
+      return Math.max(1, Math.ceil((state.openUntil - now) / 1000));
+    }
+
+    if (input.failureClass === "auth_invalid") {
+      return 120;
+    }
+    if (input.failureClass === "quota_exhausted") {
+      return 60;
+    }
+    if (input.failureClass === "rate_limited") {
+      return 45;
+    }
+    if (input.failureClass === "network_retryable") {
+      return 20;
+    }
+    return 15;
+  }
+
   getInferenceAuthPublicSettings(): GatewayInferenceAuthPublicSettings {
     const settings = this.configStore.getInferenceAuthSettings();
     const mode = settings.mode === "api-key" ? "api-key" : "none";
@@ -377,6 +512,7 @@ export class GatewayRuntime {
     this.poolSelectionEvents.splice(0, this.poolSelectionEvents.length);
     this.poolMemberState.clear();
     this.inFlightRequests.clear();
+    this.clientCircuitState.clear();
     this.lastInferenceFinishedAt = undefined;
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
@@ -558,6 +694,20 @@ export class GatewayRuntime {
     const latestActive = Array.from(this.inFlightRequests.values()).sort(
       (left, right) => right.startedAt - left.startedAt,
     )[0];
+    const now = Date.now();
+    const blockedClients = Array.from(this.clientCircuitState.entries())
+      .filter(([, state]) => typeof state.openUntil === "number" && state.openUntil > now)
+      .map(([clientTag, state]) => ({
+        clientTag,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil(((state.openUntil as number) - now) / 1000),
+        ),
+        lastFailureClass: state.lastFailureClass,
+        lastFailureAt: state.lastFailureAt,
+      }))
+      .sort((left, right) => right.retryAfterSeconds - left.retryAfterSeconds)
+      .slice(0, 10);
 
     return {
       inFlightCount: this.inFlightRequests.size,
@@ -567,6 +717,7 @@ export class GatewayRuntime {
       currentPoolId: latestActive?.poolId,
       currentClientTag: latestActive?.clientTag,
       currentModelAlias: latestActive?.requestedModelAlias,
+      blockedClients: blockedClients.length > 0 ? blockedClients : undefined,
     };
   }
 
@@ -1412,5 +1563,10 @@ export class GatewayRuntime {
       return "按最近最少使用选择";
     }
     return "按额度优先并结合最近使用情况综合选择";
+  }
+
+  private normalizeClientTag(clientTag?: string): string {
+    const normalized = clientTag?.trim().toLowerCase();
+    return normalized && normalized.length > 0 ? normalized : "unknown";
   }
 }

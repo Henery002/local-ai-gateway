@@ -128,6 +128,7 @@ function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
     message.includes("fetch failed") ||
     message.includes("network") ||
     message.includes("timeout") ||
+    message.includes("reconnecting") ||
     message.includes("econn") ||
     message.includes("socket")
   ) {
@@ -225,7 +226,26 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.setErrorHandler((error, _request, reply) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
-    runtime.logger.error("request_failed", { message: normalized.message });
+    if (
+      normalized instanceof GatewayError &&
+      normalized.code === "client_temporarily_blocked"
+    ) {
+      runtime.logger.warn("request_client_circuit_blocked", {
+        message: normalized.message,
+      });
+    } else {
+      runtime.logger.error("request_failed", { message: normalized.message });
+    }
+    if (
+      normalized instanceof GatewayError &&
+      typeof normalized.details?.retryAfterSeconds === "number"
+    ) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil(normalized.details.retryAfterSeconds),
+      );
+      reply.header("Retry-After", String(retryAfterSeconds));
+    }
     reply.status(getStatusCode(normalized)).send(buildErrorBody(normalized));
   });
 
@@ -238,10 +258,22 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.post("/v1/chat/completions", async (request, reply) => {
     requireInferenceAuth(runtime, request);
-    const parsed = parseChatCompletionsRequest(request.body);
     const startedAt = Date.now();
     const currentSessionId = runtime.getActiveSessionId();
     const clientTag = resolveClientTag(request);
+    const clientCircuit = runtime.checkClientCircuit(clientTag);
+    if (clientCircuit.blocked) {
+      throw new GatewayError(
+        429,
+        "client_temporarily_blocked",
+        `客户端 ${clientCircuit.clientTag} 在短时间内失败过多，已进入冷却期，请稍后重试。`,
+        {
+          retryAfterSeconds: clientCircuit.retryAfterSeconds,
+          clientTag: clientCircuit.clientTag,
+        },
+      );
+    }
+    const parsed = parseChatCompletionsRequest(request.body);
     const routingPreview = runtime.previewRouting({
       clientTag,
       requestedModelAlias: parsed.model,
@@ -259,10 +291,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             .rules?.find((rule) => rule.id === routingPreview.matchedRuleId)
         : undefined;
     const dispatchMode = runtime.getEffectiveDispatchMode(matchedRule?.target);
-    const targetPoolId =
-      dispatchMode === "dynamic-pool"
-        ? matchedRule?.target?.poolId?.trim()
-        : undefined;
+    const targetPoolId = matchedRule?.target?.poolId?.trim();
     const poolAttemptLimit = resolvePoolAttemptLimit(
       runtime.getPoolSettings(),
       targetPoolId,
@@ -279,7 +308,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     let routingHitRecorded = false;
     let poolSelectionEventRecorded = false;
     let selectedByPoolMember = Boolean(
-      targetPoolId &&
+      dispatchMode === "dynamic-pool" &&
+        targetPoolId &&
         routingPreview.reason === "rule_matched" &&
         routingPreview.resolvedPoolId === targetPoolId &&
         routingPreview.selectionReason &&
@@ -479,6 +509,28 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       return undefined;
     };
 
+    const recordPoolSelectionSelectedIfNeeded = (sessionId: string | undefined) => {
+      if (
+        !targetPoolId ||
+        !selectedByPoolMember ||
+        !sessionId ||
+        poolSelectionEventRecorded
+      ) {
+        return;
+      }
+      runtime.recordPoolSelectionEvent({
+        timestamp: Date.now(),
+        poolId: targetPoolId,
+        poolName: targetPoolName ?? targetPoolId,
+        eventType: "selected",
+        clientTag,
+        requestedModelAlias: parsed.model,
+        selectedSessionId: sessionId,
+        reason: routingPreview.selectionReason,
+      });
+      poolSelectionEventRecorded = true;
+    };
+
     try {
       const controller = new AbortController();
       request.raw.on("aborted", () => controller.abort());
@@ -528,52 +580,88 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         sessionId: usedSessionId,
         poolId: targetPoolId,
       });
-      if (
-        targetPoolId &&
-        selectedByPoolMember &&
-        usedSessionId &&
-        !poolSelectionEventRecorded
-      ) {
-        runtime.recordPoolSelectionEvent({
-          timestamp: Date.now(),
-          poolId: targetPoolId,
-          poolName: targetPoolName ?? targetPoolId,
-          eventType: "selected",
-          clientTag,
-          requestedModelAlias: parsed.model,
-          selectedSessionId: usedSessionId,
-          reason: routingPreview.selectionReason,
-        });
-        poolSelectionEventRecorded = true;
-      }
+      recordPoolSelectionSelectedIfNeeded(usedSessionId);
 
       if (parsed.stream) {
-        recordRoutingHitIfNeeded(usedSessionId);
-        reply.raw.writeHead(200, {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive",
-        });
+        let streamingResult = result;
+        let streamingSessionId = usedSessionId;
 
-        for await (const chunk of streamChatCompletionChunks(result.stream, resolvedModelAlias)) {
-          reply.raw.write(chunk);
-        }
+        while (true) {
+          let hasWrittenFirstChunk = false;
+          try {
+            for await (const chunk of streamChatCompletionChunks(
+              streamingResult.stream,
+              resolvedModelAlias,
+            )) {
+              if (!hasWrittenFirstChunk) {
+                recordRoutingHitIfNeeded(streamingSessionId);
+                reply.raw.writeHead(200, {
+                  "Content-Type": "text/event-stream; charset=utf-8",
+                  "Cache-Control": "no-cache, no-transform",
+                  Connection: "keep-alive",
+                });
+                hasWrittenFirstChunk = true;
+              }
+              reply.raw.write(chunk);
+            }
+          } catch (error) {
+            if (hasWrittenFirstChunk) {
+              throw error;
+            }
 
-        reply.raw.end();
-        if (usedSessionId) {
-          if (targetPoolId && selectedByPoolMember) {
-            runtime.recordPoolSelectionSuccess(targetPoolId, usedSessionId);
+            const poolFallbackSessionId = selectNextPoolSessionId(
+              streamingSessionId,
+              classifyPoolFailure(error),
+            );
+            const fallbackSessionId =
+              poolFallbackSessionId ??
+              (hasExplicitTargetSession && isRetryableFixedSessionError(error)
+                ? selectFallbackSessionId(streamingSessionId)
+                : undefined);
+            if (!fallbackSessionId) {
+              throw error;
+            }
+            resolvedSessionId = fallbackSessionId;
+            runtime.updateInferenceActivity(inferenceRequestId, {
+              sessionId: resolvedSessionId,
+              poolId: targetPoolId,
+            });
+            streamingResult = await createAttempt(fallbackSessionId);
+            streamingSessionId = streamingResult.session.id;
+            usedSessionId = streamingSessionId;
+            runtime.updateInferenceActivity(inferenceRequestId, {
+              sessionId: streamingSessionId,
+              poolId: targetPoolId,
+            });
+            recordPoolSelectionSelectedIfNeeded(streamingSessionId);
+            continue;
           }
-          runtime.recordInferenceResult({
-            sessionId: usedSessionId,
-            ok: true,
-            stream: true,
-            clientTag,
-            happenedAt: Date.now(),
-          });
-          hasRecordedResult = true;
+
+          if (!hasWrittenFirstChunk) {
+            recordRoutingHitIfNeeded(streamingSessionId);
+            reply.raw.writeHead(200, {
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+            });
+          }
+          reply.raw.end();
+          if (streamingSessionId) {
+            if (targetPoolId && selectedByPoolMember) {
+              runtime.recordPoolSelectionSuccess(targetPoolId, streamingSessionId);
+            }
+            runtime.recordInferenceResult({
+              sessionId: streamingSessionId,
+              ok: true,
+              stream: true,
+              clientTag,
+              happenedAt: Date.now(),
+            });
+            hasRecordedResult = true;
+          }
+          runtime.recordClientCircuitSuccess(clientTag);
+          return reply;
         }
-        return reply;
       }
 
       let finalMessage = await result.stream.result();
@@ -602,6 +690,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             poolId: targetPoolId,
           });
           selectedByPoolMember = Boolean(targetPoolId && poolFallbackSessionId);
+          recordPoolSelectionSelectedIfNeeded(usedSessionId);
           finalMessage = await retryResult.stream.result();
         }
       }
@@ -639,9 +728,15 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         });
         hasRecordedResult = true;
       }
+      runtime.recordClientCircuitSuccess(clientTag);
       return buildChatCompletionResponse(finalMessage, resolvedModelAlias);
     } catch (error) {
       recordRoutingHitIfNeeded(usedSessionId);
+      const failureClass = classifyPoolFailure(error);
+      runtime.recordClientCircuitFailure({
+        clientTag,
+        failureClass,
+      });
       if (usedSessionId && !hasRecordedResult) {
         if (targetPoolId && selectedByPoolMember) {
           const failedSession = runtime
@@ -650,7 +745,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           runtime.recordPoolSelectionFailure({
             poolId: targetPoolId,
             sessionId: usedSessionId,
-            failureClass: classifyPoolFailure(error),
+            failureClass,
             resetAt: failedSession?.quota?.resetAt,
           });
         }
@@ -664,6 +759,28 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             error instanceof Error
               ? error.message
               : `request_failed_after_${Date.now() - startedAt}ms`,
+        });
+      }
+      const retryAfterSeconds = runtime.suggestRetryAfterSeconds({
+        clientTag,
+        failureClass,
+      });
+      if (
+        retryAfterSeconds &&
+        error instanceof GatewayError &&
+        !error.details?.retryAfterSeconds
+      ) {
+        throw new GatewayError(error.statusCode, error.code, error.message, {
+          ...(error.details ?? {}),
+          retryAfterSeconds,
+        });
+      }
+      if (
+        retryAfterSeconds &&
+        !(error instanceof GatewayError)
+      ) {
+        throw new GatewayError(502, "upstream_error", String(error), {
+          retryAfterSeconds,
         });
       }
       throw error;
@@ -838,6 +955,20 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     return {
       ok: true,
       reset: true,
+    };
+  });
+
+  app.post("/admin/telemetry/circuit/reset", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as { clientTag?: string };
+    const result = runtime.resetClientCircuit(body.clientTag);
+    runtime.logger.info("client_circuit_reset", {
+      clientTag: body.clientTag?.trim().toLowerCase() || "all",
+      cleared: result.cleared,
+    });
+    return {
+      ok: true,
+      ...result,
     };
   });
 
