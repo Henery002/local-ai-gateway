@@ -1889,10 +1889,10 @@ function renderDiagnostics(): void {
     const card = document.createElement("div");
     card.className = "card";
     const missing = item.missingEnvKeys?.length
-      ? `<div style="margin-top: 12px; padding: 8px; background: var(--warning-bg); border-radius: 6px; font-size: 14px; color: var(--warning);"><strong style="display: block; margin-bottom: 2px;">缺失配置项</strong>${escapeHtml(item.missingEnvKeys.join(", "))}</div>`
+      ? `<div style="margin-top: 12px; padding: 10px 12px; background: var(--warning-bg); border-radius: var(--radius-sm); border: 1px solid var(--warning-border); font-size: 13px; color: var(--warning);"><strong style="display: block; margin-bottom: 4px;">缺失配置项</strong>${escapeHtml(item.missingEnvKeys.join(", "))}</div>`
       : "";
     const notes = item.notes?.length
-      ? `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 4px;">${item.notes.map((note) => `<span style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 4px 8px; border-radius: 4px;">${escapeHtml(note)}</span>`).join("")}</div>`
+      ? `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 4px;">${item.notes.map((note) => `<span style="font-size: 13px; color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-light); padding: 6px 10px; border-radius: var(--radius-sm);">${escapeHtml(note)}</span>`).join("")}</div>`
       : "";
 
     card.innerHTML = `
