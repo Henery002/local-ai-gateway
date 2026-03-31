@@ -35,6 +35,16 @@ function ensureAsarContains(pattern, label) {
   }
 }
 
+function ensurePackagedDependencyExists(relativePathCandidates, label) {
+  const candidates = Array.isArray(relativePathCandidates)
+    ? relativePathCandidates
+    : [relativePathCandidates];
+  const resolved = candidates.map((relativePath) => join(appBundlePath, "Contents", "Resources", relativePath));
+  if (!resolved.some((path) => existsSync(path))) {
+    throw new Error(`${label} 未进入安装包：${resolved.join(" 或 ")}`);
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -136,7 +146,6 @@ if (!infoPlist.includes("<string>Local AI Gateway</string>")) {
 
 ensureAsarContains("/node_modules/@mariozechner/pi-ai/package.json", "pi-ai 运行时依赖");
 ensureAsarContains("/node_modules/fastify/package.json", "Fastify 运行时依赖");
-ensureAsarContains("/node_modules/better-sqlite3/package.json", "better-sqlite3 运行时依赖");
 ensureAsarContains("/packages/openclaw-session/package.json", "OpenClaw Session 工作区元数据");
 ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
 ensureAsarContains("/apps/gateway/dist/server.js", "安装版主进程托管的 gateway 模块");
@@ -154,6 +163,13 @@ const betterSqliteNode = join(
   "better_sqlite3.node",
 );
 ensureFileExists(betterSqliteNode, "better-sqlite3 原生模块");
+ensurePackagedDependencyExists(
+  [
+    "app.asar/node_modules/better-sqlite3/package.json",
+    "app.asar.unpacked/node_modules/better-sqlite3/package.json",
+  ],
+  "better-sqlite3 包元数据",
+);
 
 console.log("[smoke:desktop-package] 验证安装版可执行文件可成功拉起本地网关…");
 await launchPackagedAppAndVerify();

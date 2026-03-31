@@ -1,4 +1,7 @@
-import Database from "better-sqlite3";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+
+import type BetterSqlite3 from "better-sqlite3";
 
 import {
   GatewayLogRecord,
@@ -8,8 +11,36 @@ import {
   SessionActivitySnapshot,
 } from "@local-ai-gateway/shared";
 
+const require = createRequire(import.meta.url);
+
+function loadBetterSqlite3(): typeof BetterSqlite3 {
+  try {
+    return require("better-sqlite3") as typeof BetterSqlite3;
+  } catch (error) {
+    const resourcesPath =
+      typeof process === "object" && process && "resourcesPath" in process
+        ? process.resourcesPath
+        : undefined;
+
+    if (typeof resourcesPath !== "string" || resourcesPath.length === 0) {
+      throw error;
+    }
+
+    const unpackedPackagePath = join(
+      resourcesPath,
+      "app.asar.unpacked",
+      "node_modules",
+      "better-sqlite3",
+    );
+    return require(unpackedPackagePath) as typeof BetterSqlite3;
+  }
+}
+
+const Database = loadBetterSqlite3();
+type BetterSqliteDatabase = InstanceType<typeof Database>;
+
 export class GatewayDatabase {
-  private readonly db: Database.Database;
+  private readonly db: BetterSqliteDatabase;
 
   constructor(paths: GatewayPaths) {
     this.db = new Database(paths.dbPath);
