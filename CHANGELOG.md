@@ -13,6 +13,10 @@
 
 ### 调整
 
+- 安装版打包调整为仅解包 `*.node` 原生模块，保留 `better-sqlite3` 的 `package.json / lib` 在 `app.asar` 内，修复安装后报错“Cannot find package `better-sqlite3`”。
+- 安装版 smoke 校验新增 `better-sqlite3/package.json` in-asar 断言，避免再次出现“二进制文件存在但包元数据缺失”的漏检。
+- 安装版桌面主进程在打包环境下改为优先写入 `Application Support/local-ai-gateway/logs/desktop-main.log`，不再依赖系统标准输出，进一步降低 `write EIO` 触发主进程异常窗的概率。
+
 - 网关健康信息新增“正在处理中的请求”观测，状态栏图标改为依据真实在途请求切换，不再依赖较长的最近命中窗口推断 `Active`。
 - 状态栏图标三种状态统一改为 macOS 模板图风格，使用亮白层级与形态变化区分空闲、桥接中与异常，并保留 `Active` 环绕动画。
 - 状态栏菜单重构为运行态摘要：现可直接查看当前来源、当前号池、当前账号、剩余额度、重置时间、阈值策略，并提供打开主界面、数据目录、日志目录与重启网关入口。

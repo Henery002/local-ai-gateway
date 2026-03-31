@@ -22,7 +22,6 @@ files:
 asar: true
 asarUnpack:
   - node_modules/**/*.node
-  - node_modules/better-sqlite3/**/*
 mac:
   category: public.app-category.developer-tools
   icon: app-icon.icns

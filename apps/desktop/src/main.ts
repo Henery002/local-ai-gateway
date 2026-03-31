@@ -1,6 +1,14 @@
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { Socket } from "node:net";
 
@@ -66,6 +74,7 @@ const indexHtmlPath = join(__dirname, "../static/index.html");
 const iconAssetDir = join(__dirname, "../assets/icons/generated");
 const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
+const desktopMainLogPath = join(gatewayPaths.logsDir, "desktop-main.log");
 const importedCodexAccountStore = new ImportedCodexAccountStore(gatewayPaths.codexProfilesPath);
 const desktopSessionSource = new OpenClawSessionSource(undefined, gatewayPaths.codexProfilesPath);
 const DESKTOP_UI_ZOOM_LEVEL = -1;
@@ -118,6 +127,30 @@ let lastTrayUsageRefreshAt = 0;
 let allowAppQuit = false;
 let hasShownMainProcessFatalDialog = false;
 
+function appendDesktopMainLog(level: string, args: unknown[]): void {
+  try {
+    mkdirSync(gatewayPaths.logsDir, { recursive: true });
+    const rendered = args
+      .map((arg) => {
+        if (typeof arg === "string") {
+          return arg;
+        }
+        if (arg instanceof Error) {
+          return arg.stack ?? arg.message;
+        }
+        try {
+          return JSON.stringify(arg);
+        } catch {
+          return String(arg);
+        }
+      })
+      .join(" ");
+    appendFileSync(desktopMainLogPath, `[${toIsoNow()}] [${level}] ${rendered}\n`, "utf8");
+  } catch {
+    // ignore logging failures
+  }
+}
+
 function isIgnorableStdioError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -145,8 +178,12 @@ function installStdioFaultGuards(): void {
   }
   (globalThis as Record<string, unknown>)[mark] = true;
 
-  const wrapConsoleMethod = <T extends (...args: unknown[]) => void>(method: T): T =>
+  const wrapConsoleMethod = <T extends (...args: unknown[]) => void>(method: T, level: string): T =>
     ((...args: unknown[]) => {
+      if (app.isPackaged) {
+        appendDesktopMainLog(level, args);
+        return;
+      }
       try {
         method(...args);
       } catch (error) {
@@ -156,11 +193,11 @@ function installStdioFaultGuards(): void {
       }
     }) as T;
 
-  console.log = wrapConsoleMethod(console.log.bind(console));
-  console.info = wrapConsoleMethod(console.info.bind(console));
-  console.warn = wrapConsoleMethod(console.warn.bind(console));
-  console.error = wrapConsoleMethod(console.error.bind(console));
-  console.debug = wrapConsoleMethod(console.debug.bind(console));
+  console.log = wrapConsoleMethod(console.log.bind(console), "info");
+  console.info = wrapConsoleMethod(console.info.bind(console), "info");
+  console.warn = wrapConsoleMethod(console.warn.bind(console), "warn");
+  console.error = wrapConsoleMethod(console.error.bind(console), "error");
+  console.debug = wrapConsoleMethod(console.debug.bind(console), "debug");
 
   const wrapStreamWrite = (stream?: NodeJS.WriteStream) => {
     if (!stream) {
@@ -222,7 +259,7 @@ function installStdioFaultGuards(): void {
 
 installStdioFaultGuards();
 
-process.on("uncaughtException", (error) => {
+function handleCapturedMainProcessError(error: unknown): void {
   if (isIgnorableStdioError(error)) {
     return;
   }
@@ -241,7 +278,9 @@ process.on("uncaughtException", (error) => {
       `桌面主进程出现未捕获异常。\n\n原因：${message}\n\n如果问题持续出现，请重新安装最新构建或把该报错反馈给开发记录。`,
     );
   }
-});
+}
+
+process.setUncaughtExceptionCaptureCallback(handleCapturedMainProcessError);
 
 process.on("unhandledRejection", (reason) => {
   if (isIgnorableStdioError(reason)) {
