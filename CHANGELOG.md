@@ -13,6 +13,9 @@
 
 ### 调整
 
+- 根 `package.json` 现显式补齐 `better-sqlite3 / zod` 运行时依赖，修复安装版因 workspace 子包依赖未被打包而报错“Cannot find package `zod` / `better-sqlite3`”。
+- 新增 `npm run check:runtime-deps`，会在发布前校验根包是否完整覆盖各 workspace 的第三方运行时依赖，避免安装包再次缺包。
+- 安装版 smoke 校验新增 `zod/package.json` in-asar 断言，进一步收紧桌面包依赖完整性验证。
 - 安装版打包调整为仅解包 `*.node` 原生模块，保留 `better-sqlite3` 的 `package.json / lib` 在 `app.asar` 内，修复安装后报错“Cannot find package `better-sqlite3`”。
 - 安装版 smoke 校验新增 `better-sqlite3/package.json` in-asar 断言，避免再次出现“二进制文件存在但包元数据缺失”的漏检。
 - 安装版桌面主进程在打包环境下改为优先写入 `Application Support/local-ai-gateway/logs/desktop-main.log`，不再依赖系统标准输出，进一步降低 `write EIO` 触发主进程异常窗的概率。

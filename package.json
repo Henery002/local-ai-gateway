@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "find apps packages -type d -name dist -prune -exec rm -rf {} +",
+    "check:runtime-deps": "node scripts/check-runtime-deps.mjs",
     "dev:gateway": "tsx apps/gateway/src/cli.ts",
     "dev:desktop": "npm run build && npm run generate:icons && electron apps/desktop/dist/main.js",
     "generate:icons": "node scripts/generate-icons.mjs",
@@ -27,7 +28,7 @@
     "dist:desktop:ready": "npm run preflight:release && npm run dist:desktop && npm run release:manifest",
     "smoke:gateway": "npm run build && node scripts/smoke-gateway.mjs",
     "smoke:desktop-package": "node scripts/smoke-desktop-package.mjs",
-    "preflight:release": "npm run build && npm test && npm run smoke:gateway && npm run smoke:desktop-package",
+    "preflight:release": "npm run check:runtime-deps && npm run build && npm test && npm run smoke:gateway && npm run smoke:desktop-package",
     "audit:openclaw": "node scripts/audit-openclaw.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false"
@@ -41,7 +42,9 @@
     "@local-ai-gateway/provider-openai-compatible": "0.1.0",
     "@local-ai-gateway/shared": "0.1.0",
     "@mariozechner/pi-ai": "^0.62.0",
-    "fastify": "^5.6.1"
+    "better-sqlite3": "^12.4.1",
+    "fastify": "^5.6.1",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

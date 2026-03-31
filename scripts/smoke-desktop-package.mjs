@@ -145,6 +145,7 @@ if (!infoPlist.includes("<string>Local AI Gateway</string>")) {
 }
 
 ensureAsarContains("/node_modules/@mariozechner/pi-ai/package.json", "pi-ai 运行时依赖");
+ensureAsarContains("/node_modules/zod/package.json", "Zod 运行时依赖");
 ensureAsarContains("/node_modules/fastify/package.json", "Fastify 运行时依赖");
 ensureAsarContains("/packages/openclaw-session/package.json", "OpenClaw Session 工作区元数据");
 ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
