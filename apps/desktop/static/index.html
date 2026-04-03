@@ -258,9 +258,11 @@
           <!-- View: Accounts -->
           <div class="view" data-view="accounts" hidden>
             <section>
-              <div class="section-head">
-                <h2>账号资产管理</h2>
-                <p>管理桌面端本地维护的 Codex 账号，并支持导入本机可复用授权。</p>
+              <div id="accounts-top-header">
+                <div class="section-head">
+                  <h2>账号资产管理</h2>
+                  <p>管理桌面端本地维护的 Codex 账号，并支持导入本机可复用授权。</p>
+                </div>
               </div>
               
               <div class="toolbar">
@@ -340,12 +342,9 @@
                     <h3>OpenAI-Compatible</h3>
                     <p>扩展 Provider，可选接入标准 OpenAI 兼容云端接口。</p>
                   </div>
-                  <label class="switch-label prominent-toggle">
+                  <label class="switch-label" style="font-size: 14px; margin-top: auto; margin-bottom: 4px;">
                     <input id="openai-enabled" type="checkbox" />
-                    <span class="switch-copy">
-                      <strong>启用 Provider</strong>
-                      <small>默认折叠，按需展开配置</small>
-                    </span>
+                    启用扩展 Provider
                   </label>
                 </div>
                 <div class="settings-body">
@@ -370,12 +369,9 @@
                     <h3>本地模型 (Ollama)</h3>
                     <p>扩展 Provider，可选接入本机运行的 Ollama 服务。</p>
                   </div>
-                  <label class="switch-label prominent-toggle">
+                  <label class="switch-label" style="font-size: 14px; margin-top: auto; margin-bottom: 4px;">
                     <input id="ollama-enabled" type="checkbox" />
-                    <span class="switch-copy">
-                      <strong>启用 Provider</strong>
-                      <small>默认折叠，按需展开配置</small>
-                    </span>
+                    启用扩展 Provider
                   </label>
                 </div>
                 <div class="settings-body">
