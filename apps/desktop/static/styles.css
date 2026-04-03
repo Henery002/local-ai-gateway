@@ -89,7 +89,7 @@ html, body {
 body {
   background-color: var(--bg-window);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5715;
   -webkit-font-smoothing: antialiased;
 }
@@ -100,11 +100,11 @@ button, input, select {
 }
 
 .app-shell :is(p, span, label, small, strong, button, input, select, textarea) {
-  font-size: max(14px, 0.95em) !important;
+  font-size: max(15px, 0.95em) !important;
 }
 
 .app-shell .acc-info span {
-  font-size: 13px !important;
+  font-size: 14px !important;
 }
 
 /* App Shell */
@@ -196,7 +196,7 @@ button, input, select {
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
 }
 
@@ -354,13 +354,13 @@ button, input, select {
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-tertiary);
   font-weight: 500;
 }
 
 .stat-value {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -390,7 +390,7 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }
@@ -406,14 +406,14 @@ button, input, select {
 
 .section-head h2 {
   margin: 0 0 4px 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .section-head p {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-secondary);
 }
 
@@ -471,10 +471,10 @@ button, input, select {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 36px;
+  height: 40px;
   padding: 6px 16px;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
@@ -538,9 +538,9 @@ button, input, select {
 }
 
 .btn.mini {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 13px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 14px;
   border-radius: var(--radius-sm);
   font-weight: 400;
 }
@@ -566,13 +566,13 @@ button, input, select {
 }
 
 .input-field {
-  height: 36px;
+  height: 40px;
   padding: 6px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-main);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 15px;
   transition: all 0.2s;
   max-width: 480px;
   width: 100%;
@@ -597,10 +597,10 @@ button, input, select {
 .badge {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   border: 1px solid transparent;
 }
@@ -663,14 +663,14 @@ button, input, select {
 
 .settings-header h3 {
   margin: 0 0 4px 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .settings-header p {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-secondary);
 }
 
@@ -691,7 +691,7 @@ button, input, select {
 }
 
 .settings-note strong {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--info);
 }
@@ -699,7 +699,7 @@ button, input, select {
 .settings-note p,
 .settings-note li {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -1004,10 +1004,10 @@ button, input, select {
   background: var(--bg-main);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  padding: 20px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   transition: all 0.2s;
   position: relative;
   overflow: hidden;
@@ -1144,8 +1144,8 @@ button, input, select {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 10px;
-  padding-top: 16px;
+  margin-top: 4px;
+  padding-top: 10px;
   border-top: 1px dashed var(--border-light);
 }
 
@@ -1306,6 +1306,14 @@ button, input, select {
   background: var(--border-strong);
 }
 
+.routing-rule-card.collapsed .routing-rule-body {
+  display: none !important;
+}
+
+.routing-rule-card:not(.collapsed) .routing-rule-collapse-icon {
+  transform: rotate(0deg) !important;
+}
+
 .routing-rule-top {
   display: flex;
   justify-content: space-between;
@@ -1314,6 +1322,8 @@ button, input, select {
   margin-bottom: 24px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+  user-select: none;
 }
 
 .routing-rule-top strong {
@@ -1328,6 +1338,50 @@ button, input, select {
   margin-top: 4px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.pool-config-card .routing-rule-top {
+  align-items: center;
+}
+
+.pool-card-top .routing-rule-meta {
+  align-items: center;
+}
+
+.pool-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.pool-card-index-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary-btn-bg);
+  border: 1px solid color-mix(in oklab, var(--primary-btn-bg) 40%, var(--border-light));
+  background: color-mix(in oklab, var(--primary-btn-bg) 12%, white);
+  flex: 0 0 auto;
+}
+
+.pool-card-title-text {
+  min-width: 0;
+}
+
+.pool-card-title-text strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.pool-card-title-text span {
+  font-size: 14px;
+  margin-top: 6px;
 }
 
 .routing-rule-meta {
@@ -1806,10 +1860,10 @@ button, input, select {
 .pool-member-option {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  padding: 20px;
+  padding: 14px;
   background: var(--bg-main);
   cursor: pointer;
   transition: all 0.2s;
@@ -1885,7 +1939,7 @@ button, input, select {
   font-size: 13px;
   color: var(--text-secondary);
   min-width: 0;
-  margin-top: 6px;
+  margin-top: 2px;
 }
 
 .pool-member-option-meta {
@@ -1904,6 +1958,7 @@ button, input, select {
   gap: 8px;
   font-size: 13px;
   color: var(--text-secondary);
+  margin-top: 2px;
 }
 
 .pool-member-decision {

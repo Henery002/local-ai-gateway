@@ -82,7 +82,9 @@ const BACKUP_STORE_MAX_FILES = 20;
 const BACKUP_STORE_RETAIN_DAYS = 30;
 const ACTIVE_TRAY_FRAME_COUNT = 12;
 const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
-const TRAY_REFRESH_INTERVAL_MS = 2_500;
+const TRAY_REFRESH_INTERVAL_MS = 1_200;
+const TRAY_MENU_REFRESH_INTERVAL_MS = 900;
+const TRAY_MENU_LIVE_REFRESH_WINDOW_MS = 12_000;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
@@ -102,6 +104,18 @@ type TraySnapshot = {
   activeSessionResetAt?: number;
   inFlightCount?: number;
   recentlyFinished?: boolean;
+};
+
+type TrayStickyContext = {
+  sessionId?: string;
+  sessionLabel?: string;
+  clientLabel?: string;
+  modelAlias?: string;
+  poolId?: string;
+  poolName?: string;
+  poolThreshold?: number;
+  quotaPercentage?: number;
+  resetAt?: number;
 };
 
 type PendingCodexOAuthFlow = {
@@ -124,6 +138,10 @@ let trayAnimationFrame = 0;
 let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
+let lastTrayMenuRefreshAt = 0;
+let trayMenuIsOpen = false;
+let trayMenuLiveRefreshUntil = 0;
+let trayStickyContext: TrayStickyContext = {};
 let allowAppQuit = false;
 let hasShownMainProcessFatalDialog = false;
 
@@ -997,8 +1015,16 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
     const matchedLast5m = routing?.matchedLast5m ?? 0;
     const latestRouting = routing?.recent?.[0];
     const sessions = sessionPayload.data ?? [];
-    const currentSessionId = inference?.currentSessionId ?? activeSessionId;
-    const activeSession = sessions.find((session) => session.id === currentSessionId);
+    const currentSessionId =
+      inference?.currentSessionId ??
+      latestRouting?.resolvedSessionId ??
+      trayStickyContext.sessionId ??
+      activeSessionId;
+    const activeSession =
+      sessions.find((session) => session.id === currentSessionId) ??
+      (activeSessionId
+        ? sessions.find((session) => session.id === activeSessionId)
+        : undefined);
     const poolObservability = healthPayload.poolObservability ?? [];
     const currentPool = resolveCurrentPool(
       poolObservability,
@@ -1009,14 +1035,17 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
     const currentPoolDefinition = poolSettingsPayload?.pools?.find(
       (pool) => pool.id === currentPool?.poolId,
     );
-    const activeSessionLabel = formatSessionLabel(activeSession);
-    const clientLabel = formatClientTagLabel(
-      inference?.currentClientTag ?? latestRouting?.clientTag,
-    );
+    const activeSessionLabel =
+      formatSessionLabel(activeSession) ?? trayStickyContext.sessionLabel;
+    const clientLabel =
+      formatClientTagLabel(
+        inference?.currentClientTag ?? latestRouting?.clientTag,
+      ) ?? trayStickyContext.clientLabel;
     const modelAlias =
       inference?.currentModelAlias ??
       latestRouting?.requestedModelAlias ??
-      latestRouting?.resolvedModelAlias;
+      latestRouting?.resolvedModelAlias ??
+      trayStickyContext.modelAlias;
     const isActivelyBridging = (inference?.inFlightCount ?? 0) > 0;
     const justFinished =
       !isActivelyBridging &&
@@ -1025,12 +1054,39 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
           Date.now() - inference.lastFinishedAt <= TRAY_RECENT_FINISH_GRACE_MS,
       );
 
-    if (!activeSessionId && !currentSessionId) {
+    if (currentSessionId) {
+      trayStickyContext.sessionId = currentSessionId;
+    }
+    if (activeSessionLabel) {
+      trayStickyContext.sessionLabel = activeSessionLabel;
+    }
+    if (clientLabel) {
+      trayStickyContext.clientLabel = clientLabel;
+    }
+    if (modelAlias) {
+      trayStickyContext.modelAlias = modelAlias;
+    }
+    if (currentPool?.poolId || currentPool?.poolName) {
+      trayStickyContext.poolId = currentPool?.poolId;
+      trayStickyContext.poolName = currentPool?.poolName;
+    }
+    const activePoolThreshold = currentPoolDefinition?.minRemainingPercentage;
+    if (typeof activePoolThreshold === "number") {
+      trayStickyContext.poolThreshold = activePoolThreshold;
+    }
+    if (typeof activeSession?.quota?.percentage === "number") {
+      trayStickyContext.quotaPercentage = activeSession.quota.percentage;
+    }
+    if (typeof activeSession?.quota?.resetAt === "number") {
+      trayStickyContext.resetAt = activeSession.quota.resetAt;
+    }
+
+    if (!activeSessionId && !currentSessionId && !trayStickyContext.sessionLabel) {
       return {
         state: "error",
         label: "授权异常",
         detail: "当前没有可用活动账号",
-        activePoolName: currentPool?.poolName,
+        activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
       };
     }
 
@@ -1043,11 +1099,15 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
           : "请求已完成，正在回落为空闲态",
         clientLabel,
         modelAlias,
-        activePoolName: currentPool?.poolName,
-        activePoolThreshold: currentPoolDefinition?.minRemainingPercentage,
+        activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
+        activePoolThreshold:
+          currentPoolDefinition?.minRemainingPercentage ??
+          trayStickyContext.poolThreshold,
         activeSessionLabel,
-        activeSessionQuotaPercentage: activeSession?.quota?.percentage,
-        activeSessionResetAt: activeSession?.quota?.resetAt,
+        activeSessionQuotaPercentage:
+          activeSession?.quota?.percentage ?? trayStickyContext.quotaPercentage,
+        activeSessionResetAt:
+          activeSession?.quota?.resetAt ?? trayStickyContext.resetAt,
         inFlightCount: inference?.inFlightCount ?? 0,
         recentlyFinished: justFinished,
       };
@@ -1062,11 +1122,15 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
           : "网关已就绪，当前没有新请求",
       clientLabel,
       modelAlias,
-      activePoolName: currentPool?.poolName,
-      activePoolThreshold: currentPoolDefinition?.minRemainingPercentage,
+      activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
+      activePoolThreshold:
+        currentPoolDefinition?.minRemainingPercentage ??
+        trayStickyContext.poolThreshold,
       activeSessionLabel,
-      activeSessionQuotaPercentage: activeSession?.quota?.percentage,
-      activeSessionResetAt: activeSession?.quota?.resetAt,
+      activeSessionQuotaPercentage:
+        activeSession?.quota?.percentage ?? trayStickyContext.quotaPercentage,
+      activeSessionResetAt:
+        activeSession?.quota?.resetAt ?? trayStickyContext.resetAt,
     };
   } catch (error) {
     return {
@@ -1112,6 +1176,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   }
 
   if (showMenu) {
+    trayMenuLiveRefreshUntil = Date.now() + TRAY_MENU_LIVE_REFRESH_WINDOW_MS;
     await refreshTrayUsageIfNeeded(true);
   }
 
@@ -1257,8 +1322,21 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         },
       },
     ]);
+  menu.once("menu-will-show", () => {
+    trayMenuIsOpen = true;
+  });
+  menu.once("menu-will-close", () => {
+    trayMenuIsOpen = false;
+    trayMenuLiveRefreshUntil = 0;
+  });
   statusTray.setContextMenu(menu);
-  if (showMenu) {
+  const now = Date.now();
+  const shouldRefreshVisibleMenu =
+    trayMenuIsOpen &&
+    now <= trayMenuLiveRefreshUntil &&
+    now - lastTrayMenuRefreshAt >= TRAY_MENU_REFRESH_INTERVAL_MS;
+  if (showMenu || shouldRefreshVisibleMenu) {
+    lastTrayMenuRefreshAt = now;
     statusTray.popUpContextMenu(menu);
   }
 }

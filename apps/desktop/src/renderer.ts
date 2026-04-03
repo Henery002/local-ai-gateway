@@ -26,8 +26,7 @@ import {
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
   "local-ai-gateway.desktop.collapsed-groups";
-const EXPANDED_GROUPS_STORAGE_KEY =
-  "local-ai-gateway.desktop.expanded-groups";
+const EXPANDED_GROUPS_STORAGE_KEY = "local-ai-gateway.desktop.expanded-groups";
 
 declare global {
   interface Window {
@@ -471,7 +470,11 @@ type PoolDefinition = {
     enabled?: boolean;
     priority?: number;
   }>;
-  selectionStrategy?: "priority" | "quota-desc" | "least-recently-used" | "hybrid";
+  selectionStrategy?:
+    | "priority"
+    | "quota-desc"
+    | "least-recently-used"
+    | "hybrid";
   minRemainingPercentage?: number;
   allowUnknownQuota?: boolean;
   cooldownSeconds?: number;
@@ -519,6 +522,7 @@ type PoolMemberPanelState = {
   sortKey: PoolMemberSortKey;
   sortDirection: PoolMemberSortDirection;
   collapsed: boolean;
+  cardCollapsed: boolean;
 };
 
 type SecuritySettingsInput = {
@@ -736,7 +740,9 @@ function getRoutingWindowCount(
     return routing.matchedLast1h ?? routing.matchedLast5m;
   }
   if (window === "24h") {
-    return routing.matchedLast24h ?? routing.matchedLast1h ?? routing.matchedLast5m;
+    return (
+      routing.matchedLast24h ?? routing.matchedLast1h ?? routing.matchedLast5m
+    );
   }
   return routing.matchedLast5m;
 }
@@ -1156,9 +1162,7 @@ function diagnosticSeverityLabel(
   return "提示";
 }
 
-function getPrimaryRuntimeDiagnostic():
-  | RuntimeDiagnostic
-  | undefined {
+function getPrimaryRuntimeDiagnostic(): RuntimeDiagnostic | undefined {
   return (
     state.runtimeDiagnostics.find((item) => item.severity === "error") ??
     state.runtimeDiagnostics.find((item) => item.severity === "warning") ??
@@ -1417,7 +1421,9 @@ function renderRoutingObservability(): void {
   if (!routing) {
     setText("routing-observe-window-count", "0");
     if (windowLabelNode) {
-      windowLabelNode.textContent = routingWindowLabel(state.routingObserveWindow);
+      windowLabelNode.textContent = routingWindowLabel(
+        state.routingObserveWindow,
+      );
     }
     setText("routing-observe-total", "0");
     setText("routing-observe-last-hit", "暂无");
@@ -1441,7 +1447,9 @@ function renderRoutingObservability(): void {
   const topRule = routing.byRule[0];
   const topClient = routing.byClientTag[0];
   if (windowLabelNode) {
-    windowLabelNode.textContent = routingWindowLabel(state.routingObserveWindow);
+    windowLabelNode.textContent = routingWindowLabel(
+      state.routingObserveWindow,
+    );
   }
   if (windowSelect) {
     windowSelect.value = state.routingObserveWindow;
@@ -1536,7 +1544,10 @@ function renderCodexAccounts(): void {
     return;
   }
   const refreshErrorBySessionId = new Map(
-    (state.lastUsageRefresh?.errors ?? []).map((item) => [item.sessionId, item.message]),
+    (state.lastUsageRefresh?.errors ?? []).map((item) => [
+      item.sessionId,
+      item.message,
+    ]),
   );
 
   const accountGroups = getAccountGroups();
@@ -1555,7 +1566,9 @@ function renderCodexAccounts(): void {
   ).length;
   const warningQuotaCount = accounts.filter((account) => {
     const percentage = account.representative.quota?.percentage;
-    return typeof percentage === "number" && percentage > 20 && percentage <= 50;
+    return (
+      typeof percentage === "number" && percentage > 20 && percentage <= 50
+    );
   }).length;
   const lowQuotaCount = accounts.filter((account) => {
     const percentage = account.representative.quota?.percentage;
@@ -1567,8 +1580,8 @@ function renderCodexAccounts(): void {
   section.style.marginBottom = "32px";
   const cards = accounts.length
     ? accounts
-          .map(
-            (account) => `
+        .map(
+          (account) => `
         ${(() => {
           const title = getSessionTitle(account.representative);
           const avatarTone = getAvatarToneIndex(account.representative.id);
@@ -1709,11 +1722,13 @@ function renderCodexAccounts(): void {
       `;
         })()}
       `,
-          )
-          .join("")
+        )
+        .join("")
     : "<div class='empty-state'>当前还没有导入任何桌面端 Codex 账号。可通过“添加账号”或“导入配置”补充。</div>";
 
-  section.innerHTML = `
+  const topHeader = document.getElementById("accounts-top-header");
+  if (topHeader) {
+    topHeader.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px;">
         <div>
           <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">桌面端 Codex 账号</h3>
@@ -1782,9 +1797,9 @@ function renderCodexAccounts(): void {
         <strong>账号卡片说明</strong>
         <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；来源分布现已支持累计、近 5 分钟、近 1 小时与近 24 小时的窗口观察。</p>
       </div>
-      <div class="grid-layout accounts-grid">${cards}</div>
-    `;
-  container.appendChild(section);
+      `;
+  }
+  container.innerHTML = `<div class="grid-layout accounts-grid">${cards}</div>`;
 
   updateAccountToolbarState();
 }
@@ -1954,7 +1969,8 @@ function renderStartupChecklist(): void {
   const health = state.health;
   const sessions = state.sessions;
   if (!health || !sessions) {
-    container.innerHTML = "<div class='empty-card'>正在加载首次启动与升级检查信息…</div>";
+    container.innerHTML =
+      "<div class='empty-card'>正在加载首次启动与升级检查信息…</div>";
     return;
   }
 
@@ -1971,7 +1987,8 @@ function renderStartupChecklist(): void {
     (state.health?.recentErrors?.length ?? 0) > 0 ||
     (state.lastUsageRefresh?.errors?.length ?? 0) > 0;
   const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
-  const model = health.openclaw?.model ?? health.defaultModel ?? "codex-default";
+  const model =
+    health.openclaw?.model ?? health.defaultModel ?? "codex-default";
 
   const firstStartChecks: StartupCheckItem[] = [
     {
@@ -2078,7 +2095,9 @@ function renderStartupChecklist(): void {
   `;
 }
 
-function buildIntegrationSnippets(health: DashboardHealth): Record<IntegrationTemplateKey, string> {
+function buildIntegrationSnippets(
+  health: DashboardHealth,
+): Record<IntegrationTemplateKey, string> {
   const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const model = health.openclaw?.model ?? "codex-default";
   const provider = health.openclaw?.provider ?? "openai";
@@ -2433,10 +2452,7 @@ function buildPoolOptions(selectedPoolId?: string): string {
         `<option value="${escapeHtml(pool.id)}" ${pool.id === selectedPoolId ? "selected" : ""}>${escapeHtml(pool.name || pool.id)}</option>`,
     ),
   ];
-  if (
-    selectedPoolId &&
-    !pools.some((pool) => pool.id === selectedPoolId)
-  ) {
+  if (selectedPoolId && !pools.some((pool) => pool.id === selectedPoolId)) {
     rows.push(
       `<option value="${escapeHtml(selectedPoolId)}" selected>${escapeHtml(selectedPoolId)}（当前未找到）</option>`,
     );
@@ -2513,6 +2529,7 @@ function getPoolPanelState(poolId: string): PoolMemberPanelState {
     sortKey: "quota",
     sortDirection: "desc",
     collapsed: false,
+    cardCollapsed: false,
   };
   poolMemberPanelState.set(poolId, next);
   return next;
@@ -2578,7 +2595,9 @@ function matchesPoolCandidateSearch(
 }
 
 function getPoolRuntime(poolId: string): PoolRuntimeSummary | undefined {
-  return state.health?.poolObservability?.find((pool) => pool.poolId === poolId);
+  return state.health?.poolObservability?.find(
+    (pool) => pool.poolId === poolId,
+  );
 }
 
 function getPoolRuntimeMember(
@@ -2588,11 +2607,15 @@ function getPoolRuntimeMember(
   return getPoolRuntime(pool.id)?.members.find(
     (member) =>
       candidate.matchers.includes(member.selector) ||
-      (member.sessionId ? candidate.matchers.includes(member.sessionId) : false),
+      (member.sessionId
+        ? candidate.matchers.includes(member.sessionId)
+        : false),
   );
 }
 
-function getPoolRuntimeMemberTone(member: PoolRuntimeMember | undefined): string {
+function getPoolRuntimeMemberTone(
+  member: PoolRuntimeMember | undefined,
+): string {
   if (!member) {
     return "neutral";
   }
@@ -2639,9 +2662,7 @@ function formatPoolFailureClassLabel(
   return "暂无";
 }
 
-function formatPoolEventTypeLabel(
-  eventType: "selected" | "failover",
-): string {
+function formatPoolEventTypeLabel(eventType: "selected" | "failover"): string {
   return eventType === "failover" ? "自动切号" : "首次选中";
 }
 
@@ -2711,10 +2732,7 @@ function formatPoolEventSessionLabel(event: {
     );
     return {
       title: `${from.label} -> ${to.label}`,
-      detail:
-        detailParts.length > 0
-          ? detailParts.join(" -> ")
-          : undefined,
+      detail: detailParts.length > 0 ? detailParts.join(" -> ") : undefined,
       raw: `${from.raw} -> ${to.raw}`,
     };
   }
@@ -2760,7 +2778,9 @@ function buildPoolEventMarkup(poolId: string): string {
               </div>
               <div class="pool-event-subtitle">${escapeHtml(
                 [
-                  sessionLabel.detail ? `账号 ${sessionLabel.detail}` : undefined,
+                  sessionLabel.detail
+                    ? `账号 ${sessionLabel.detail}`
+                    : undefined,
                   ...subtitleParts,
                 ]
                   .filter(Boolean)
@@ -2779,7 +2799,9 @@ function buildPoolEventMarkup(poolId: string): string {
   `;
 }
 
-function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): string {
+function buildPoolMemberRuntimeMarkup(
+  member: PoolRuntimeMember | undefined,
+): string {
   if (!member) {
     return "";
   }
@@ -2788,11 +2810,11 @@ function buildPoolMemberRuntimeMarkup(member: PoolRuntimeMember | undefined): st
     member.selected ||
     Boolean(
       member.note ||
-        member.cooldownUntil ||
-        member.lastSelectedAt ||
-        member.lastSuccessAt ||
-        member.lastFailureAt ||
-        member.consecutiveFailures,
+      member.cooldownUntil ||
+      member.lastSelectedAt ||
+      member.lastSuccessAt ||
+      member.lastFailureAt ||
+      member.consecutiveFailures,
     );
   if (!shouldRender) {
     return "";
@@ -2936,7 +2958,13 @@ function describePoolMemberDecision(input: {
   pool: PoolDefinition;
   candidate: PoolMemberCandidateView;
   member?: PoolRuntimeMember;
-}): { tone: "neutral" | "info" | "success" | "warning"; title: string; body: string } | undefined {
+}):
+  | {
+      tone: "neutral" | "info" | "success" | "warning";
+      title: string;
+      body: string;
+    }
+  | undefined {
   const runtime = getPoolRuntime(input.pool.id);
   const member = input.member;
   if (!runtime || !member) {
@@ -2960,7 +2988,8 @@ function describePoolMemberDecision(input: {
           ? "warning"
           : "neutral",
       title: `当前已跳过：${member.statusLabel}`,
-      body: member.note || "当前该成员不满足本轮调度条件，因此不会参与新请求选择。",
+      body:
+        member.note || "当前该成员不满足本轮调度条件，因此不会参与新请求选择。",
     };
   }
 
@@ -2970,9 +2999,14 @@ function describePoolMemberDecision(input: {
     selectedMember?.label ||
     selectedMember?.selector;
   if (selectedMember && selectedMember.selector !== member.selector) {
-    const strategyLabel = formatPoolSelectionStrategyLabel(runtime.selectionStrategy);
+    const strategyLabel = formatPoolSelectionStrategyLabel(
+      runtime.selectionStrategy,
+    );
     let body = `当前号池按${strategyLabel}优先选择了 ${selectedTitle ?? "其他成员"}，该账号仍保持可选，会在后续请求或失败回退时参与调度。`;
-    if (runtime.selectionStrategy === "quota-desc" && typeof member.quotaPercentage === "number") {
+    if (
+      runtime.selectionStrategy === "quota-desc" &&
+      typeof member.quotaPercentage === "number"
+    ) {
       body = `当前号池按剩余额度优先选择了 ${selectedTitle ?? "其他成员"}；该账号当前剩余额度为 ${member.quotaPercentage}% ，仍会在后续请求中参与调度。`;
     } else if (
       runtime.selectionStrategy === "least-recently-used" &&
@@ -3012,7 +3046,9 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
   }
 
   const filteredCandidates = [...candidates]
-    .filter((candidate) => matchesPoolCandidateSearch(candidate, panelState.search))
+    .filter((candidate) =>
+      matchesPoolCandidateSearch(candidate, panelState.search),
+    )
     .sort((left, right) =>
       comparePoolMemberCandidates(
         left,
@@ -3185,7 +3221,8 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
           const effectiveStatusTone = runtimeMember
             ? getPoolRuntimeMemberTone(runtimeMember)
             : candidate.statusToneClass;
-          const effectiveStatusLabel = runtimeMember?.statusLabel ?? candidate.statusLabel;
+          const effectiveStatusLabel =
+            runtimeMember?.statusLabel ?? candidate.statusLabel;
           const quotaFillClass =
             candidate.quotaToneClass === "quota-low"
               ? "low"
@@ -3203,14 +3240,14 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
           const runtimeStatus = runtimeMember?.status ?? "unknown";
           const isDeemphasized = Boolean(
             runtimeMember &&
-              !runtimeMember.selected &&
-              (!runtimeMember.eligible ||
-                runtimeStatus === "quota-low" ||
-                runtimeStatus === "invalid" ||
-                runtimeStatus === "missing" ||
-                runtimeStatus === "disabled" ||
-                runtimeStatus === "expired" ||
-                runtimeStatus === "unknown-quota"),
+            !runtimeMember.selected &&
+            (!runtimeMember.eligible ||
+              runtimeStatus === "quota-low" ||
+              runtimeStatus === "invalid" ||
+              runtimeStatus === "missing" ||
+              runtimeStatus === "disabled" ||
+              runtimeStatus === "expired" ||
+              runtimeStatus === "unknown-quota"),
           );
           return `
             <label class="pool-member-option" data-selected="${selected ? "true" : "false"}" data-eligible="${runtimeMember?.eligible === false ? "false" : "true"}" data-runtime-status="${escapeHtml(runtimeStatus)}" data-deemphasized="${isDeemphasized ? "true" : "false"}">
@@ -3265,7 +3302,9 @@ function getPoolUnresolvedMembers(
   pool: PoolDefinition,
   candidates: PoolMemberCandidateView[],
 ): string[] {
-  const knownSelectors = new Set(candidates.flatMap((candidate) => candidate.matchers));
+  const knownSelectors = new Set(
+    candidates.flatMap((candidate) => candidate.matchers),
+  );
   return (pool.members ?? [])
     .map((member) => member.selector.trim())
     .filter((selector) => selector.length > 0 && !knownSelectors.has(selector));
@@ -3305,72 +3344,86 @@ function renderRoutingRules(): void {
   }
 
   container.innerHTML = rules
-    .map((rule) => {
+    .map((rule, index) => {
       const dispatchMode = resolveRoutingDispatchMode(rule);
+      const hash = rule.id
+        .split("")
+        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const bgColors = ["#f8f9fa", "#f5f5f5", "#f1f3f5", "#fafafa", "#fcfcfc"];
+      const bgColor = bgColors[hash % bgColors.length];
+
       return `
-      <div class="routing-rule-card" data-enabled="${rule.enabled === false ? "false" : "true"}" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}">
-        <div class="routing-rule-top">
-          <div>
-            <strong>${escapeHtml(rule.name || "未命名规则")}</strong>
-            <span>按优先级顺序参与匹配。命中后会立即停止继续向下匹配后续规则。</span>
+      <div class="routing-rule-card collapsed" data-enabled="${rule.enabled === false ? "false" : "true"}" data-routing-rule-row data-rule-id="${escapeHtml(rule.id)}" style="background-color: ${bgColor};">
+        <div class="routing-rule-top" data-action="toggle-routing-rule">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div class="acc-avatar" style="width: 32px; height: 32px; font-size: 16px; background: rgba(0,0,0,0.05); color: var(--text-primary); border: 1px solid var(--border-light);">${index + 1}</div>
+            <div>
+              <strong style="font-size: 18px;">${escapeHtml(rule.name || "未命名规则")}</strong>
+              <span style="font-size: 14px; color: var(--text-secondary);">优先级: ${typeof rule.priority === "number" ? rule.priority : 100}</span>
+            </div>
           </div>
-          <div class="routing-rule-meta">
-            <span class="badge neutral">优先级 ${typeof rule.priority === "number" ? rule.priority : 100}</span>
+          <div class="routing-rule-meta" style="align-items: center;">
             <span class="badge ${rule.enabled === false ? "neutral" : "active"}">${rule.enabled === false ? "未启用" : "已启用"}</span>
+            <div class="routing-rule-collapse-icon" style="font-size: 20px; color: var(--text-tertiary); transition: transform 0.2s; margin-left: 8px; transform: rotate(-90deg);">▾</div>
           </div>
         </div>
-        <div class="routing-rule-grid">
-          <div class="form-field">
-            <label>规则名称</label>
-            <input class="input-field" data-field="name" value="${escapeHtml(rule.name ?? "")}" />
+        <div class="routing-rule-body">
+          <div class="routing-rule-grid">
+            <div class="form-field">
+              <label>规则名称</label>
+              <input class="input-field" data-field="name" value="${escapeHtml(rule.name ?? "")}" />
+            </div>
+            <div class="form-field">
+              <label>优先级（越小越优先）</label>
+              <input class="input-field" data-field="priority" type="number" step="1" value="${typeof rule.priority === "number" ? rule.priority : 100}" />
+            </div>
+            <div class="form-field">
+              <label>按客户端标签匹配</label>
+              <input class="input-field" data-field="when-client-tag" placeholder="例如 localraghub" value="${escapeHtml(rule.when?.clientTag ?? "")}" />
+            </div>
+            <div class="form-field">
+              <label>按请求模型别名匹配</label>
+              <input class="input-field" data-field="when-requested-model" placeholder="例如 codex-default" value="${escapeHtml(rule.when?.requestedModelAlias ?? "")}" />
+            </div>
+            <div class="form-field">
+              <label>目标模型别名</label>
+              <input class="input-field" data-field="target-model-alias" placeholder="例如 openai-compatible-default" value="${escapeHtml(rule.target?.modelAlias ?? "")}" />
+            </div>
+            <div class="form-field">
+              <label>目标账号模式</label>
+              <select class="input-field" data-field="dispatch-mode">
+                <option value="active-session" ${dispatchMode === "active-session" ? "selected" : ""}>沿用当前活动账号</option>
+                <option value="fixed-session" ${dispatchMode === "fixed-session" ? "selected" : ""}>固定账号</option>
+                <option value="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "selected" : ""}>号池调度</option>
+              </select>
+            </div>
+            <div class="form-field" data-dispatch-visibility="fixed-session" ${dispatchMode === "fixed-session" ? "" : "hidden"}>
+              <label>目标会话 / 账号标识（可选）</label>
+              <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
+            </div>
+            <div class="form-field" data-dispatch-visibility="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "" : "hidden"}>
+              <label>目标号池（可选）</label>
+              <select class="input-field" data-field="target-pool-id">
+                ${buildPoolOptions(rule.target?.poolId)}
+              </select>
+            </div>
           </div>
-          <div class="form-field">
-            <label>优先级（越小越优先）</label>
-            <input class="input-field" data-field="priority" type="number" step="1" value="${typeof rule.priority === "number" ? rule.priority : 100}" />
+          <div class="routing-rule-guide">
+            <span>至少填写 1 个匹配条件，并至少填写 1 个目标字段。</span>
+            <span>选择“沿用当前活动账号”时，命中规则后仍由账号页当前活动账号决定最终额度来源。</span>
+            <span>选择“固定账号”时，命中规则后会固定走指定账号，适合给某个客户端预留专用额度。</span>
+            <span>选择“号池调度”时，请先在“号池调度”页配置池成员与阈值；命中后网关会按池策略自动挑选账号。</span>
           </div>
-          <div class="form-field">
-            <label>按客户端标签匹配</label>
-            <input class="input-field" data-field="when-client-tag" placeholder="例如 localraghub" value="${escapeHtml(rule.when?.clientTag ?? "")}" />
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--border-strong);">
+            <label class="switch-label" style="font-size: 14px;">
+              <input type="checkbox" data-field="enabled" ${rule.enabled === false ? "" : "checked"} />
+              启用规则
+            </label>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn ghost danger-ghost mini" data-action="routing-remove-rule" data-rule-id="${escapeHtml(rule.id)}">删除规则</button>
+              <button class="btn primary mini" data-action="save-routing-settings">保存独立配置</button>
+            </div>
           </div>
-          <div class="form-field">
-            <label>按请求模型别名匹配</label>
-            <input class="input-field" data-field="when-requested-model" placeholder="例如 codex-default" value="${escapeHtml(rule.when?.requestedModelAlias ?? "")}" />
-          </div>
-          <div class="form-field">
-            <label>目标模型别名</label>
-            <input class="input-field" data-field="target-model-alias" placeholder="例如 openai-compatible-default" value="${escapeHtml(rule.target?.modelAlias ?? "")}" />
-          </div>
-          <div class="form-field">
-            <label>目标账号模式</label>
-            <select class="input-field" data-field="dispatch-mode">
-              <option value="active-session" ${dispatchMode === "active-session" ? "selected" : ""}>沿用当前活动账号</option>
-              <option value="fixed-session" ${dispatchMode === "fixed-session" ? "selected" : ""}>固定账号</option>
-              <option value="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "selected" : ""}>号池调度</option>
-            </select>
-          </div>
-          <div class="form-field" data-dispatch-visibility="fixed-session" ${dispatchMode === "fixed-session" ? "" : "hidden"}>
-            <label>目标会话 / 账号标识（可选）</label>
-            <input class="input-field" data-field="target-session-id" placeholder="可填 sessionId、profileId 或 accountId" value="${escapeHtml(rule.target?.sessionId ?? "")}" />
-          </div>
-          <div class="form-field" data-dispatch-visibility="dynamic-pool" ${dispatchMode === "dynamic-pool" ? "" : "hidden"}>
-            <label>目标号池（可选）</label>
-            <select class="input-field" data-field="target-pool-id">
-              ${buildPoolOptions(rule.target?.poolId)}
-            </select>
-          </div>
-        </div>
-        <div class="routing-rule-guide">
-          <span>至少填写 1 个匹配条件，并至少填写 1 个目标字段。</span>
-          <span>选择“沿用当前活动账号”时，命中规则后仍由账号页当前活动账号决定最终额度来源。</span>
-          <span>选择“固定账号”时，命中规则后会固定走指定账号，适合给某个客户端预留专用额度。</span>
-          <span>选择“号池调度”时，请先在“号池调度”页配置池成员与阈值；命中后网关会按池策略自动挑选账号。</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-          <label class="switch-label" style="font-size: 14px;">
-            <input type="checkbox" data-field="enabled" ${rule.enabled === false ? "" : "checked"} />
-            启用规则
-          </label>
-          <button class="btn ghost danger-ghost mini" data-action="routing-remove-rule" data-rule-id="${escapeHtml(rule.id)}">删除规则</button>
         </div>
       </div>
     `;
@@ -3404,21 +3457,41 @@ function renderPoolCards(): void {
   }
 
   container.innerHTML = pools
-    .map((pool) => {
+    .map((pool, index) => {
+      const panelState = getPoolPanelState(pool.id);
       const candidates = buildPoolMemberCandidates();
-      const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join("\n");
+      const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
+        "\n",
+      );
       return `
-        <div class="routing-rule-card" data-pool-row data-pool-id="${escapeHtml(pool.id)}">
-          <div class="routing-rule-top">
-            <div>
-              <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
-              <span>首版只纳入桌面端导入账号；通过列表顺序确定默认优先级，必要时再结合额度与最近使用情况自动挑号。</span>
+        <div class="routing-rule-card pool-config-card ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}">
+          <div class="routing-rule-top pool-card-top" data-action="toggle-pool-card" data-pool-id="${escapeHtml(pool.id)}">
+            <div class="pool-card-title-wrap">
+              <div class="pool-card-index-avatar">${index + 1}</div>
+              <div class="pool-card-title-text">
+                <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
+                <span>首版只纳入桌面端导入账号；通过列表顺序确定默认优先级，必要时再结合额度与最近使用情况自动挑号。</span>
+              </div>
             </div>
             <div class="routing-rule-meta">
               <span class="badge neutral">${escapeHtml(pool.id)}</span>
               <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${pool.enabled === false ? "未启用" : "已启用"}</span>
+              <button
+                type="button"
+                class="btn primary mini"
+                data-action="save-pool-card"
+                data-pool-id="${escapeHtml(pool.id)}"
+              >保存此卡片</button>
+              <button
+                type="button"
+                class="btn ghost danger-ghost mini"
+                data-action="pool-remove"
+                data-pool-id="${escapeHtml(pool.id)}"
+              >删除号池</button>
+              <div class="routing-rule-collapse-icon">▾</div>
             </div>
           </div>
+          <div class="routing-rule-body">
           <div class="routing-rule-grid">
             <div class="form-field">
               <label>号池名称</label>
@@ -3484,7 +3557,8 @@ function renderPoolCards(): void {
                 无候选时回退活动账号
               </label>
             </div>
-            <button class="btn ghost danger-ghost mini" data-action="pool-remove" data-pool-id="${escapeHtml(pool.id)}">删除号池</button>
+            <button class="btn primary mini" data-action="save-pool-card" data-pool-id="${escapeHtml(pool.id)}">保存此卡片</button>
+          </div>
           </div>
         </div>
       `;
@@ -3505,16 +3579,16 @@ function applyPoolSettingsToForm(): void {
 function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
   const id = row.dataset.poolId || createPoolId();
   const name =
-    row.querySelector<HTMLInputElement>('[data-field="pool-name"]')?.value.trim() ||
-    id;
+    row
+      .querySelector<HTMLInputElement>('[data-field="pool-name"]')
+      ?.value.trim() || id;
   const description =
     row
       .querySelector<HTMLInputElement>('[data-field="pool-description"]')
       ?.value.trim() || undefined;
-  const selectionStrategy =
-    row
-      .querySelector<HTMLSelectElement>('[data-field="pool-strategy"]')
-      ?.value as PoolDefinition["selectionStrategy"] | undefined;
+  const selectionStrategy = row.querySelector<HTMLSelectElement>(
+    '[data-field="pool-strategy"]',
+  )?.value as PoolDefinition["selectionStrategy"] | undefined;
   const minRemainingPercentage = Number(
     row.querySelector<HTMLInputElement>('[data-field="pool-min-percentage"]')
       ?.value ?? "15",
@@ -3577,8 +3651,13 @@ function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
     cooldownSeconds: Number.isFinite(cooldownSeconds)
       ? Math.max(10, Math.min(86_400, Math.round(cooldownSeconds)))
       : 300,
-    quotaExhaustedCooldownSeconds: Number.isFinite(quotaExhaustedCooldownSeconds)
-      ? Math.max(30, Math.min(86_400, Math.round(quotaExhaustedCooldownSeconds)))
+    quotaExhaustedCooldownSeconds: Number.isFinite(
+      quotaExhaustedCooldownSeconds,
+    )
+      ? Math.max(
+          30,
+          Math.min(86_400, Math.round(quotaExhaustedCooldownSeconds)),
+        )
       : 7_200,
     maxRetryCandidates: Number.isFinite(maxRetryCandidates)
       ? Math.max(1, Math.min(5, Math.round(maxRetryCandidates)))
@@ -3618,20 +3697,20 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
     .map((row) => {
       const id = row.dataset.ruleId || createRoutingRuleId();
       const name =
-        (row.querySelector<HTMLInputElement>('[data-field="name"]')?.value ?? "")
-          .trim() || "未命名规则";
+        (
+          row.querySelector<HTMLInputElement>('[data-field="name"]')?.value ??
+          ""
+        ).trim() || "未命名规则";
       const priorityValue = Number(
         row.querySelector<HTMLInputElement>('[data-field="priority"]')?.value ??
           "100",
       );
       const enabledValue =
-        row.querySelector<HTMLInputElement>('[data-field="enabled"]')?.checked ??
-        true;
+        row.querySelector<HTMLInputElement>('[data-field="enabled"]')
+          ?.checked ?? true;
       const clientTag =
         row
-          .querySelector<HTMLInputElement>(
-            '[data-field="when-client-tag"]',
-          )
+          .querySelector<HTMLInputElement>('[data-field="when-client-tag"]')
           ?.value.trim() || undefined;
       const requestedModelAlias =
         row
@@ -3641,14 +3720,11 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
           ?.value.trim() || undefined;
       const modelAlias =
         row
-          .querySelector<HTMLInputElement>(
-            '[data-field="target-model-alias"]',
-          )
+          .querySelector<HTMLInputElement>('[data-field="target-model-alias"]')
           ?.value.trim() || undefined;
-      const dispatchMode =
-        row
-          .querySelector<HTMLSelectElement>('[data-field="dispatch-mode"]')
-          ?.value as RoutingDispatchMode | undefined;
+      const dispatchMode = row.querySelector<HTMLSelectElement>(
+        '[data-field="dispatch-mode"]',
+      )?.value as RoutingDispatchMode | undefined;
       const sessionId =
         row
           .querySelector<HTMLInputElement>('[data-field="target-session-id"]')
@@ -3680,7 +3756,11 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
     .filter(
       (rule) =>
         Boolean(rule.when?.clientTag || rule.when?.requestedModelAlias) &&
-        Boolean(rule.target?.modelAlias || rule.target?.sessionId || rule.target?.poolId),
+        Boolean(
+          rule.target?.modelAlias ||
+          rule.target?.sessionId ||
+          rule.target?.poolId,
+        ),
     );
 
   return {
@@ -3698,6 +3778,37 @@ async function savePoolSettings(): Promise<void> {
   applyRoutingSettingsToForm();
 }
 
+async function saveSinglePoolSettings(poolId: string): Promise<string> {
+  const row = document.querySelector<HTMLElement>(
+    `[data-pool-row][data-pool-id="${poolId}"]`,
+  );
+  if (!row) {
+    throw new Error("未找到目标号池卡片。");
+  }
+
+  syncPoolDraftFromRow(row);
+  const settings = state.poolSettings ?? {};
+  const enabled =
+    (document.getElementById("pool-enabled") as HTMLInputElement | null)
+      ?.checked ?? Boolean(settings.enabled);
+  const pools = (settings.pools ?? []).filter(
+    (pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0,
+  );
+  if (!pools.some((pool) => pool.id === poolId)) {
+    throw new Error("目标号池缺少有效成员或名称，无法保存。");
+  }
+
+  const response = await getGatewayApi().savePoolSettings({
+    enabled,
+    pools,
+  });
+  state.poolSettings = response.data;
+  applyPoolSettingsToForm();
+  applyRoutingSettingsToForm();
+  const savedPool = response.data.pools?.find((pool) => pool.id === poolId);
+  return savedPool?.name?.trim() || poolId;
+}
+
 function collectPoolSettingsFromForm(): PoolSettings {
   const enabled =
     (document.getElementById("pool-enabled") as HTMLInputElement | null)
@@ -3707,7 +3818,9 @@ function collectPoolSettingsFromForm(): PoolSettings {
   );
   const pools: PoolDefinition[] = rows
     .map((row) => collectPoolDefinitionFromRow(row))
-    .filter((pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0);
+    .filter(
+      (pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0,
+    );
 
   return {
     enabled,
@@ -3722,12 +3835,11 @@ function renderRoutingPreviewResult(
   if (!node) {
     return;
   }
-  const tone =
-    payload.warnings?.length
-      ? "warning"
-      : payload.reason === "rule_matched"
-        ? "success"
-        : "neutral";
+  const tone = payload.warnings?.length
+    ? "warning"
+    : payload.reason === "rule_matched"
+      ? "success"
+      : "neutral";
   const headline =
     payload.reason === "rule_matched"
       ? "已命中策略规则"
@@ -3771,20 +3883,20 @@ function renderRoutingPreviewResult(
         </div>
       `
       : "";
-  const rejectedCandidates =
-    payload.rejectedCandidates?.length
-      ? `
+  const rejectedCandidates = payload.rejectedCandidates?.length
+    ? `
         <div class="routing-preview-warning">
           <strong>被跳过的候选账号</strong>
           <span>${payload.rejectedCandidates
             .map((item) => {
-              const label = item.label || item.selector || item.sessionId || "unknown";
+              const label =
+                item.label || item.selector || item.sessionId || "unknown";
               return `${escapeHtml(label)}：${escapeHtml(item.reason)}`;
             })
             .join("；")}</span>
         </div>
       `
-      : "";
+    : "";
   node.innerHTML = `
     <div class="routing-preview-result-card ${tone}">
       <div class="routing-preview-result-head">
@@ -3822,7 +3934,8 @@ function resetRoutingPreviewResult(): void {
   if (!node) {
     return;
   }
-  node.innerHTML = "<div class='routing-preview-result-card neutral'><span style='font-size: 14px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span></div>";
+  node.innerHTML =
+    "<div class='routing-preview-result-card neutral'><span style='font-size: 14px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span></div>";
 }
 
 function applySecuritySettingsToForm(): void {
@@ -3944,7 +4057,8 @@ function updateRuntimeDiagnostics(
     inferenceAuthEnabled:
       state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled,
     inferenceAuthHasApiKey:
-      state.securitySettings?.hasApiKey ?? state.health?.inferenceAuth?.hasApiKey,
+      state.securitySettings?.hasApiKey ??
+      state.health?.inferenceAuth?.hasApiKey,
     recentErrors: state.health?.recentErrors ?? [],
   });
 }
@@ -3984,7 +4098,7 @@ function collectSettingsFromForm(): ProviderSettings {
         )?.value || undefined,
       exposedModels: Array.from(
         document.querySelectorAll<HTMLInputElement>(
-          '[data-codex-exposed-model]:checked',
+          "[data-codex-exposed-model]:checked",
         ),
       )
         .map((node) => node.value.trim())
@@ -4078,9 +4192,8 @@ async function saveSystemSettings(): Promise<void> {
     ),
     gatewayPort: normalizeGatewayPort(
       Number(
-        (
-          document.getElementById("gateway-port") as HTMLInputElement | null
-        )?.value ?? "8787",
+        (document.getElementById("gateway-port") as HTMLInputElement | null)
+          ?.value ?? "8787",
       ),
     ),
     pinnedSessionId: state.systemSettings?.pinnedSessionId,
@@ -4113,9 +4226,8 @@ async function togglePinnedSession(sessionId: string): Promise<void> {
 async function saveSecuritySettings(): Promise<void> {
   const api = getGatewayApi();
   const mode =
-    (
-      document.getElementById("gateway-auth-mode") as HTMLSelectElement | null
-    )?.value === "api-key"
+    (document.getElementById("gateway-auth-mode") as HTMLSelectElement | null)
+      ?.value === "api-key"
       ? "api-key"
       : "none";
   const apiKey =
@@ -4387,7 +4499,9 @@ async function copyTextWithFallback(text: string): Promise<void> {
   }
 }
 
-async function copyTemplateWithFeedback(key: IntegrationTemplateKey): Promise<void> {
+async function copyTemplateWithFeedback(
+  key: IntegrationTemplateKey,
+): Promise<void> {
   const health = state.health;
   if (!health) {
     throw new Error("控制台尚未完成初始化，请稍后重试。");
@@ -4440,7 +4554,13 @@ async function requestConfirmation(options: {
     "confirm-modal-cancel",
   ) as HTMLButtonElement | null;
 
-  if (!overlay || !titleNode || !messageNode || !confirmButton || !cancelButton) {
+  if (
+    !overlay ||
+    !titleNode ||
+    !messageNode ||
+    !confirmButton ||
+    !cancelButton
+  ) {
     return window.confirm(options.message);
   }
 
@@ -4487,7 +4607,10 @@ function summarizeRefreshBanner(
   if (summary.refreshed > 0) {
     return {
       tone: "success",
-      message: options.successMessage.replace("{count}", String(summary.refreshed)),
+      message: options.successMessage.replace(
+        "{count}",
+        String(summary.refreshed),
+      ),
     };
   }
   return {
@@ -4702,7 +4825,10 @@ function bindActions(): void {
         setButtonLoading(button, true, "保存中");
         setBanner("正在保存号池调度配置...", "info");
         await savePoolSettings();
-        setBanner("号池调度配置已保存。命中号池的请求将按调度策略自动挑选账号。", "success");
+        setBanner(
+          "号池调度配置已保存。命中号池的请求将按调度策略自动挑选账号。",
+          "success",
+        );
       } catch (error) {
         setBanner(`保存号池配置失败：${String(error)}`, "error");
       } finally {
@@ -4736,27 +4862,25 @@ function bindActions(): void {
     applyPoolSettingsToForm();
   });
 
-  document
-    .getElementById("add-routing-rule")
-    ?.addEventListener("click", () => {
-      const settings = state.routingSettings ?? {};
-      const rules = settings.rules ?? [];
-      state.routingSettings = {
-        ...settings,
-        rules: [
-          ...rules,
-          {
-            id: createRoutingRuleId(),
-            name: `规则-${rules.length + 1}`,
-            enabled: true,
-            priority: 100 + rules.length,
-            when: {},
-            target: {},
-          },
-        ],
-      };
-      applyRoutingSettingsToForm();
-    });
+  document.getElementById("add-routing-rule")?.addEventListener("click", () => {
+    const settings = state.routingSettings ?? {};
+    const rules = settings.rules ?? [];
+    state.routingSettings = {
+      ...settings,
+      rules: [
+        ...rules,
+        {
+          id: createRoutingRuleId(),
+          name: `规则-${rules.length + 1}`,
+          enabled: true,
+          priority: 100 + rules.length,
+          when: {},
+          target: {},
+        },
+      ],
+    };
+    applyRoutingSettingsToForm();
+  });
 
   document
     .getElementById("preview-routing-settings")
@@ -4891,7 +5015,8 @@ function bindActions(): void {
           successMessage: "账号状态已刷新，{count} 个账号已更新。",
           emptyMessage: "账号状态已刷新。当前没有可刷新的桌面端账号。",
           unsupportedMessage: "账号状态已刷新。",
-          failedOnlyMessage: "账号状态已刷新，但当前没有账号成功同步到最新额度。",
+          failedOnlyMessage:
+            "账号状态已刷新，但当前没有账号成功同步到最新额度。",
         });
         setBanner(banner.message, banner.tone);
       } catch (error) {
@@ -4922,7 +5047,31 @@ function bindActions(): void {
       setPoolPanelState(row.dataset.poolId || createPoolId(), {
         search: target.value,
       });
-      renderPoolCards();
+      // 只更新该号池内的成员列表区域，避免重绘整个卡片导致失焦
+      const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+        state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+          collectPoolDefinitionFromRow(row),
+      );
+      const membersContainer = row.querySelector(".form-field:nth-child(4)"); // 也就是"池成员"所在的div
+      if (membersContainer) {
+        membersContainer.innerHTML = `
+          <label>池成员（推荐直接勾选桌面端账号）</label>
+          ${memberSelectorMarkup}
+          <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+        `;
+        const newInput = row.querySelector(
+          '[data-pool-ui="search"]',
+        ) as HTMLInputElement;
+        if (newInput) {
+          newInput.focus();
+          newInput.setSelectionRange(
+            newInput.value.length,
+            newInput.value.length,
+          );
+        }
+      } else {
+        renderPoolCards();
+      }
       return;
     }
 
@@ -4931,10 +5080,7 @@ function bindActions(): void {
       target instanceof HTMLTextAreaElement
     ) {
       const row = target.closest<HTMLElement>("[data-pool-row]");
-      if (
-        row &&
-        target.dataset.poolUi !== "search"
-      ) {
+      if (row && target.dataset.poolUi !== "search") {
         syncPoolDraftFromRow(row);
       }
     }
@@ -4978,7 +5124,21 @@ function bindActions(): void {
         setPoolPanelState(row.dataset.poolId || createPoolId(), {
           sortKey: target.value as PoolMemberSortKey,
         });
-        renderPoolCards();
+
+        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+            collectPoolDefinitionFromRow(row),
+        );
+        const membersContainer = row.querySelector(".form-field:nth-child(4)");
+        if (membersContainer) {
+          membersContainer.innerHTML = `
+            <label>池成员（推荐直接勾选桌面端账号）</label>
+            ${memberSelectorMarkup}
+            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+          `;
+        } else {
+          renderPoolCards();
+        }
       }
     }
 
@@ -4993,7 +5153,21 @@ function bindActions(): void {
       const row = target.closest<HTMLElement>("[data-pool-row]");
       if (row) {
         syncPoolDraftFromRow(row);
-        renderPoolCards();
+
+        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+            collectPoolDefinitionFromRow(row),
+        );
+        const membersContainer = row.querySelector(".form-field:nth-child(4)");
+        if (membersContainer) {
+          membersContainer.innerHTML = `
+            <label>池成员（推荐直接勾选桌面端账号）</label>
+            ${memberSelectorMarkup}
+            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+          `;
+        } else {
+          renderPoolCards();
+        }
       }
     }
 
@@ -5011,9 +5185,8 @@ function bindActions(): void {
   document
     .getElementById("routing-observe-client-filter")
     ?.addEventListener("change", (event) => {
-      state.routingClientFilter = (
-        event.target as HTMLSelectElement
-      ).value.trim() || "all";
+      state.routingClientFilter =
+        (event.target as HTMLSelectElement).value.trim() || "all";
       renderRoutingObservability();
       renderTopSummary();
     });
@@ -5211,6 +5384,67 @@ function bindActions(): void {
     }
 
     const action = button.dataset.action;
+    if (action === "toggle-routing-rule") {
+      const card = button.closest(".routing-rule-card");
+      if (card) {
+        card.classList.toggle("collapsed");
+      }
+      return;
+    }
+
+    if (action === "toggle-pool-card" && button.dataset.poolId) {
+      const card = button.closest(".routing-rule-card");
+      if (card) {
+        card.classList.toggle("collapsed");
+        setPoolPanelState(button.dataset.poolId, {
+          cardCollapsed: card.classList.contains("collapsed"),
+        });
+      }
+      return;
+    }
+
+    if (action === "save-routing-settings") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "保存中");
+        setBanner("正在保存路由策略配置...", "info");
+        await saveRoutingSettings();
+        setBanner("路由策略配置已保存。启用后将参与实时推理路由。", "success");
+      } catch (error) {
+        setBanner(`保存路由策略失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "save-pool-settings") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "保存中");
+        setBanner("正在保存动态号池配置...", "info");
+        await savePoolSettings();
+        setBanner("动态号池配置已保存。启用后将自动调度组内额度。", "success");
+      } catch (error) {
+        setBanner(`保存号池失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "save-pool-card" && button.dataset.poolId) {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "保存中");
+        setBanner("正在保存当前号池配置...", "info");
+        const savedName = await saveSinglePoolSettings(button.dataset.poolId);
+        setBanner(`号池「${savedName}」配置已保存。`, "success");
+      } catch (error) {
+        setBanner(`保存号池配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
     if (action === "open-pool-events" && button.dataset.poolId) {
       openPoolEventsModal(button.dataset.poolId);
       return;
@@ -5286,7 +5520,8 @@ function bindActions(): void {
       try {
         const confirmed = await requestConfirmation({
           title: "确认删除账号",
-          message: "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
+          message:
+            "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
           confirmLabel: "删除账号",
           tone: "danger",
         });
@@ -5359,10 +5594,7 @@ function bindActions(): void {
       resetRoutingPreviewResult();
     }
 
-    if (
-      action === "pool-toggle-collapse" &&
-      button.dataset.poolId
-    ) {
+    if (action === "pool-toggle-collapse" && button.dataset.poolId) {
       const row = button.closest<HTMLElement>("[data-pool-row]");
       if (row) {
         syncPoolDraftFromRow(row);
@@ -5371,13 +5603,25 @@ function bindActions(): void {
       setPoolPanelState(button.dataset.poolId, {
         collapsed: !panelState.collapsed,
       });
+      if (row) {
+        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+            collectPoolDefinitionFromRow(row),
+        );
+        const membersContainer = row.querySelector(".form-field:nth-child(4)");
+        if (membersContainer) {
+          membersContainer.innerHTML = `
+            <label>池成员（推荐直接勾选桌面端账号）</label>
+            ${memberSelectorMarkup}
+            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+          `;
+          return;
+        }
+      }
       renderPoolCards();
     }
 
-    if (
-      action === "pool-toggle-sort" &&
-      button.dataset.poolId
-    ) {
+    if (action === "pool-toggle-sort" && button.dataset.poolId) {
       const row = button.closest<HTMLElement>("[data-pool-row]");
       if (row) {
         syncPoolDraftFromRow(row);
@@ -5386,6 +5630,21 @@ function bindActions(): void {
       setPoolPanelState(button.dataset.poolId, {
         sortDirection: panelState.sortDirection === "asc" ? "desc" : "asc",
       });
+      if (row) {
+        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+            collectPoolDefinitionFromRow(row),
+        );
+        const membersContainer = row.querySelector(".form-field:nth-child(4)");
+        if (membersContainer) {
+          membersContainer.innerHTML = `
+            <label>池成员（推荐直接勾选桌面端账号）</label>
+            ${memberSelectorMarkup}
+            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+          `;
+          return;
+        }
+      }
       renderPoolCards();
     }
 
@@ -5411,6 +5670,20 @@ function bindActions(): void {
         }
       }
       syncPoolDraftFromRow(row);
+
+      const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
+        state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
+          collectPoolDefinitionFromRow(row),
+      );
+      const membersContainer = row.querySelector(".form-field:nth-child(4)");
+      if (membersContainer) {
+        membersContainer.innerHTML = `
+          <label>池成员（推荐直接勾选桌面端账号）</label>
+          ${memberSelectorMarkup}
+          <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+        `;
+        return;
+      }
       renderPoolCards();
     }
   });
@@ -5638,7 +5911,8 @@ async function triggerBackgroundLiveUsageRefresh(
       const banner = summarizeRefreshBanner(summary, {
         successMessage: "控制台已就绪。实时额度已完成后台同步。",
         emptyMessage: "控制台已就绪。当前没有可刷新的桌面端账号。",
-        unsupportedMessage: "控制台已就绪。当前桌面主进程尚未启用实时额度刷新。",
+        unsupportedMessage:
+          "控制台已就绪。当前桌面主进程尚未启用实时额度刷新。",
         failedOnlyMessage: "控制台已就绪，但后台额度暂未同步成功。",
       });
       setBanner(banner.message, banner.tone);
@@ -5646,7 +5920,10 @@ async function triggerBackgroundLiveUsageRefresh(
       if (summary.refreshed > 0) {
         setBanner("自动刷新完成。", "success");
       } else if (summary.failed > 0) {
-        setBanner("自动刷新已结束，但当前没有账号成功同步到最新额度。", "error");
+        setBanner(
+          "自动刷新已结束，但当前没有账号成功同步到最新额度。",
+          "error",
+        );
       }
     }
     return summary;
@@ -5692,7 +5969,10 @@ void (async () => {
     await refresh();
     const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
     if (primaryDiagnostic?.severity === "error") {
-      setBanner(`控制台已加载，但存在异常：${primaryDiagnostic.title}`, "error");
+      setBanner(
+        `控制台已加载，但存在异常：${primaryDiagnostic.title}`,
+        "error",
+      );
     } else if (primaryDiagnostic?.severity === "warning") {
       setBanner(`控制台已加载，请关注：${primaryDiagnostic.title}`, "info");
     } else {
