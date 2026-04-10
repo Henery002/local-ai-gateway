@@ -113,6 +113,14 @@ function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
 
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
   if (
+    message.includes("failed to refresh oauth token") ||
+    message.includes("oauth refresh failed") ||
+    message.includes("oauth 凭据刷新失败") ||
+    message.includes("oauth 刷新被上游拒绝")
+  ) {
+    return "auth_invalid";
+  }
+  if (
     message.includes("usage_limit_reached") ||
     message.includes("usage limit has been reached") ||
     message.includes("quota exhausted") ||

@@ -660,13 +660,19 @@ async function callAdmin(path: string, init?: RequestInit): Promise<unknown> {
     throw new Error("Admin token is not available yet. Start the gateway first.");
   }
 
+  const headers = new Headers(init?.headers ?? undefined);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (init?.body !== undefined) {
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+  } else if (headers.get("Content-Type")?.toLowerCase() === "application/json") {
+    headers.delete("Content-Type");
+  }
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;

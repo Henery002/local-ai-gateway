@@ -27,6 +27,7 @@ const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
   "local-ai-gateway.desktop.collapsed-groups";
 const EXPANDED_GROUPS_STORAGE_KEY = "local-ai-gateway.desktop.expanded-groups";
+const STALE_QUOTA_AFTER_REFRESH_ERROR_MS = 15 * 60_000;
 
 declare global {
   interface Window {
@@ -1549,6 +1550,34 @@ function renderCodexAccounts(): void {
       item.message,
     ]),
   );
+  const getAccountRefreshError = (
+    account: ReturnType<typeof getAccountGroups>["groups"][number],
+  ) =>
+    account.sessions
+      .map((session) => refreshErrorBySessionId.get(session.id))
+      .find((value) => typeof value === "string");
+  const isQuotaSnapshotStale = (
+    account: ReturnType<typeof getAccountGroups>["groups"][number],
+    refreshErrorMessage?: string,
+  ) => {
+    if (!refreshErrorMessage) {
+      return false;
+    }
+    const updatedAt = account.representative.quota?.updatedAt;
+    if (typeof updatedAt !== "number") {
+      return true;
+    }
+    return Date.now() - updatedAt > STALE_QUOTA_AFTER_REFRESH_ERROR_MS;
+  };
+  const getDisplayQuotaPercentage = (
+    account: ReturnType<typeof getAccountGroups>["groups"][number],
+  ) => {
+    const refreshErrorMessage = getAccountRefreshError(account);
+    if (isQuotaSnapshotStale(account, refreshErrorMessage)) {
+      return undefined;
+    }
+    return getQuotaPercentage(account.representative);
+  };
 
   const accountGroups = getAccountGroups();
   const accounts = sortAccountGroups(
@@ -1562,16 +1591,16 @@ function renderCodexAccounts(): void {
   );
   const activitySummary = buildAccountActivitySummary(accounts);
   const healthyQuotaCount = accounts.filter(
-    (account) => (account.representative.quota?.percentage ?? 0) > 50,
+    (account) => (getDisplayQuotaPercentage(account) ?? 0) > 50,
   ).length;
   const warningQuotaCount = accounts.filter((account) => {
-    const percentage = account.representative.quota?.percentage;
+    const percentage = getDisplayQuotaPercentage(account);
     return (
       typeof percentage === "number" && percentage > 20 && percentage <= 50
     );
   }).length;
   const lowQuotaCount = accounts.filter((account) => {
-    const percentage = account.representative.quota?.percentage;
+    const percentage = getDisplayQuotaPercentage(account);
     return typeof percentage === "number" && percentage <= 20;
   }).length;
 
@@ -1585,7 +1614,11 @@ function renderCodexAccounts(): void {
         ${(() => {
           const title = getSessionTitle(account.representative);
           const avatarTone = getAvatarToneIndex(account.representative.id);
-          const quotaPercentage = getQuotaPercentage(account.representative);
+          const refreshErrorMessage = getAccountRefreshError(account);
+          const quotaIsStale = isQuotaSnapshotStale(account, refreshErrorMessage);
+          const quotaPercentage = quotaIsStale
+            ? undefined
+            : getQuotaPercentage(account.representative);
           const quotaScope = formatQuotaWindowLabel(account.representative);
           const quotaToneClass = getQuotaToneClass(quotaPercentage).replace(
             "quota-",
@@ -1605,11 +1638,8 @@ function renderCodexAccounts(): void {
             typeof activity?.lastRequestAt === "number" &&
             Date.now() - activity.lastRequestAt <= 90_000;
           const isPinned = isPinnedAccountSession(account.representative.id);
-          const refreshErrorMessage = account.sessions
-            .map((session) => refreshErrorBySessionId.get(session.id))
-            .find((value) => typeof value === "string");
           const quotaUpdatedAt = account.representative.quota?.updatedAt
-            ? `同步于 ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+            ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
             : "尚未同步";
           return `
         <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}">
@@ -1625,7 +1655,7 @@ function renderCodexAccounts(): void {
               ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
               ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
               ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
-              ${refreshErrorMessage ? `<span class="badge incomplete">额度同步失败</span>` : ""}
+              ${refreshErrorMessage ? `<span class="badge incomplete">${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
               <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
             </div>
           </div>
@@ -1662,7 +1692,7 @@ function renderCodexAccounts(): void {
               <span>${escapeHtml(quotaUpdatedAt)}</span>
             </div>
           </div>
-          ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">最近同步失败：${escapeHtml(refreshErrorMessage)}</div>` : ""}
+          ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</div>` : ""}
           <div class="acc-actions">
             <button
               class="icon-btn"
@@ -4611,6 +4641,37 @@ function summarizeRefreshBanner(
         "{count}",
         String(summary.refreshed),
       ),
+    };
+  }
+
+  const failureMessages = summary.errors
+    .map((error) => String(error.message ?? "").toLowerCase())
+    .filter((message) => message.length > 0);
+  const hasNetworkFailure = failureMessages.some(
+    (message) =>
+      message.includes("fetch failed") ||
+      message.includes("timeout") ||
+      message.includes("connect"),
+  );
+  const hasOAuthRejected = failureMessages.some(
+    (message) =>
+      message.includes("unsupported_country_region_territory") ||
+      message.includes("request_forbidden") ||
+      message.includes("oauth"),
+  );
+
+  if (hasOAuthRejected) {
+    return {
+      tone: "error",
+      message:
+        "状态已刷新，但当前账号授权刷新被上游拒绝。请切换可用账号或重新授权后再试。",
+    };
+  }
+  if (hasNetworkFailure) {
+    return {
+      tone: "error",
+      message:
+        "状态已刷新，但当前网络无法访问额度接口，未能同步到最新额度。",
     };
   }
   return {

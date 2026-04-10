@@ -62,6 +62,17 @@ interface CodexUsagePayload {
   };
 }
 
+class CodexUsageRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly responseText?: string,
+  ) {
+    super(message);
+    this.name = "CodexUsageRequestError";
+  }
+}
+
 interface DecodedAccessTokenClaims {
   email?: string;
   planType?: string;
@@ -300,8 +311,10 @@ async function fetchCodexUsageSnapshot(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
+    throw new CodexUsageRequestError(
       `Codex 额度接口请求失败 (${response.status})${text ? `: ${text.slice(0, 160)}` : ""}`,
+      response.status,
+      text,
     );
   }
 
@@ -314,6 +327,61 @@ async function fetchCodexUsageSnapshot(
     planType: typeof payload.plan_type === "string" ? payload.plan_type : undefined,
     quota,
   };
+}
+
+function shouldRetryUsageWithOAuthRefresh(
+  profile: RawProfile,
+  error: unknown,
+): boolean {
+  if (!profile.refresh) {
+    return false;
+  }
+
+  if (!profile.access) {
+    return true;
+  }
+
+  if (error instanceof CodexUsageRequestError) {
+    if (error.status === 401) {
+      return true;
+    }
+
+    if (error.status === 403) {
+      const message = `${error.message}\n${error.responseText ?? ""}`.toLowerCase();
+      return /(unauthori|expired|invalid|token|session)/.test(message);
+    }
+
+    return false;
+  }
+
+  return typeof profile.expires === "number" && profile.expires <= Date.now() + 30_000;
+}
+
+function mapOAuthRefreshError(sessionId: string, error: unknown): GatewayError {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (
+    message.includes("unsupported_country_region_territory") ||
+    message.includes("request_forbidden") ||
+    message.includes("forbidden")
+  ) {
+    return new GatewayError(
+      503,
+      "gateway_auth_required",
+      `会话 ${sessionId} 的 OAuth 刷新被上游拒绝（地区或账号限制）。请切换账号或重新授权。`,
+    );
+  }
+  if (message.includes("failed to refresh oauth token")) {
+    return new GatewayError(
+      503,
+      "gateway_auth_required",
+      `会话 ${sessionId} 的 OAuth 凭据刷新失败。请重新授权后再试。`,
+    );
+  }
+  return new GatewayError(
+    503,
+    "gateway_auth_required",
+    `会话 ${sessionId} 当前不可用：${error instanceof Error ? error.message : String(error)}`,
+  );
 }
 
 function slugSegment(input: string): string {
@@ -648,6 +716,7 @@ export class OpenClawSessionSource {
   constructor(
     private readonly openClawRoot = DEFAULT_OPENCLAW_ROOT,
     importedProfilesPath?: string,
+    private readonly oauthApiKeyResolver: typeof getOAuthApiKey = getOAuthApiKey,
   ) {
     this.importedStore = importedProfilesPath
       ? new ImportedCodexAccountStore(importedProfilesPath)
@@ -712,7 +781,7 @@ export class OpenClawSessionSource {
     }
 
     const rawProfile = this.getRawProfileForSession(target);
-    if (!rawProfile?.access || !rawProfile.refresh || !rawProfile.provider) {
+    if (!rawProfile?.access || !rawProfile.provider) {
       throw new GatewayError(
         503,
         "gateway_auth_required",
@@ -721,23 +790,38 @@ export class OpenClawSessionSource {
     }
 
     const now = Date.now();
-    if (typeof rawProfile.expires === "number" && rawProfile.expires > now + 30_000) {
+    // Some imported profiles intentionally do not persist "expires". In that case we trust the
+    // currently cached access token first and only refresh on explicit auth failures downstream.
+    if (typeof rawProfile.expires !== "number" || rawProfile.expires > now + 30_000) {
       return {
         ...target,
         apiKey: rawProfile.access,
       };
     }
 
-    const refreshed = await getOAuthApiKey("openai-codex", {
-      "openai-codex": {
-        type: "oauth",
-        provider: "openai-codex",
-        access: rawProfile.access,
-        refresh: rawProfile.refresh,
-        expires: rawProfile.expires ?? now,
-        accountId: rawProfile.accountId,
-      } as never,
-    });
+    if (!rawProfile.refresh) {
+      throw new GatewayError(
+        503,
+        "gateway_auth_required",
+        `Session ${target.id} is expired and cannot be refreshed.`,
+      );
+    }
+
+    let refreshed: Awaited<ReturnType<typeof getOAuthApiKey>>;
+    try {
+      refreshed = await this.oauthApiKeyResolver("openai-codex", {
+        "openai-codex": {
+          type: "oauth",
+          provider: "openai-codex",
+          access: rawProfile.access,
+          refresh: rawProfile.refresh,
+          expires: rawProfile.expires ?? now,
+          accountId: rawProfile.accountId,
+        } as never,
+      });
+    } catch (error) {
+      throw mapOAuthRefreshError(target.id, error);
+    }
 
     if (!refreshed?.apiKey) {
       throw new GatewayError(
@@ -858,8 +942,57 @@ export class OpenClawSessionSource {
           const representative = sessionsForAccount[0];
 
           try {
-            const resolved = await this.resolveSession(representative.id);
-            const snapshot = await fetchCodexUsageSnapshot(resolved.apiKey, resolved.accountId);
+            const rawProfile = this.getRawProfileForSession(representative);
+            if (!rawProfile?.provider) {
+              throw new Error(`会话 ${representative.id} 缺少有效的 Provider 配置。`);
+            }
+
+            let refreshedCredentials: OAuthCredentials | undefined;
+            let snapshot: Awaited<ReturnType<typeof fetchCodexUsageSnapshot>> | undefined;
+            let lastError: unknown;
+
+            if (typeof rawProfile.access === "string" && rawProfile.access) {
+              try {
+                snapshot = await fetchCodexUsageSnapshot(
+                  rawProfile.access,
+                  rawProfile.accountId ?? representative.accountId,
+                );
+              } catch (error) {
+                lastError = error;
+              }
+            }
+
+            if (!snapshot && shouldRetryUsageWithOAuthRefresh(rawProfile, lastError)) {
+              const refreshed = await this.oauthApiKeyResolver("openai-codex", {
+                "openai-codex": {
+                  type: "oauth",
+                  provider: "openai-codex",
+                  access: rawProfile.access,
+                  refresh: rawProfile.refresh,
+                  expires: rawProfile.expires ?? Date.now(),
+                  accountId: rawProfile.accountId,
+                } as never,
+              });
+
+              if (!refreshed?.apiKey) {
+                throw new Error(
+                  `会话 ${representative.id} 的 OAuth 凭据刷新失败。`,
+                );
+              }
+
+              refreshedCredentials = refreshed.newCredentials;
+              snapshot = await fetchCodexUsageSnapshot(
+                refreshed.apiKey,
+                rawProfile.accountId ?? representative.accountId,
+              );
+            }
+
+            if (!snapshot) {
+              throw (lastError instanceof Error
+                ? lastError
+                : new Error(`会话 ${representative.id} 的额度同步失败。`));
+            }
+
             const patch = {
               displayName: representative.displayName ?? representative.email,
               email: representative.email,
@@ -870,6 +1003,12 @@ export class OpenClawSessionSource {
             for (const session of sessionsForAccount) {
               this.usageCache.set(session.id, patch);
               if (session.sourceKind === "local-import" && this.importedStore) {
+                if (refreshedCredentials) {
+                  this.importedStore.upsertOAuthCredentials(refreshedCredentials, {
+                    profileId: session.profileId,
+                    label: rawProfile.label,
+                  });
+                }
                 this.importedStore.updateProfileMetadata(session.profileId, patch);
               }
 

@@ -9,6 +9,23 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-04-10 14:20 CST]
+
+### 修复
+
+- 修复桌面端额度刷新对无 `expires` 的 Codex 导入账号强制走 OAuth 刷新导致整批同步失败的问题；现改为优先复用现有 access token 拉取 usage，仅在明确鉴权失效时才回退刷新凭据。
+- 修复额度刷新在 `401/鉴权失效` 场景下不会自动换用新 token 重试的问题；同步链路现支持 OAuth 凭据刷新后重试一次，并将新凭据持久化回桌面端账号存储。
+- 修复账号卡片在额度同步失败时仍继续展示过期额度快照的误导问题；当快照过旧且最近同步失败时，卡片会回退为“待同步/额度已过期”展示，不再把旧快照当成实时额度。
+- 修复桌面端 `重启服务` 请求在无 body 场景仍强制携带 `Content-Type: application/json` 导致上游拒绝的问题；`callAdmin` 现仅在存在 body 时附加 JSON 头，空 body 请求可正常重启。
+- 修复会话解析在 `expires` 缺失场景错误强制触发 OAuth 刷新的问题；推理链路改为优先使用现有 access token，避免因无意义刷新触发 `unsupported_country_region_territory` 连续失败。
+- 修复号池失败分类对 OAuth 刷新失败识别不准确的问题；`Failed to refresh OAuth token` 现归类为 `auth_invalid`，会进入更长冷却而非短周期网络重试。
+- 优化额度刷新失败提示语义：当全部失败来自网络不可达或 OAuth 被上游拒绝时，前端 banner 直接给出可诊断文案，减少“只有失败结论没有原因”的排障成本。
+
+### 测试
+
+- 新增 `openclaw-session` 回归测试，覆盖“无 expires 账号直接读 usage”与“401 后自动刷新 OAuth 再重试”两条额度刷新链路。
+- 新增 `resolveSession` 回归测试，覆盖“无 expires 时不强制刷新 OAuth”与“OAuth 刷新被上游拒绝时映射为 `gateway_auth_required`”两条推理会话链路。
+
 ## [2026-04-03 11:20 CST]
 
 ### 调整

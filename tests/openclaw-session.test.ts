@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
+import { GatewayError } from "@local-ai-gateway/shared";
 
 const originalFetch = global.fetch;
 
@@ -348,6 +349,209 @@ describe("openclaw session source", () => {
         windowMinutes: 300,
       },
     });
+  });
+
+  it("uses existing access token for usage refresh when imported accounts do not store expires", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-refresh-no-expiry-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const saved = store.importFromObject([
+      {
+        id: "codex_no_expiry",
+        email: "demo@example.com",
+        auth_mode: "oauth",
+        plan_type: "free",
+        account_id: "acct_no_expiry",
+        tokens: {
+          access_token: "access-without-expiry",
+          refresh_token: "refresh-without-expiry",
+        },
+      },
+    ]).profileIds[0];
+
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          plan_type: "team",
+          rate_limit: {
+            primary_window: {
+              used_percent: 94,
+              reset_at: 1_775_053_648,
+              limit_window_seconds: 18_000,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      vi.fn(),
+    );
+
+    const summary = await source.refreshUsage(`local-import:${saved}`);
+    expect(summary).toMatchObject({
+      ok: true,
+      refreshed: 1,
+      failed: 0,
+    });
+    const refreshed = source
+      .listSessions()
+      .find((session) => session.id === `local-import:${saved}`);
+    expect(refreshed).toMatchObject({
+      planType: "team",
+      quota: {
+        percentage: 6,
+        resetAt: 1_775_053_648_000,
+      },
+    });
+  });
+
+  it("falls back to OAuth refresh when the existing access token is unauthorized", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-refresh-fallback-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const saved = store.upsertOAuthCredentials({
+      access: "expired-access-token",
+      refresh: "refresh-token",
+      expires: 1,
+      accountId: "acct_refresh_fallback",
+    });
+
+    const refreshSpy = vi.fn().mockResolvedValue({
+      apiKey: "fresh-access-token",
+      newCredentials: {
+        access: "fresh-access-token",
+        refresh: "fresh-refresh-token",
+        expires: 4_102_444_800_000,
+        accountId: "acct_refresh_fallback",
+      },
+    });
+
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "token expired",
+            },
+          }),
+          {
+            status: 401,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            plan_type: "plus",
+            rate_limit: {
+              primary_window: {
+                used_percent: 48,
+                reset_at: 1_775_053_648,
+                limit_window_seconds: 18_000,
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      ) as typeof fetch;
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      refreshSpy,
+    );
+
+    const summary = await source.refreshUsage(`local-import:${saved.profileId}`);
+    expect(summary).toMatchObject({
+      ok: true,
+      refreshed: 1,
+      failed: 0,
+    });
+    expect(refreshSpy).toHaveBeenCalledOnce();
+
+    const persisted = store.listProfiles()[saved.profileId];
+    expect(persisted?.access).toBe("fresh-access-token");
+    expect(persisted?.refresh).toBe("fresh-refresh-token");
+    expect(persisted?.quota).toMatchObject({
+      percentage: 52,
+      resetAt: 1_775_053_648_000,
+    });
+  });
+
+  it("resolveSession does not force OAuth refresh when expires is missing", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-resolve-no-expiry-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const profileId = store.importFromObject([
+      {
+        id: "codex_no_expiry_resolve",
+        email: "resolve-no-expiry@example.com",
+        auth_mode: "oauth",
+        account_id: "acct_resolve_no_expiry",
+        tokens: {
+          access_token: "access-without-expiry-for-resolve",
+          refresh_token: "refresh-without-expiry-for-resolve",
+        },
+      },
+    ]).profileIds[0];
+
+    const refreshSpy = vi.fn();
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      refreshSpy,
+    );
+
+    const resolved = await source.resolveSession(`local-import:${profileId}`);
+    expect(resolved.apiKey).toBe("access-without-expiry-for-resolve");
+    expect(refreshSpy).not.toHaveBeenCalled();
+  });
+
+  it("resolveSession maps OAuth forbidden refresh failures to gateway_auth_required", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-resolve-refresh-fail-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const saved = store.upsertOAuthCredentials({
+      access: "expired-access",
+      refresh: "expired-refresh",
+      expires: 1,
+      accountId: "acct_refresh_forbidden",
+    });
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      vi.fn().mockRejectedValue(
+        new Error(
+          "Token refresh failed: 403 {\"error\":{\"code\":\"unsupported_country_region_territory\"}}",
+        ),
+      ),
+    );
+
+    await expect(
+      source.resolveSession(`local-import:${saved.profileId}`),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      code: "gateway_auth_required",
+    } satisfies Partial<GatewayError>);
   });
 
   it("deletes imported codex accounts from the local desktop store", () => {
