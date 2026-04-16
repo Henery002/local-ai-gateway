@@ -622,6 +622,8 @@ const state: {
   accountSortDirection: AccountSortDirection;
   backgroundRefreshInFlight?: boolean;
   sessionPulseInFlight?: boolean;
+  isViewStackScrolling?: boolean;
+  pendingVisibleRefresh?: boolean;
   runtimeDiagnostics: RuntimeDiagnostic[];
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
@@ -638,6 +640,8 @@ const state: {
 
 let autoRefreshTimer: number | undefined;
 let sessionActivityTimer: number | undefined;
+let viewStackScrollIdleTimer: number | undefined;
+let visibleRefreshFrame: number | undefined;
 const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 
@@ -976,6 +980,11 @@ function setActiveView(view: DashboardView): void {
   )) {
     node.hidden = node.dataset.view !== view;
   }
+
+  if (hasHydratedDashboardState()) {
+    cancelVisibleRefreshFrame();
+    renderActiveViewContent();
+  }
 }
 
 function setButtonLoading(
@@ -1111,6 +1120,104 @@ function clearSessionActivityTimer(): void {
     window.clearInterval(sessionActivityTimer);
     sessionActivityTimer = undefined;
   }
+}
+
+function clearViewStackScrollIdleTimer(): void {
+  if (viewStackScrollIdleTimer) {
+    window.clearTimeout(viewStackScrollIdleTimer);
+    viewStackScrollIdleTimer = undefined;
+  }
+}
+
+function cancelVisibleRefreshFrame(): void {
+  if (visibleRefreshFrame) {
+    window.cancelAnimationFrame(visibleRefreshFrame);
+    visibleRefreshFrame = undefined;
+  }
+}
+
+function hasHydratedDashboardState(): boolean {
+  return Boolean(
+    state.health ||
+      state.sessions ||
+      state.providers ||
+      state.settings ||
+      state.routingSettings ||
+      state.poolSettings ||
+      state.securitySettings ||
+      state.systemSettings,
+  );
+}
+
+function renderActiveViewContent(): void {
+  renderTopSummary();
+
+  if (state.activeView === "overview") {
+    renderOverview();
+    return;
+  }
+
+  if (state.activeView === "accounts") {
+    renderCodexAccounts();
+    return;
+  }
+
+  if (state.activeView === "providers") {
+    renderProviderRegistry();
+    return;
+  }
+
+  if (state.activeView === "routing") {
+    renderRoutingObservability();
+    renderRoutingRules();
+    return;
+  }
+
+  if (state.activeView === "pools") {
+    renderPoolCards();
+    return;
+  }
+
+  renderDiagnostics();
+  renderErrors();
+  renderGuide();
+}
+
+function flushDeferredVisibleRefresh(): void {
+  cancelVisibleRefreshFrame();
+  state.pendingVisibleRefresh = false;
+  renderActiveViewContent();
+}
+
+function scheduleVisibleRefresh(): void {
+  if (!hasHydratedDashboardState()) {
+    return;
+  }
+
+  if (state.isViewStackScrolling) {
+    state.pendingVisibleRefresh = true;
+    return;
+  }
+
+  if (visibleRefreshFrame) {
+    return;
+  }
+
+  visibleRefreshFrame = window.requestAnimationFrame(() => {
+    visibleRefreshFrame = undefined;
+    flushDeferredVisibleRefresh();
+  });
+}
+
+function markViewStackScrolling(): void {
+  state.isViewStackScrolling = true;
+  clearViewStackScrollIdleTimer();
+  viewStackScrollIdleTimer = window.setTimeout(() => {
+    state.isViewStackScrolling = false;
+    if (state.pendingVisibleRefresh) {
+      scheduleVisibleRefresh();
+    }
+  }, 140);
 }
 
 function statusLabel(status: "available" | "expired" | "invalid"): string {
@@ -4488,6 +4595,15 @@ function bindNavigation(): void {
       setActiveView(target as DashboardView);
     });
   }
+
+  const viewStack = document.querySelector<HTMLElement>(".view-stack");
+  viewStack?.addEventListener(
+    "scroll",
+    () => {
+      markViewStackScrolling();
+    },
+    { passive: true },
+  );
 }
 
 async function copySnippetWithFeedback(): Promise<void> {
@@ -5435,6 +5551,8 @@ function bindActions(): void {
   window.addEventListener("beforeunload", () => {
     clearAutoRefreshTimer();
     clearSessionActivityTimer();
+    clearViewStackScrollIdleTimer();
+    cancelVisibleRefreshFrame();
   });
 
   document.addEventListener("click", async (event) => {
@@ -5925,12 +6043,7 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     state.sessions = sessionsResult.value;
   }
   updateRuntimeDiagnostics([]);
-  renderOverview();
-  renderTopSummary();
-  renderCodexAccounts();
-  renderDiagnostics();
-  renderErrors();
-  renderPoolCards();
+  scheduleVisibleRefresh();
   renderPoolEventsModal();
 }
 

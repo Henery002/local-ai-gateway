@@ -195,7 +195,10 @@ button, input, select {
   gap: var(--space-3);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+  transition:
+    background-color 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    color 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    box-shadow 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
   font-size: 16px;
   font-weight: 500;
 }
@@ -222,7 +225,10 @@ button, input, select {
   font-weight: 600;
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .nav-item[data-active="true"] .nav-icon {
@@ -278,7 +284,10 @@ button, input, select {
   border-bottom: 1px solid var(--border-light);
   background: var(--bg-surface);
   color: var(--text-secondary);
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-bottom-color 0.2s ease;
 }
 
 .banner[data-tone="success"] {
@@ -384,6 +393,8 @@ button, input, select {
   overflow-y: auto;
   padding: var(--space-6);
   background: var(--bg-window);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .view {
@@ -393,6 +404,15 @@ button, input, select {
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+}
+
+.view > section,
+.account-item,
+.provider-item,
+.routing-rule-card,
+.pool-member-option {
+  content-visibility: auto;
+  contain-intrinsic-size: 320px;
 }
 
 .view[hidden] {
@@ -437,7 +457,10 @@ button, input, select {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   padding: var(--space-4);
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s;
 }
 
 .card:hover {
@@ -477,7 +500,12 @@ button, input, select {
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+  transition:
+    background-color 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    border-color 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    color 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    box-shadow 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+    transform 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
   border: 1px solid transparent;
   white-space: nowrap;
 }
@@ -573,7 +601,12 @@ button, input, select {
   background: var(--bg-main);
   color: var(--text-primary);
   font-size: 15px;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s,
+    opacity 0.2s,
+    color 0.2s;
   max-width: 480px;
   width: 100%;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
@@ -834,7 +867,11 @@ button, input, select {
   font-size: 14px;
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .chip-check:hover {
@@ -880,7 +917,11 @@ button, input, select {
   background: var(--bg-main);
   justify-content: flex-start;
   gap: 12px;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s,
+    color 0.2s;
   box-shadow: var(--shadow-sm);
 }
 
@@ -1008,10 +1049,15 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s,
+    opacity 0.2s;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  contain: layout paint style;
 }
 
 .account-item::before {
@@ -1163,7 +1209,12 @@ button, input, select {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
 }
 
 .icon-btn:hover {
@@ -1234,7 +1285,10 @@ button, input, select {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   padding: 20px;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s;
   box-shadow: var(--shadow-sm);
 }
 
@@ -1278,7 +1332,11 @@ button, input, select {
   padding: 24px 32px;
   position: relative;
   overflow: hidden;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s,
+    opacity 0.2s;
   box-shadow: var(--shadow-sm);
   margin-bottom: var(--space-5);
 }
@@ -1529,6 +1587,7 @@ button, input, select {
 .routing-observe-panel {
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-sm);
+  contain: layout paint style;
 }
 
 .routing-observe-grid {
@@ -1545,6 +1604,7 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  contain: layout paint style;
 }
 
 .routing-observe-kpi small {
@@ -1592,6 +1652,7 @@ button, input, select {
   padding: 16px;
   display: grid;
   gap: 12px;
+  contain: layout paint style;
 }
 
 .source-window-item strong {
@@ -1866,7 +1927,12 @@ button, input, select {
   padding: 14px;
   background: var(--bg-main);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s,
+    opacity 0.2s,
+    color 0.2s;
   min-width: 0;
   box-shadow: var(--shadow-sm);
 }
