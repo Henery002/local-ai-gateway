@@ -53,7 +53,7 @@ describe("external providers", () => {
       response.write("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n");
       response.write("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n");
       response.write("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup_weather\",\"arguments\":\"{\\\"city\\\":\"}}]},\"finish_reason\":null}]}\n\n");
-      response.write("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"Shanghai\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":5,\"total_tokens\":16}}\n\n");
+      response.write("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"Shanghai\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":5,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":3},\"completion_tokens_details\":{\"reasoning_tokens\":2}}}\n\n");
       response.write("data: [DONE]\n\n");
       response.end();
     });
@@ -102,6 +102,9 @@ describe("external providers", () => {
     expect(events).toContain("toolcall_end");
     expect(finalMessage.stopReason).toBe("toolUse");
     expect(finalMessage.usage.totalTokens).toBe(16);
+    expect(finalMessage.usage.input).toBe(8);
+    expect(finalMessage.usage.cacheRead).toBe(3);
+    expect((finalMessage.usage as Record<string, unknown>).reasoningOutputTokens).toBe(2);
   });
 
   it("streams Ollama responses", async () => {

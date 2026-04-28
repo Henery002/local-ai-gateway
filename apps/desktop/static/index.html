@@ -64,7 +64,10 @@
         <header class="console-header">
           <div class="header-main">
             <div class="header-title-wrap">
-              <h1>本地 AI 网关</h1>
+              <div class="header-title-row">
+                <h1>本地 AI 网关</h1>
+                <span class="service-status-badge active" id="top-summary-status">加载中</span>
+              </div>
               <p>管理本地模型、统一授权接入与网络路由。</p>
             </div>
             <div class="header-actions">
@@ -75,11 +78,6 @@
             </div>
           </div>
           <div class="header-stats">
-            <div class="stat-item">
-              <span class="stat-label">服务状态</span>
-              <span class="stat-value status-running" id="top-summary-status">加载中</span>
-            </div>
-            <div class="stat-divider"></div>
             <div class="stat-item">
               <span class="stat-label">当前路由</span>
               <span class="stat-value" id="top-summary-route">加载中</span>
@@ -96,15 +94,11 @@
             </div>
             <div class="stat-divider"></div>
             <div class="stat-item">
-              <span class="stat-label">Provider / 授权数</span>
-              <span class="stat-value" id="top-summary-providers">加载中</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
               <span class="stat-label">接入鉴权</span>
               <span class="stat-value" id="top-summary-auth">加载中</span>
             </div>
           </div>
+          <div id="header-usage-observe-panel"></div>
         </header>
 
         <!-- Views -->
@@ -121,7 +115,7 @@
                 <div class="card mini-stat"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
                 <div class="card mini-stat"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
                 <div class="card mini-stat"><small>默认模型</small><strong id="default-model">加载中</strong></div>
-                <div class="card mini-stat"><small>网关 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
+                <div class="card mini-stat"><small>主接入 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
                 <div class="card mini-stat"><small>接入片段模型</small><strong id="snippet-model">加载中</strong></div>
                 <div class="card mini-stat"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
                 <div class="card mini-stat"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
@@ -205,7 +199,6 @@
                   </div>
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span class="badge active">实时观测</span>
-                    <button id="reset-telemetry" class="btn secondary mini">清空统计</button>
                   </div>
                 </div>
                 <div class="routing-observe-grid">
@@ -735,6 +728,16 @@
           <button id="close-pool-events-modal" class="btn ghost mini" type="button">关闭</button>
         </div>
         <div id="pool-events-modal-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <div id="usage-details-modal" class="modal-overlay" hidden>
+      <div class="modal-content pool-events-modal">
+        <div class="modal-header">
+          <h3 id="usage-details-modal-title">Token 用量明细</h3>
+          <button id="close-usage-details-modal" class="btn ghost mini" type="button">关闭</button>
+        </div>
+        <div id="usage-details-modal-body" class="modal-body"></div>
       </div>
     </div>
 

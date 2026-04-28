@@ -329,6 +329,86 @@ export interface GatewayRoutingObservability {
   recent: GatewayRoutingHitEvent[];
 }
 
+export interface GatewayUsageCounters {
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  totalLatencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+}
+
+export type GatewayUsageClientFilter =
+  | "all"
+  | "openclaw"
+  | "hermes"
+  | "other";
+
+export interface GatewayUsageEvent {
+  timestamp: number;
+  sessionId?: string;
+  accountId?: string;
+  email?: string;
+  clientTag?: string;
+  providerId: string;
+  modelAlias: string;
+  upstreamModelId?: string;
+  success: boolean;
+  stream: boolean;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  cachedTokensPresent?: boolean;
+  reasoningTokensPresent?: boolean;
+  sourceKind?: string;
+  sourceEventKey?: string;
+}
+
+export interface GatewayUsageAccountSummary {
+  accountId: string;
+  email?: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
+export interface GatewayUsageClientSummary {
+  clientTag: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
+export interface GatewayUsageModelSummary {
+  modelAlias: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
+export interface GatewayUsageWindowSummary {
+  since: number;
+  updatedAt: number;
+  totals: GatewayUsageCounters;
+  cachedSignalCount: number;
+  reasoningSignalCount: number;
+  importedEventCount: number;
+  accounts: GatewayUsageAccountSummary[];
+  clients: GatewayUsageClientSummary[];
+  models: GatewayUsageModelSummary[];
+}
+
+export interface GatewayUsageObservability {
+  clientFilter: GatewayUsageClientFilter;
+  history: GatewayUsageWindowSummary;
+  daily: GatewayUsageWindowSummary;
+  weekly: GatewayUsageWindowSummary;
+  monthly: GatewayUsageWindowSummary;
+}
+
 export interface DesktopSystemSettings {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;
@@ -493,6 +573,7 @@ export interface GatewayHealth {
   providerConfigurations?: ProviderConfigurationSummary[];
   defaultSelection?: DefaultModelSelectionSummary;
   routingObservability?: GatewayRoutingObservability;
+  usageObservability?: GatewayUsageObservability;
   poolObservability?: GatewayPoolObservability[];
   inferenceObservability?: GatewayInferenceObservability;
   inferenceAuth?: GatewayInferenceAuthPublicSettings;

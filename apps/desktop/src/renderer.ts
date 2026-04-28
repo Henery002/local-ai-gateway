@@ -34,6 +34,9 @@ declare global {
     localAIGateway?: {
       getHealth: () => Promise<DashboardHealth>;
       getProviders: () => Promise<DashboardProviders>;
+      getUsageSummary: (
+        clientFilter?: UsageClientFilter,
+      ) => Promise<UsageSummaryResponse>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -144,6 +147,64 @@ declare global {
 }
 
 type ProviderConfigurationStatus = "active" | "disabled" | "incomplete";
+type UsageClientFilter = "all" | "openclaw" | "hermes" | "other";
+type UsageObserveWindow = "history" | "daily" | "weekly" | "monthly";
+
+type UsageCounters = {
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  totalLatencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+};
+
+type UsageAccountSummary = {
+  accountId: string;
+  email?: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
+type UsageClientSummary = {
+  clientTag: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
+type UsageModelSummary = {
+  modelAlias: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
+type UsageWindowSummary = {
+  since: number;
+  updatedAt: number;
+  totals: UsageCounters;
+  cachedSignalCount: number;
+  reasoningSignalCount: number;
+  importedEventCount: number;
+  accounts: UsageAccountSummary[];
+  clients: UsageClientSummary[];
+  models: UsageModelSummary[];
+};
+
+type UsageObservability = {
+  clientFilter: UsageClientFilter;
+  history: UsageWindowSummary;
+  daily: UsageWindowSummary;
+  weekly: UsageWindowSummary;
+  monthly: UsageWindowSummary;
+};
+
+type UsageSummaryResponse = {
+  ok: boolean;
+  data: UsageObservability;
+};
 
 type DashboardHealth = {
   ok: boolean;
@@ -176,6 +237,7 @@ type DashboardHealth = {
     enabled: boolean;
     hasApiKey: boolean;
   };
+  usageObservability?: UsageObservability;
   routingObservability?: {
     totalMatched: number;
     matchedLast5m: number;
@@ -602,11 +664,12 @@ type DashboardView =
   | "routing"
   | "pools"
   | "diagnostics";
-type IntegrationTemplateKey = "openclaw" | "localraghub" | "curl";
+type IntegrationTemplateKey = "openclaw" | "hermes" | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
+  usageSummary?: UsageObservability;
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
   routingSettings?: RoutingSettings;
@@ -625,15 +688,20 @@ const state: {
   isViewStackScrolling?: boolean;
   pendingVisibleRefresh?: boolean;
   runtimeDiagnostics: RuntimeDiagnostic[];
+  usageClientFilter: UsageClientFilter;
+  usageObserveWindow: UsageObserveWindow;
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
   activePoolEventsModalId?: string;
+  usageDetailsModalOpen?: boolean;
 } = {
   activeView: "overview",
   accountSearch: "",
   accountSortKey: "quota",
   accountSortDirection: "desc",
   runtimeDiagnostics: [],
+  usageClientFilter: "all",
+  usageObserveWindow: "daily",
   routingClientFilter: "all",
   routingObserveWindow: "5m",
 };
@@ -750,6 +818,97 @@ function getRoutingWindowCount(
     );
   }
   return routing.matchedLast5m;
+}
+
+function usageWindowLabel(window: UsageObserveWindow): string {
+  if (window === "history") {
+    return "历史累计";
+  }
+  if (window === "weekly") {
+    return "近 7 天";
+  }
+  if (window === "monthly") {
+    return "近 30 天";
+  }
+  return "近 24 小时";
+}
+
+function usageClientFilterLabel(filter: UsageClientFilter): string {
+  if (filter === "openclaw") {
+    return "OpenClaw";
+  }
+  if (filter === "hermes") {
+    return "Hermes";
+  }
+  if (filter === "other") {
+    return "其他客户端";
+  }
+  return "全部客户端";
+}
+
+function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
+  const summary = state.usageSummary;
+  if (!summary) {
+    return undefined;
+  }
+  if (state.usageObserveWindow === "history") {
+    return summary.history;
+  }
+  if (state.usageObserveWindow === "weekly") {
+    return summary.weekly;
+  }
+  if (state.usageObserveWindow === "monthly") {
+    return summary.monthly;
+  }
+  return summary.daily;
+}
+
+function formatCompactCount(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}B`;
+  }
+  if (abs >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (abs >= 10_000) {
+    return `${(value / 1_000).toFixed(abs >= 100_000 ? 0 : 1)}K`;
+  }
+  return String(Math.round(value));
+}
+
+function formatUsageLatency(usage: UsageCounters): string {
+  if (!usage.successCount) {
+    return "暂无";
+  }
+  const seconds = usage.totalLatencyMs / usage.successCount / 1000;
+  return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
+}
+
+function formatUsageSuccessRate(usage: UsageCounters): string {
+  if (!usage.requestCount) {
+    return "暂无";
+  }
+  return `${Math.round((usage.successCount / usage.requestCount) * 100)}%`;
+}
+
+function normalizeUsageClientTagLabel(clientTag: string): string {
+  if (!clientTag || clientTag === "unknown") {
+    return "未标记";
+  }
+  if (clientTag === "openclaw") {
+    return "OpenClaw";
+  }
+  if (clientTag === "hermes") {
+    return "Hermes";
+  }
+  if (clientTag === "localraghub") {
+    return "localRagHub";
+  }
+  return clientTag;
 }
 
 function renderClientTagBadges(
@@ -1151,6 +1310,7 @@ function hasHydratedDashboardState(): boolean {
 
 function renderActiveViewContent(): void {
   renderTopSummary();
+  renderUsageOverview();
 
   if (state.activeView === "overview") {
     renderOverview();
@@ -1356,29 +1516,38 @@ function updateAccountToolbarState(): void {
 
 function renderTopSummary(): void {
   const health = state.health;
-  const providers = state.providers;
   const sessions = state.sessions;
-  if (!health || !providers || !sessions) {
+  if (!health || !sessions) {
     return;
   }
 
-  const groups = getAccountGroups();
   const activeSession = sessions.data.find(
     (session) => session.id === sessions.activeSessionId,
   );
   const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
   const routing = health.routingObservability;
 
-  setText(
-    "top-summary-status",
-    primaryDiagnostic?.severity === "error"
-      ? primaryDiagnostic.title
-      : primaryDiagnostic?.severity === "warning"
+  const statusNode = document.getElementById("top-summary-status");
+  if (statusNode) {
+    const label =
+      primaryDiagnostic?.severity === "error"
         ? primaryDiagnostic.title
-        : health.ok
-          ? "服务运行中"
-          : "服务异常",
-  );
+        : primaryDiagnostic?.severity === "warning"
+          ? primaryDiagnostic.title
+          : health.ok
+            ? "服务运行中"
+            : "服务异常";
+    statusNode.textContent = label;
+    statusNode.className = `service-status-badge ${
+      primaryDiagnostic?.severity === "error"
+        ? "error"
+        : primaryDiagnostic?.severity === "warning"
+          ? "warning"
+          : health.ok
+            ? "active"
+            : "error"
+    }`;
+  }
   setText(
     "top-summary-route",
     health.openclaw?.model ?? health.defaultModel ?? "codex-default",
@@ -1392,10 +1561,6 @@ function renderTopSummary(): void {
   setText(
     "top-summary-session",
     activeSession ? getSessionTitle(activeSession) : "未选择活动会话",
-  );
-  setText(
-    "top-summary-providers",
-    `${providers.data.length} 个 Provider / ${groups.total} 个授权对象`,
   );
   setText(
     "top-summary-auth",
@@ -1437,6 +1602,201 @@ function renderOverview(): void {
   );
   renderAccountActivityOverview();
   renderRoutingObservability();
+}
+
+function renderUsageOverview(): void {
+  const container = document.getElementById("header-usage-observe-panel");
+  if (!container) {
+    return;
+  }
+
+  container.hidden = state.activeView !== "overview";
+  if (state.activeView !== "overview") {
+    return;
+  }
+
+  const summary = getActiveUsageWindowSummary();
+  if (!summary) {
+    container.innerHTML = "<div class='empty-card'>当前尚无 Token 用量统计。</div>";
+    return;
+  }
+
+  const usage = summary.totals;
+  const topAccount = summary.accounts[0];
+  const topClient = summary.clients[0];
+  const topModel = summary.models[0];
+  const hasCachedSignal = summary.cachedSignalCount > 0;
+  const hasReasoningSignal = summary.reasoningSignalCount > 0;
+  const cachedAndReasoningLabel =
+    hasReasoningSignal
+      ? `${formatCompactCount(usage.cachedTokens)} / ${formatCompactCount(usage.reasoningTokens)}`
+      : `${formatCompactCount(usage.cachedTokens)} / 待接入`;
+  const coverageLabel = `${hasCachedSignal ? "缓存已接入" : "缓存待接入"} / ${
+    hasReasoningSignal ? "思考已接入" : "思考待接入"
+  }`;
+  const windowLabel = usageWindowLabel(state.usageObserveWindow);
+
+  container.innerHTML = `
+    <div class="usage-observe-head">
+      <div>
+        <strong style="font-size: 16px;">Token 用量总览</strong>
+        <div style="font-size: 14px; color: var(--text-secondary);">持续观察 ${escapeHtml(usageClientFilterLabel(state.usageClientFilter))} 在本地网关中的请求量、Token 消耗、缓存命中与延迟表现。当前窗口：${escapeHtml(windowLabel)}。</div>
+      </div>
+      <div class="usage-observe-controls">
+        <button class="btn secondary mini" data-action="open-usage-details">查看明细</button>
+        <button class="btn secondary mini" data-action="reset-telemetry">清除统计</button>
+        <div class="usage-filter-group">
+          <label for="usage-client-filter">统计对象</label>
+          <select id="usage-client-filter" class="input-field usage-select">
+            <option value="all"${state.usageClientFilter === "all" ? " selected" : ""}>全部客户端</option>
+            <option value="openclaw"${state.usageClientFilter === "openclaw" ? " selected" : ""}>OpenClaw</option>
+            <option value="hermes"${state.usageClientFilter === "hermes" ? " selected" : ""}>Hermes</option>
+            <option value="other"${state.usageClientFilter === "other" ? " selected" : ""}>其他客户端</option>
+          </select>
+        </div>
+        <div class="usage-window-group" role="tablist" aria-label="Token 用量时间窗口">
+          ${(["daily", "weekly", "monthly", "history"] as UsageObserveWindow[])
+            .map(
+              (window) => `
+                <button
+                  class="usage-window-chip"
+                  data-action="usage-window"
+                  data-usage-window="${window}"
+                  data-active="${state.usageObserveWindow === window ? "true" : "false"}"
+                >${escapeHtml(window === "daily" ? "日" : window === "weekly" ? "周" : window === "monthly" ? "月" : "总")}</button>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    </div>
+    <div class="usage-observe-grid">
+      <div class="usage-kpi-card usage-kpi-primary">
+        <small>总请求数</small>
+        <strong>${escapeHtml(formatCompactCount(usage.requestCount))}</strong>
+        <span>成功 ${escapeHtml(formatCompactCount(usage.successCount))} / 失败 ${escapeHtml(formatCompactCount(usage.failureCount))}</span>
+      </div>
+      <div class="usage-kpi-card">
+        <small>总 Token 数</small>
+        <strong>${escapeHtml(formatCompactCount(usage.totalTokens))}</strong>
+        <span>输入 ${escapeHtml(formatCompactCount(usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(usage.outputTokens))}</span>
+      </div>
+      <div class="usage-kpi-card">
+        <small>缓存 / 思考</small>
+        <strong>${escapeHtml(cachedAndReasoningLabel)}</strong>
+        <span>缓存 ${hasCachedSignal ? escapeHtml(formatCompactCount(usage.cachedTokens)) : "待接入"} / 思考 ${hasReasoningSignal ? escapeHtml(formatCompactCount(usage.reasoningTokens)) : "待接入"}</span>
+      </div>
+      <div class="usage-kpi-card">
+        <small>平均延迟</small>
+        <strong>${escapeHtml(formatUsageLatency(usage))}</strong>
+        <span>成功率 ${escapeHtml(formatUsageSuccessRate(usage))}</span>
+      </div>
+    </div>
+    <div class="usage-observe-meta">
+      <span>历史累计起点：${escapeHtml(formatDate(summary.since))}</span>
+      <span>最近更新：${escapeHtml(formatDate(summary.updatedAt))}</span>
+      <span>历史导入：${escapeHtml(summary.importedEventCount > 0 ? `${formatCompactCount(summary.importedEventCount)} 条` : "无")}</span>
+      <span>${escapeHtml(coverageLabel)}</span>
+      <span>主要客户端：${escapeHtml(topClient ? `${normalizeUsageClientTagLabel(topClient.clientTag)} (${formatCompactCount(topClient.usage.requestCount)})` : "暂无")}</span>
+      <span>最忙账号：${escapeHtml(topAccount ? `${topAccount.email ?? topAccount.accountId} (${formatCompactCount(topAccount.usage.totalTokens)})` : "暂无")}</span>
+      <span>主要模型：${escapeHtml(topModel ? `${topModel.modelAlias} (${formatCompactCount(topModel.usage.totalTokens)})` : "暂无")}</span>
+    </div>
+  `;
+}
+
+function buildAccountUsageRankingMarkup(): string {
+  const summary = getActiveUsageWindowSummary();
+  if (!summary) {
+    return "<div class='empty-card'>当前尚无账号级 Token 用量统计。</div>";
+  }
+
+  const rows = summary.accounts.slice(0, 6);
+  const topAccount = rows[0];
+
+  return `
+    <div class="card routing-observe-panel" style="margin-bottom: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <strong style="font-size: 16px;">账号级 Token 用量排行</strong>
+          <div style="font-size: 14px; color: var(--text-secondary);">按 ${escapeHtml(usageWindowLabel(state.usageObserveWindow))} 观察桌面端账号的 Token 消耗排行，帮助把总览消耗视图落到具体账号。</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span class="badge neutral">${escapeHtml(usageClientFilterLabel(state.usageClientFilter))}</span>
+          <div class="usage-window-group" role="tablist" aria-label="账号级 Token 用量窗口">
+            ${(["daily", "weekly", "monthly", "history"] as UsageObserveWindow[])
+              .map(
+                (window) => `
+                  <button
+                    class="usage-window-chip"
+                    data-action="usage-window"
+                    data-usage-window="${window}"
+                    data-active="${state.usageObserveWindow === window ? "true" : "false"}"
+                  >${escapeHtml(window === "daily" ? "日" : window === "weekly" ? "周" : window === "monthly" ? "月" : "总")}</button>
+                `,
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+      <div class="routing-observe-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 12px;">
+        <div class="routing-observe-kpi">
+          <small>${escapeHtml(usageWindowLabel(state.usageObserveWindow))}账号数</small>
+          <strong>${escapeHtml(formatCompactCount(summary.accounts.length))}</strong>
+        </div>
+        <div class="routing-observe-kpi">
+          <small>Top 账号</small>
+          <strong>${escapeHtml(topAccount ? (topAccount.email ?? topAccount.accountId) : "暂无")}</strong>
+        </div>
+        <div class="routing-observe-kpi">
+          <small>Top 账号 Token</small>
+          <strong>${escapeHtml(topAccount ? formatCompactCount(topAccount.usage.totalTokens) : "0")}</strong>
+        </div>
+        <div class="routing-observe-kpi">
+          <small>历史导入</small>
+          <strong>${escapeHtml(summary.importedEventCount > 0 ? `${formatCompactCount(summary.importedEventCount)} 条` : "无")}</strong>
+        </div>
+      </div>
+      <div class="usage-details-list">
+        ${
+          rows.length > 0
+            ? rows
+                .map(
+                  (row, index) => `
+                    <div class="usage-details-item">
+                      <div class="usage-details-item-head">
+                        <div style="display: grid; gap: 2px;">
+                          <strong>#${index + 1} ${escapeHtml(row.email ?? row.accountId)}</strong>
+                          <small>${escapeHtml(row.accountId)}</small>
+                        </div>
+                        <span class="badge neutral">${escapeHtml(formatCompactCount(row.usage.totalTokens))} Token</span>
+                      </div>
+                      <span>请求 ${escapeHtml(formatCompactCount(row.usage.requestCount))} · 成功率 ${escapeHtml(formatUsageSuccessRate(row.usage))} · 平均延迟 ${escapeHtml(formatUsageLatency(row.usage))}</span>
+                      <span>输入 ${escapeHtml(formatCompactCount(row.usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(row.usage.outputTokens))} / 缓存 ${escapeHtml(formatCompactCount(row.usage.cachedTokens))} / 思考 ${escapeHtml(formatCompactCount(row.usage.reasoningTokens))}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : "<div class='empty-card'>当前窗口暂无账号级 Token 用量记录。</div>"
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderAccountUsageRankingPanel(): void {
+  const panel = document.getElementById("account-usage-ranking-panel");
+  if (!panel) {
+    return;
+  }
+  panel.innerHTML = buildAccountUsageRankingMarkup();
+}
+
+function renderUsagePanelsForWindowChange(): void {
+  renderUsageOverview();
+  if (state.activeView === "accounts") {
+    renderAccountUsageRankingPanel();
+  }
+  renderUsageDetailsModal();
 }
 
 function renderAccountActivityOverview(): void {
@@ -1873,6 +2233,7 @@ function renderCodexAccounts(): void {
         </div>
         <span class="badge neutral">${accounts.length} 个账号</span>
       </div>
+      <div id="account-usage-ranking-panel">${buildAccountUsageRankingMarkup()}</div>
       <div class="card routing-observe-panel" style="margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
           <div>
@@ -2246,21 +2607,25 @@ function buildIntegrationSnippets(
     `provider=${provider}`,
     `baseUrl=${baseUrl}`,
     `model=${model}`,
-    "clientTag=<你的客户端标识>",
+    "clientTag=openclaw",
     ...(requiresApiKey ? ["apiKey=<你的 Local AI Gateway API Key>"] : []),
   ].join("\n");
 
-  const localraghub = [
-    "provider=openai-compatible",
-    `baseUrl=${baseUrl}`,
-    `model=${model}`,
-    "clientTag=localraghub",
-    ...(requiresApiKey ? ["apiKey=<你的 Local AI Gateway API Key>"] : []),
+  const hermes = [
+    "model:",
+    "  provider: custom",
+    `  base_url: ${baseUrl}`,
+    `  default: ${model}`,
+    "custom_providers:",
+    `- name: ${model}`,
+    `  base_url: ${baseUrl}`,
+    `  model: ${model}`,
+    ...(requiresApiKey ? ["  api_key: <你的 Local AI Gateway API Key>"] : []),
   ].join("\n");
 
   const curlHeaders = [
     `-H "Content-Type: application/json"`,
-    `-H "x-client-tag: localraghub"`,
+    `-H "x-client-tag: hermes"`,
     ...(requiresApiKey
       ? [`-H "Authorization: Bearer <你的 Local AI Gateway API Key>"`]
       : []),
@@ -2273,7 +2638,7 @@ function buildIntegrationSnippets(
 
   return {
     openclaw,
-    localraghub,
+    hermes,
     curl,
   };
 }
@@ -2303,9 +2668,9 @@ function renderGuide(): void {
       subtitle: "适用于 OpenClaw provider 配置文件",
     },
     {
-      key: "localraghub",
-      title: "localRagHub 模板",
-      subtitle: "适用于支持 OpenAI-compatible 的 RAG 客户端",
+      key: "hermes",
+      title: "Hermes 模板",
+      subtitle: "适用于 Hermes 自定义 provider / custom provider 配置",
     },
     {
       key: "curl",
@@ -2317,19 +2682,19 @@ function renderGuide(): void {
   container.innerHTML = `
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">定位说明</h3>
-      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。它负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及本机可复用授权的导入与复用。</p>
+      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。当前主路径优先服务 OpenClaw 与 Hermes，负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及本机可复用授权的导入与复用。</p>
     </div>
     <div class="card">
       <h3 style="margin: 0 0 8px 0; font-size: 15px;">第三方接入模板</h3>
-      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在“Provider 配置”完成模型入口设定，必要时再到“策略路由 / 号池调度”补充分流规则，然后把客户端指向本地网关。每个模板都支持一键复制。</p>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在“Provider 配置”完成模型入口设定，必要时再到“策略路由 / 号池调度”补充分流规则，然后把 OpenClaw 或 Hermes 指向本地网关。每个模板都支持一键复制。</p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
         ${snippetRows
           .map((row) => {
             const snippet =
               row.key === "openclaw"
                 ? snippets.openclaw
-                : row.key === "localraghub"
-                  ? snippets.localraghub
+                : row.key === "hermes"
+                  ? snippets.hermes
                   : snippets.curl;
             return `
               <section style="border: 1px solid var(--border-light); border-radius: 10px; padding: 10px; background: var(--bg-surface);">
@@ -4569,6 +4934,110 @@ function renderPoolEventsModal(): void {
   `;
 }
 
+function openUsageDetailsModal(): void {
+  state.usageDetailsModalOpen = true;
+  renderUsageDetailsModal();
+  const modal = document.getElementById("usage-details-modal");
+  if (modal) {
+    modal.hidden = false;
+  }
+}
+
+function closeUsageDetailsModal(): void {
+  state.usageDetailsModalOpen = false;
+  const modal = document.getElementById("usage-details-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function renderUsageDetailsModal(): void {
+  const modal = document.getElementById("usage-details-modal");
+  const titleNode = document.getElementById("usage-details-modal-title");
+  const bodyNode = document.getElementById("usage-details-modal-body");
+  if (!modal || !titleNode || !bodyNode) {
+    return;
+  }
+
+  const summary = getActiveUsageWindowSummary();
+  if (!state.usageDetailsModalOpen || !summary) {
+    modal.hidden = true;
+    return;
+  }
+
+  titleNode.textContent = `Token 用量明细 · ${usageWindowLabel(state.usageObserveWindow)} · ${usageClientFilterLabel(state.usageClientFilter)}`;
+
+  const renderUsageDetailItems = (
+    rows: Array<{
+      title: string;
+      subtitle?: string;
+      usage: UsageCounters;
+    }>,
+    emptyLabel: string,
+  ) =>
+    rows.length > 0
+      ? rows
+          .map(
+            (row) => `
+              <div class="usage-details-item">
+                <div class="usage-details-item-head">
+                  <div style="display: grid; gap: 2px;">
+                    <strong>${escapeHtml(row.title)}</strong>
+                    ${row.subtitle ? `<small>${escapeHtml(row.subtitle)}</small>` : ""}
+                  </div>
+                  <span class="badge neutral">${escapeHtml(formatCompactCount(row.usage.totalTokens))} Token</span>
+                </div>
+                <span>请求 ${escapeHtml(formatCompactCount(row.usage.requestCount))} · 成功率 ${escapeHtml(formatUsageSuccessRate(row.usage))} · 平均延迟 ${escapeHtml(formatUsageLatency(row.usage))}</span>
+                <span>输入 ${escapeHtml(formatCompactCount(row.usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(row.usage.outputTokens))} / 缓存 ${escapeHtml(formatCompactCount(row.usage.cachedTokens))} / 思考 ${escapeHtml(formatCompactCount(row.usage.reasoningTokens))}</span>
+              </div>
+            `,
+          )
+          .join("")
+      : `<div class="empty-card">${escapeHtml(emptyLabel)}</div>`;
+
+  bodyNode.innerHTML = `
+    <div class="usage-details-grid">
+      <div class="usage-details-section">
+        <h4>账号排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            summary.accounts.map((row) => ({
+              title: row.email ?? row.accountId,
+              subtitle: row.email && row.email !== row.accountId ? row.accountId : undefined,
+              usage: row.usage,
+            })),
+            "当前窗口暂无账号维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+      <div class="usage-details-section">
+        <h4>客户端排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            summary.clients.map((row) => ({
+              title: normalizeUsageClientTagLabel(row.clientTag),
+              usage: row.usage,
+            })),
+            "当前窗口暂无客户端维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+      <div class="usage-details-section">
+        <h4>模型排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            summary.models.map((row) => ({
+              title: row.modelAlias,
+              usage: row.usage,
+            })),
+            "当前窗口暂无模型维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function setAccountTab(tab: string): void {
   for (const node of Array.from(
     document.querySelectorAll<HTMLElement>("[data-account-tab]"),
@@ -4655,7 +5124,7 @@ async function copyTemplateWithFeedback(
   const snippets = buildIntegrationSnippets(health);
   const labels: Record<IntegrationTemplateKey, string> = {
     openclaw: "OpenClaw 模板",
-    localraghub: "localRagHub 模板",
+    hermes: "Hermes 模板",
     curl: "通用 cURL 模板",
   };
   await copyTextWithFallback(snippets[key]);
@@ -5283,6 +5752,23 @@ function bindActions(): void {
     const target = event.target as HTMLElement | null;
     if (
       target instanceof HTMLSelectElement &&
+      target.id === "usage-client-filter"
+    ) {
+      const value = target.value;
+      state.usageClientFilter =
+        value === "openclaw" ||
+        value === "hermes" ||
+        value === "other"
+          ? value
+          : "all";
+      void refreshUsageSummaryOnly().catch((error) => {
+        setBanner(`刷新 Token 用量统计失败：${normalizeErrorMessage(error)}`, "error");
+      });
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
       target.matches('[data-field="dispatch-mode"]')
     ) {
       const row = target.closest<HTMLElement>("[data-routing-rule-row]");
@@ -5379,54 +5865,6 @@ function bindActions(): void {
     });
 
   document
-    .getElementById("reset-telemetry")
-    ?.addEventListener("click", async () => {
-      const button = document.getElementById(
-        "reset-telemetry",
-      ) as HTMLButtonElement | null;
-      try {
-        const confirmed = await requestConfirmation({
-          title: "确认清空统计",
-          message:
-            "将清空路由命中与账号调用统计，但不会影响账号、配置和授权。是否继续？",
-          confirmLabel: "确认清空",
-          tone: "danger",
-        });
-        if (!confirmed) {
-          return;
-        }
-        const api = getGatewayApi();
-        if (typeof api.resetTelemetry !== "function") {
-          throw new Error(
-            "当前桌面主进程版本暂不支持清空统计，请重启桌面端后重试。",
-          );
-        }
-        setButtonLoading(button, true, "清理中");
-        setBanner("正在清空统计数据...", "info");
-        try {
-          await api.resetTelemetry();
-        } catch (error) {
-          const message = String(error);
-          if (
-            message.includes("gateway:reset-telemetry") &&
-            message.includes("No handler registered")
-          ) {
-            throw new Error(
-              "当前桌面主进程仍是旧版本，尚未注册“清空统计”能力。请完全退出桌面端后重新启动。",
-            );
-          }
-          throw error;
-        }
-        await refresh();
-        setBanner("统计数据已清空。", "success");
-      } catch (error) {
-        setBanner(`清空统计失败：${String(error)}`, "error");
-      } finally {
-        setButtonLoading(button, false);
-      }
-    });
-
-  document
     .getElementById("close-account-modal")
     ?.addEventListener("click", () => {
       closeAccountModal();
@@ -5501,9 +5939,23 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("usage-details-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeUsageDetailsModal();
+      }
+    });
+
+  document
     .getElementById("close-pool-events-modal")
     ?.addEventListener("click", () => {
       closePoolEventsModal();
+    });
+
+  document
+    .getElementById("close-usage-details-modal")
+    ?.addEventListener("click", () => {
+      closeUsageDetailsModal();
     });
 
   document
@@ -5544,6 +5996,11 @@ function bindActions(): void {
         closePoolEventsModal();
         return;
       }
+      const usageDetailsModal = document.getElementById("usage-details-modal");
+      if (usageDetailsModal && !usageDetailsModal.hidden) {
+        closeUsageDetailsModal();
+        return;
+      }
       closeAccountModal();
     }
   });
@@ -5563,6 +6020,32 @@ function bindActions(): void {
     }
 
     const action = button.dataset.action;
+    if (action === "usage-window" && button.dataset.usageWindow) {
+      const nextWindow = button.dataset.usageWindow;
+      const normalizedWindow: UsageObserveWindow =
+        nextWindow === "history" ||
+        nextWindow === "weekly" ||
+        nextWindow === "monthly"
+          ? nextWindow
+          : "daily";
+      if (state.usageObserveWindow === normalizedWindow) {
+        return;
+      }
+      state.usageObserveWindow = normalizedWindow;
+      renderUsagePanelsForWindowChange();
+      return;
+    }
+
+    if (action === "open-usage-details") {
+      openUsageDetailsModal();
+      return;
+    }
+
+    if (action === "reset-telemetry") {
+      await resetTelemetryWithFeedback(button as HTMLButtonElement);
+      return;
+    }
+
     if (action === "toggle-routing-rule") {
       const card = button.closest(".routing-rule-card");
       if (card) {
@@ -5873,6 +6356,7 @@ async function refresh(): Promise<void> {
   const [
     healthResult,
     providersResult,
+    usageSummaryResult,
     sessionsResult,
     settingsResult,
     routingSettingsResult,
@@ -5883,6 +6367,7 @@ async function refresh(): Promise<void> {
   ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
+    api.getUsageSummary(state.usageClientFilter),
     api.getSessions(),
     api.getProviderSettings(),
     api.getRoutingSettings(),
@@ -5915,6 +6400,16 @@ async function refresh(): Promise<void> {
       message: normalizeErrorMessage(healthResult.reason),
     });
     state.health = buildHealthFallback();
+  }
+
+  if (usageSummaryResult.status === "fulfilled") {
+    state.usageSummary = usageSummaryResult.value.data;
+  } else {
+    loadFailures.push({
+      scope: "usage-summary",
+      message: normalizeErrorMessage(usageSummaryResult.reason),
+    });
+    state.usageSummary = state.health?.usageObservability;
   }
 
   if (providersResult.status === "fulfilled") {
@@ -6007,6 +6502,7 @@ async function refresh(): Promise<void> {
   renderErrors();
   renderGuide();
   renderPoolEventsModal();
+  renderUsageDetailsModal();
   applySettingsToForm();
   applyRoutingSettingsToForm();
   applyPoolSettingsToForm();
@@ -6020,17 +6516,20 @@ async function refresh(): Promise<void> {
 
 async function refreshHealthAndSessionsOnly(): Promise<void> {
   const api = getGatewayApi();
-  const [healthResult, sessionsResult] = await Promise.allSettled([
+  const [healthResult, usageSummaryResult, sessionsResult] = await Promise.allSettled([
     api.getHealth(),
+    api.getUsageSummary(state.usageClientFilter),
     api.getSessions(),
   ]);
 
   if (
     healthResult.status !== "fulfilled" &&
+    usageSummaryResult.status !== "fulfilled" &&
     sessionsResult.status !== "fulfilled"
   ) {
     throw (
       healthResult.reason ??
+      usageSummaryResult.reason ??
       sessionsResult.reason ??
       new Error("无法刷新桌面端运行态数据。")
     );
@@ -6039,12 +6538,25 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   if (healthResult.status === "fulfilled") {
     state.health = healthResult.value;
   }
+  if (usageSummaryResult.status === "fulfilled") {
+    state.usageSummary = usageSummaryResult.value.data;
+  } else if (healthResult.status === "fulfilled") {
+    state.usageSummary = healthResult.value.usageObservability;
+  }
   if (sessionsResult.status === "fulfilled") {
     state.sessions = sessionsResult.value;
   }
   updateRuntimeDiagnostics([]);
   scheduleVisibleRefresh();
   renderPoolEventsModal();
+  renderUsageDetailsModal();
+}
+
+async function refreshUsageSummaryOnly(): Promise<void> {
+  const api = getGatewayApi();
+  const response = await api.getUsageSummary(state.usageClientFilter);
+  state.usageSummary = response.data;
+  scheduleVisibleRefresh();
 }
 
 async function refreshWithLiveUsage(
@@ -6110,6 +6622,51 @@ async function triggerBackgroundLiveUsageRefresh(
     return undefined;
   } finally {
     state.backgroundRefreshInFlight = false;
+  }
+}
+
+async function resetTelemetryWithFeedback(
+  button?: HTMLButtonElement | null,
+): Promise<void> {
+  try {
+    const confirmed = await requestConfirmation({
+      title: "确认清空统计",
+      message:
+        "将清空路由命中、Token 用量与账号调用统计，但不会影响账号、配置和授权。是否继续？",
+      confirmLabel: "确认清空",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+    const api = getGatewayApi();
+    if (typeof api.resetTelemetry !== "function") {
+      throw new Error(
+        "当前桌面主进程版本暂不支持清空统计，请重启桌面端后重试。",
+      );
+    }
+    setButtonLoading(button ?? null, true, "清理中");
+    setBanner("正在清空统计数据...", "info");
+    try {
+      await api.resetTelemetry();
+    } catch (error) {
+      const message = String(error);
+      if (
+        message.includes("gateway:reset-telemetry") &&
+        message.includes("No handler registered")
+      ) {
+        throw new Error(
+          "当前桌面主进程仍是旧版本，尚未注册“清空统计”能力。请完全退出桌面端后重新启动。",
+        );
+      }
+      throw error;
+    }
+    await refresh();
+    setBanner("统计数据已清空。", "success");
+  } catch (error) {
+    setBanner(`清空统计失败：${String(error)}`, "error");
+  } finally {
+    setButtonLoading(button ?? null, false);
   }
 }
 

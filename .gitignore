@@ -34,3 +34,8 @@ apps/desktop/assets/icons/generated/
 .tmp/
 cache/
 plugins/
+
+# Local sensitive runtime snapshots (never commit)
+.cockpit_codex_auth.json
+.codex-global-state.json.bak
+installation_id

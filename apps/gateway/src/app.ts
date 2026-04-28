@@ -17,6 +17,7 @@ import {
   GatewayRoutingPreviewInput,
   GatewayRoutingSettings,
   GatewaySessionPoolSettings,
+  GatewayUsageClientFilter,
   SessionSummary,
 } from "@local-ai-gateway/shared";
 
@@ -100,10 +101,74 @@ function resolveClientTag(request: FastifyRequest): string | undefined {
   if (userAgent.includes("openclaw")) {
     return "openclaw";
   }
+  if (userAgent.includes("hermes")) {
+    return "hermes";
+  }
   if (userAgent.includes("curl")) {
     return "curl";
   }
   return undefined;
+}
+
+function resolveUsageClientFilter(value: unknown): GatewayUsageClientFilter {
+  if (value === "openclaw" || value === "hermes" || value === "other") {
+    return value;
+  }
+  return "all";
+}
+
+function extractUsageCounters(
+  usage: {
+    input?: number;
+    output?: number;
+    totalTokens?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  } | undefined,
+): {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  cachedTokensPresent: boolean;
+  reasoningTokensPresent: boolean;
+} {
+  const raw = usage as
+    | ({
+        input?: number;
+        output?: number;
+        totalTokens?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+      } & Record<string, unknown>)
+    | undefined;
+
+  const normalize = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+
+  return {
+    inputTokens: normalize(raw?.input),
+    outputTokens: normalize(raw?.output),
+    totalTokens: normalize(raw?.totalTokens),
+    cachedTokens:
+      normalize(raw?.cacheRead) +
+      normalize(raw?.cacheWrite) +
+      normalize(raw?.cachedTokens) +
+      normalize(raw?.cachedInputTokens),
+    reasoningTokens:
+      normalize(raw?.reasoningTokens) +
+      normalize(raw?.reasoningOutputTokens),
+    cachedTokensPresent:
+      raw !== undefined &&
+      ("cacheRead" in raw ||
+        "cacheWrite" in raw ||
+        "cachedTokens" in raw ||
+        "cachedInputTokens" in raw),
+    reasoningTokensPresent:
+      raw !== undefined &&
+      ("reasoningTokens" in raw || "reasoningOutputTokens" in raw),
+  };
 }
 
 function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
@@ -539,6 +604,44 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       poolSelectionEventRecorded = true;
     };
 
+    const recordUsageTelemetry = (input: {
+      ok: boolean;
+      stream: boolean;
+      sessionId?: string;
+      accountId?: string;
+      email?: string;
+      usage?: {
+        input?: number;
+        output?: number;
+        totalTokens?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+      };
+      happenedAt?: number;
+    }) => {
+      runtime.recordUsageEvent({
+        timestamp: input.happenedAt ?? Date.now(),
+        sessionId: input.sessionId,
+        accountId: input.accountId,
+        email: input.email,
+        clientTag,
+        providerId: resolved.adapter.id,
+        modelAlias: resolvedModelAlias,
+        upstreamModelId: resolved.model.providerModelId,
+        success: input.ok,
+        stream: input.stream,
+        latencyMs: Date.now() - startedAt,
+        ...extractUsageCounters(input.usage),
+      });
+    };
+
+    let usedResolvedSession:
+      | {
+          accountId?: string;
+          email?: string;
+        }
+      | undefined;
+
     try {
       const controller = new AbortController();
       request.raw.on("aborted", () => controller.abort());
@@ -584,6 +687,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         result = await createAttempt(resolvedSessionId);
       }
       usedSessionId = result.session.id;
+      usedResolvedSession = result.session;
       runtime.updateInferenceActivity(inferenceRequestId, {
         sessionId: usedSessionId,
         poolId: targetPoolId,
@@ -637,6 +741,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             streamingResult = await createAttempt(fallbackSessionId);
             streamingSessionId = streamingResult.session.id;
             usedSessionId = streamingSessionId;
+            usedResolvedSession = streamingResult.session;
             runtime.updateInferenceActivity(inferenceRequestId, {
               sessionId: streamingSessionId,
               poolId: targetPoolId,
@@ -654,6 +759,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             });
           }
           reply.raw.end();
+          const finalStreamingMessage = await streamingResult.stream.result();
           if (streamingSessionId) {
             if (targetPoolId && selectedByPoolMember) {
               runtime.recordPoolSelectionSuccess(targetPoolId, streamingSessionId);
@@ -664,6 +770,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
               stream: true,
               clientTag,
               happenedAt: Date.now(),
+            });
+            recordUsageTelemetry({
+              ok: true,
+              stream: true,
+              sessionId: streamingSessionId,
+              accountId: usedResolvedSession?.accountId,
+              email: usedResolvedSession?.email,
+              usage: finalStreamingMessage.usage,
             });
             hasRecordedResult = true;
           }
@@ -693,6 +807,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           });
           const retryResult = await createAttempt(fallbackSessionId);
           usedSessionId = retryResult.session.id;
+          usedResolvedSession = retryResult.session;
           runtime.updateInferenceActivity(inferenceRequestId, {
             sessionId: usedSessionId,
             poolId: targetPoolId,
@@ -714,6 +829,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             happenedAt: Date.now(),
             errorMessage: finalMessage.errorMessage ?? "upstream_error",
           });
+          recordUsageTelemetry({
+            ok: false,
+            stream: false,
+            sessionId: usedSessionId,
+            accountId: usedResolvedSession?.accountId,
+            email: usedResolvedSession?.email,
+            usage: finalMessage.usage,
+          });
           hasRecordedResult = true;
         }
         throw new GatewayError(
@@ -733,6 +856,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           stream: false,
           clientTag,
           happenedAt: Date.now(),
+        });
+        recordUsageTelemetry({
+          ok: true,
+          stream: false,
+          sessionId: usedSessionId,
+          accountId: usedResolvedSession?.accountId,
+          email: usedResolvedSession?.email,
+          usage: finalMessage.usage,
         });
         hasRecordedResult = true;
       }
@@ -767,6 +898,13 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             error instanceof Error
               ? error.message
               : `request_failed_after_${Date.now() - startedAt}ms`,
+        });
+        recordUsageTelemetry({
+          ok: false,
+          stream: Boolean(parsed.stream),
+          sessionId: usedSessionId,
+          accountId: usedResolvedSession?.accountId,
+          email: usedResolvedSession?.email,
         });
       }
       const retryAfterSeconds = runtime.suggestRetryAfterSeconds({
@@ -803,6 +941,17 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       ...runtime.getHealth(),
       recentErrors: runtime.database.getRecentErrors(10),
       openclaw: runtime.getOpenClawSnippet(),
+    };
+  });
+
+  app.get("/admin/usage/summary", async (request) => {
+    requireAdminAuth(runtime, request);
+    const clientFilter = resolveUsageClientFilter(
+      (request.query as { clientFilter?: string } | undefined)?.clientFilter,
+    );
+    return {
+      ok: true,
+      data: runtime.getUsageObservability(clientFilter),
     };
   });
 

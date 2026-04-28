@@ -120,9 +120,10 @@ class FakeProviderAdapter implements ProviderAdapter {
       usage: {
         input: 7,
         output: 5,
-        cacheRead: 0,
+        cacheRead: 3,
         cacheWrite: 0,
         totalTokens: 12,
+        reasoningOutputTokens: 2,
         cost: {
           input: 0,
           output: 0,
@@ -884,6 +885,88 @@ describe("gateway app", () => {
       expect(adminHealth.json().routingObservability.byClientTag[0]).toMatchObject({
         clientTag: "localraghub",
         hits: 1,
+      });
+      expect(adminHealth.json().usageObservability?.daily?.totals).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        inputTokens: 7,
+        outputTokens: 5,
+        totalTokens: 12,
+        cachedTokens: 3,
+        reasoningTokens: 2,
+      });
+
+      const usageSummary = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary?clientFilter=other",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(usageSummary.statusCode).toBe(200);
+      expect(usageSummary.json().data.clientFilter).toBe("other");
+      expect(usageSummary.json().data.daily.cachedSignalCount).toBe(1);
+      expect(usageSummary.json().data.daily.reasoningSignalCount).toBe(1);
+      expect(usageSummary.json().data.daily.totals).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        inputTokens: 7,
+        outputTokens: 5,
+        totalTokens: 12,
+        cachedTokens: 3,
+        reasoningTokens: 2,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("detects Hermes requests as a primary client tag in usage summary", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "Hermes/0.7.0",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Reply with exactly OK." }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const usageSummary = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary?clientFilter=hermes",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(usageSummary.statusCode).toBe(200);
+      expect(usageSummary.json().data.clientFilter).toBe("hermes");
+      expect(usageSummary.json().data.daily.totals).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        totalTokens: 12,
+        cachedTokens: 3,
+        reasoningTokens: 2,
+      });
+      expect(usageSummary.json().data.daily.clients[0]).toMatchObject({
+        clientTag: "hermes",
       });
     } finally {
       await app.close();

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 const api = {
   getHealth: () => ipcRenderer.invoke("gateway:get-health"),
   getProviders: () => ipcRenderer.invoke("gateway:get-providers"),
+  getUsageSummary: (clientFilter) => ipcRenderer.invoke("gateway:get-usage-summary", clientFilter),
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload) => ipcRenderer.invoke("gateway:save-provider-settings", payload),
   getRoutingSettings: () => ipcRenderer.invoke("gateway:get-routing-settings"),

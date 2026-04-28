@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { streamOpenAICodexResponses } = vi.hoisted(() => ({
-  streamOpenAICodexResponses: vi.fn(),
+const { streamLocalOpenAICodexResponses } = vi.hoisted(() => ({
+  streamLocalOpenAICodexResponses: vi.fn(),
 }));
 
-vi.mock("@mariozechner/pi-ai/openai-codex-responses", () => ({
-  streamOpenAICodexResponses,
+vi.mock("../packages/provider-codex/src/codex-stream.ts", () => ({
+  streamLocalOpenAICodexResponses,
 }));
 
 import { CodexAdapter } from "../packages/provider-codex/src/index.ts";
@@ -18,8 +18,8 @@ import type {
 
 describe("CodexAdapter", () => {
   beforeEach(() => {
-    streamOpenAICodexResponses.mockReset();
-    streamOpenAICodexResponses.mockReturnValue({
+    streamLocalOpenAICodexResponses.mockReset();
+    streamLocalOpenAICodexResponses.mockReturnValue({
       [Symbol.asyncIterator]: async function* () {},
       result: async () => ({
         role: "assistant",
@@ -87,12 +87,11 @@ describe("CodexAdapter", () => {
       maxTokens: 2048,
     });
 
-    expect(streamOpenAICodexResponses).toHaveBeenCalledTimes(1);
-    const requestOptions = streamOpenAICodexResponses.mock.calls[0]?.[2];
+    expect(streamLocalOpenAICodexResponses).toHaveBeenCalledTimes(1);
+    const requestOptions = streamLocalOpenAICodexResponses.mock.calls[0]?.[2];
     expect(requestOptions).toMatchObject({
       apiKey: "test-api-key",
       sessionId: "openai-codex:test",
-      transport: "auto",
       maxTokens: 2048,
       textVerbosity: "medium",
       reasoningEffort: "medium",

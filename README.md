@@ -5,7 +5,7 @@
 ### 本地单机 AI 网关与账号调度控制台
 
 把本机可用的 AI 账号能力整理成稳定的本地 Provider，  
-让 OpenClaw、localRagHub 等第三方客户端通过统一 `baseUrl` 接入。
+让 OpenClaw、Hermes 等第三方客户端通过统一 `baseUrl` 接入。
 
 ![平台](https://img.shields.io/badge/macOS-本地优先-111827?style=flat-square)
 ![桌面端](https://img.shields.io/badge/Electron-控制台-2563eb?style=flat-square)
@@ -33,6 +33,7 @@
 - Electron 桌面控制台
 - 多账号管理与活动账号切换
 - 策略路由
+- Token 用量总览（历史累计 / 日 / 周 / 月）
 - 动态号池（进行中）
 
 ## 目录
@@ -63,7 +64,7 @@
 
 当前最成熟、最完整的链路是：
 
-`桌面端导入 Codex 账号 -> 本地网关暴露 OpenAI-compatible 接口 -> 第三方客户端接入 -> 账号活动 / 路由 / 号池调度观测`
+`桌面端导入 Codex 账号 -> 本地网关暴露 OpenAI-compatible 接口 -> OpenClaw / Hermes 接入 -> Token 用量 / 账号活动 / 路由 / 号池调度观测`
 
 ## 当前已实现能力
 
@@ -93,6 +94,11 @@
 - 策略路由
   - 按 `clientTag`
   - 按请求模型别名
+- Token 用量统计
+  - 历史累计
+  - 近 24 小时 / 7 天 / 30 天
+  - 输入 / 输出 / 总 Token
+  - 缓存 Token、成功率、平均延迟
 - 路由预演
 - 路由命中观测
 - 统计持久化
@@ -124,7 +130,7 @@
 当前最适合的场景：
 
 - 想把本机 Codex 账号能力接到 OpenClaw
-- 想把本机 Codex 账号能力接到 localRagHub
+- 想把本机 Codex 账号能力接到 Hermes
 - 想统一多个桌面端 Codex 账号，并在本地完成手动切号或动态号池调度
 - 想通过一个稳定的本地 `baseUrl`，减少第三方客户端中重复改模型配置的成本
 
@@ -145,7 +151,7 @@
 
 ```mermaid
 flowchart LR
-  A["第三方客户端\n(OpenClaw / localRagHub / 其他)"] --> B["Local AI Gateway\nOpenAI-compatible API"]
+  A["第三方客户端\n(OpenClaw / Hermes / 其他)"] --> B["Local AI Gateway\nOpenAI-compatible API"]
   B --> C["策略路由"]
   C --> D["活动账号"]
   C --> E["固定账号"]

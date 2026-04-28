@@ -196,14 +196,14 @@ UI 重构不要擅自改这些来源。
 
 优先修改：
 
-- [apps/desktop/static/index.html](/Users/henery/code/local-ai-gateway/apps/desktop/static/index.html)
-- [apps/desktop/src/renderer.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/renderer.ts)
+- [apps/desktop/static/index.html](/local-ai-gateway/apps/desktop/static/index.html)
+- [apps/desktop/src/renderer.ts](/local-ai-gateway/apps/desktop/src/renderer.ts)
 
 如确有必要，可少量查看：
 
-- [apps/desktop/src/main.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/main.ts)
-- [apps/desktop/static/preload.cjs](/Users/henery/code/local-ai-gateway/apps/desktop/static/preload.cjs)
-- [apps/desktop/src/preload.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/preload.ts)
+- [apps/desktop/src/main.ts](/local-ai-gateway/apps/desktop/src/main.ts)
+- [apps/desktop/static/preload.cjs](/local-ai-gateway/apps/desktop/static/preload.cjs)
+- [apps/desktop/src/preload.ts](/local-ai-gateway/apps/desktop/src/preload.ts)
 
 但原则上：
 
@@ -292,10 +292,10 @@ UI 重构不要擅自改这些来源。
 
 在做 UI / UX 重构前，建议先阅读这些文档：
 
-- [架构总览](/Users/henery/code/local-ai-gateway/docs/architecture/overview.md)
-- [概念地图](/Users/henery/code/local-ai-gateway/docs/architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
-- [桌面控制台使用说明](/Users/henery/code/local-ai-gateway/docs/operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
-- [项目答疑与开发清单](/Users/henery/code/local-ai-gateway/docs/operations/%E9%A1%B9%E7%9B%AE%E7%AD%94%E7%96%91%E4%B8%8E%E5%BC%80%E5%8F%91%E6%B8%85%E5%8D%95.md)
+- [架构总览](/local-ai-gateway/docs/architecture/overview.md)
+- [概念地图](/local-ai-gateway/docs/architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
+- [桌面控制台使用说明](/local-ai-gateway/docs/operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
+- [项目答疑与开发清单](/local-ai-gateway/docs/operations/%E9%A1%B9%E7%9B%AE%E7%AD%94%E7%96%91%E4%B8%8E%E5%BC%80%E5%8F%91%E6%B8%85%E5%8D%95.md)
 
 ## 11. 希望协作者交付的结果
 

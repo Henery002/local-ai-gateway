@@ -1552,6 +1552,16 @@ ipcMain.handle("gateway:get-providers", async () => {
   return callAdmin("/admin/providers");
 });
 
+ipcMain.handle("gateway:get-usage-summary", async (_event, clientFilter?: string) => {
+  await gatewayManager.ensureRunning();
+  const params = new URLSearchParams();
+  if (typeof clientFilter === "string" && clientFilter.trim()) {
+    params.set("clientFilter", clientFilter.trim());
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  return callAdmin(`/admin/usage/summary${query}`);
+});
+
 ipcMain.handle("gateway:get-provider-settings", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/providers");

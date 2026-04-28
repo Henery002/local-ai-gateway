@@ -29,6 +29,12 @@ interface OpenAIChatCompletionChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   };
   choices?: Array<{
     finish_reason?: "stop" | "length" | "tool_calls" | null;
@@ -180,12 +186,31 @@ function mapFinishReason(reason: "stop" | "length" | "tool_calls" | null | undef
 }
 
 function createUsageFromChunk(chunk: OpenAIChatCompletionChunk) {
-  return {
+  const cachedTokens = chunk.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const reasoningTokens =
+    chunk.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  const usage = {
     ...createEmptyUsage(),
-    input: chunk.usage?.prompt_tokens ?? 0,
+    input: Math.max(
+      0,
+      (chunk.usage?.prompt_tokens ?? 0) -
+        (chunk.usage?.prompt_tokens_details?.cached_tokens ?? 0),
+    ),
     output: chunk.usage?.completion_tokens ?? 0,
     totalTokens: chunk.usage?.total_tokens ?? 0,
+  } as ReturnType<typeof createEmptyUsage> & {
+    reasoningOutputTokens: number;
   };
+  if (chunk.usage?.prompt_tokens_details && "cached_tokens" in chunk.usage.prompt_tokens_details) {
+    usage.cacheRead = cachedTokens;
+  }
+  if (
+    chunk.usage?.completion_tokens_details &&
+    "reasoning_tokens" in chunk.usage.completion_tokens_details
+  ) {
+    usage.reasoningOutputTokens = reasoningTokens;
+  }
+  return usage;
 }
 
 function parseToolArguments(raw: string): Record<string, unknown> {

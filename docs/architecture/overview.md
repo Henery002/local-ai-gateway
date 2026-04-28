@@ -58,9 +58,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 关键文件：
 
-- [app.ts](/Users/henery/code/local-ai-gateway/apps/gateway/src/app.ts)
-- [runtime.ts](/Users/henery/code/local-ai-gateway/apps/gateway/src/runtime.ts)
-- [cli.ts](/Users/henery/code/local-ai-gateway/apps/gateway/src/cli.ts)
+- [app.ts](/local-ai-gateway/apps/gateway/src/app.ts)
+- [runtime.ts](/local-ai-gateway/apps/gateway/src/runtime.ts)
+- [cli.ts](/local-ai-gateway/apps/gateway/src/cli.ts)
 
 ### `apps/desktop`
 
@@ -74,9 +74,9 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 关键文件：
 
-- [main.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/main.ts)
-- [preload.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/preload.ts)
-- [renderer.ts](/Users/henery/code/local-ai-gateway/apps/desktop/src/renderer.ts)
+- [main.ts](/local-ai-gateway/apps/desktop/src/main.ts)
+- [preload.ts](/local-ai-gateway/apps/desktop/src/preload.ts)
+- [renderer.ts](/local-ai-gateway/apps/desktop/src/renderer.ts)
 
 ### `packages/core`
 

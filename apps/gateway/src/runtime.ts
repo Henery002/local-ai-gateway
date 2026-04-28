@@ -29,6 +29,9 @@ import {
   GatewayRoutingPreviewResult,
   GatewayRoutingRule,
   GatewayRoutingSettings,
+  GatewayUsageClientFilter,
+  GatewayUsageEvent,
+  GatewayUsageObservability,
   GatewaySessionPoolDefinition,
   GatewaySessionPoolMember,
   GatewaySessionPoolSettings,
@@ -41,6 +44,7 @@ import {
 } from "@local-ai-gateway/shared";
 
 import { bootstrapProvidersFromEnvironment } from "./provider-bootstrap.js";
+import { importGatewayHistoricalUsage } from "./usage-backfill.js";
 
 type PoolMemberRuntimeState = {
   cooldownUntil?: number;
@@ -100,6 +104,7 @@ export class GatewayRuntime {
   private sessionActivityInsertCount = 0;
   private routingHitInsertCount = 0;
   private poolSelectionInsertCount = 0;
+  private usageEventInsertCount = 0;
   private inferenceRequestSequence = 0;
   private lastInferenceFinishedAt?: number;
   private readonly clientCircuitState = new Map<string, ClientCircuitState>();
@@ -131,6 +136,12 @@ export class GatewayRuntime {
         ...bootstrapped.adapters,
       ]);
     this.restoreTelemetryFromDatabase();
+    if (
+      process.env.LOCAL_AI_GATEWAY_DISABLE_HISTORY_IMPORT !== "1" &&
+      !process.env.VITEST
+    ) {
+      importGatewayHistoricalUsage(this.database, this.logger);
+    }
   }
 
   listSessions(): SessionSummary[] {
@@ -262,6 +273,17 @@ export class GatewayRuntime {
     }
   }
 
+  recordUsageEvent(event: GatewayUsageEvent): void {
+    this.database.insertUsageEvent(event);
+    this.usageEventInsertCount += 1;
+    if (this.usageEventInsertCount % 100 === 0) {
+      this.database.pruneUsageEvents({
+        maxRows: 250_000,
+        retainDays: 365,
+      });
+    }
+  }
+
   getActiveSessionId(): string | undefined {
     return this.configStore.load().activeSessionId;
   }
@@ -308,6 +330,7 @@ export class GatewayRuntime {
       providerConfigurations: this.providerConfigurations,
       defaultSelection: this.getDefaultSelectionSummary(),
       routingObservability: this.getRoutingObservability(),
+      usageObservability: this.getUsageObservability(),
       poolObservability: this.getPoolObservability(),
       inferenceObservability: this.getInferenceObservability(),
       inferenceAuth: this.getInferenceAuthPublicSettings(),
@@ -517,6 +540,7 @@ export class GatewayRuntime {
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
     this.poolSelectionInsertCount = 0;
+    this.usageEventInsertCount = 0;
     this.database.clearTelemetry();
   }
 
@@ -801,6 +825,30 @@ export class GatewayRuntime {
     };
   }
 
+  getUsageObservability(
+    clientFilter: GatewayUsageClientFilter = "all",
+  ): GatewayUsageObservability {
+    const now = Date.now();
+    return {
+      clientFilter,
+      history: this.database.getUsageSummary({
+        clientFilter,
+      }),
+      daily: this.database.getUsageSummary({
+        clientFilter,
+        sinceTimestamp: now - 24 * 60 * 60 * 1000,
+      }),
+      weekly: this.database.getUsageSummary({
+        clientFilter,
+        sinceTimestamp: now - 7 * 24 * 60 * 60 * 1000,
+      }),
+      monthly: this.database.getUsageSummary({
+        clientFilter,
+        sinceTimestamp: now - 30 * 24 * 60 * 60 * 1000,
+      }),
+    };
+  }
+
   private getPoolObservability(): GatewayPoolObservability[] {
     const settings = this.getPoolSettings();
     const sessions = this.listSessions();
@@ -898,6 +946,10 @@ export class GatewayRuntime {
     this.database.prunePoolSelectionEvents({
       maxRows: 10_000,
       retainDays: 30,
+    });
+    this.database.pruneUsageEvents({
+      maxRows: 250_000,
+      retainDays: 365,
     });
     this.poolSelectionEvents.push(
       ...this.database.getRecentPoolSelectionEvents(500),

@@ -18,7 +18,8 @@ export interface RuntimeDiagnosticLoadFailure {
     | "pool-settings"
     | "security-settings"
     | "system-settings"
-    | "app-data-status";
+    | "app-data-status"
+    | "usage-summary";
   message: string;
 }
 
@@ -121,6 +122,7 @@ export function classifyLoadFailure(
     "security-settings": "接入鉴权配置加载失败",
     "system-settings": "系统配置加载失败",
     "app-data-status": "应用数据概况加载失败",
+    "usage-summary": "Token 用量统计加载失败",
   } as const;
 
   return {

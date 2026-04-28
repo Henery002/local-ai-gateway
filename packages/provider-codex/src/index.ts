@@ -4,7 +4,6 @@ import type {
   Model as PiModel,
   Tool as PiTool,
 } from "@mariozechner/pi-ai";
-import { streamOpenAICodexResponses } from "@mariozechner/pi-ai/openai-codex-responses";
 
 import {
   DEFAULT_PROVIDER_ID,
@@ -16,6 +15,8 @@ import {
   ResolvedSession,
   SessionSource,
 } from "@local-ai-gateway/shared";
+
+import { streamLocalOpenAICodexResponses } from "./codex-stream.js";
 
 function buildPiModel(model: GatewayModelDefinition): PiModel<"openai-codex-responses"> {
   return {
@@ -151,10 +152,9 @@ export class CodexAdapter implements ProviderAdapter {
     const upstreamModel = buildPiModel(model);
     const upstreamContext = buildPiContext(context);
 
-    const stream = streamOpenAICodexResponses(upstreamModel, upstreamContext, {
+    const stream = streamLocalOpenAICodexResponses(upstreamModel, upstreamContext, {
       apiKey: session.apiKey,
       sessionId: session.id,
-      transport: "auto",
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
       textVerbosity: "medium",
       reasoningEffort: "medium",
