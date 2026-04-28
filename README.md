@@ -1,15 +1,6 @@
 <div align="center">
 
-<table>
-  <tr>
-    <td align="center" valign="middle">
-      <img src="apps/desktop/assets/icons/source/brand-icon.svg" alt="Local AI Gateway icon" width="76" />
-    </td>
-    <td align="center" valign="middle">
-      <h1>Local AI Gateway</h1>
-    </td>
-  </tr>
-</table>
+<h1 align="center"><img src="apps/desktop/assets/icons/source/brand-icon.svg" alt="Local AI Gateway icon" width="68" />&nbsp;Local AI Gateway</h1>
 
 ### 本地单机 AI 网关与账号调度控制台
 
@@ -17,9 +8,9 @@
 让 OpenClaw、Hermes 等第三方客户端通过统一 `baseUrl` 接入。
 
 ![平台](https://img.shields.io/badge/macOS-本地优先-111827?style=flat-square)
-![桌面端](https://img.shields.io/badge/Electron-控制台-2563eb?style=flat-square)
-![网关协议](https://img.shields.io/badge/OpenAI-Compatible-网关-059669?style=flat-square)
-![当前阶段](https://img.shields.io/badge/阶段-三期进行中-f59e0b?style=flat-square)
+![桌面端](https://img.shields.io/badge/Electron-桌面控制台-2563eb?style=flat-square)
+![网关协议](https://img.shields.io/badge/协议-OpenAI--compatible%20网关-059669?style=flat-square)
+![当前阶段](https://img.shields.io/badge/阶段-三期持续增强-f59e0b?style=flat-square)
 
 [项目定位](#项目定位)
 ·
@@ -30,8 +21,6 @@
 [开发阶段](#开发阶段)
 ·
 [文档入口](#文档入口)
-
-<img src="docs/assets/readme/local-ai-gateway-preview.png" alt="Local AI Gateway desktop console preview" />
 
 </div>
 
@@ -44,8 +33,16 @@
 - Electron 桌面控制台
 - 多账号管理与活动账号切换
 - 策略路由
-- Token 用量总览（历史累计 / 日 / 周 / 月）
-- 动态号池（进行中）
+- Token 用量总览与账号级排行（历史累计 / 日 / 周 / 月）
+- 动态号池（已可用，持续增强中）
+
+## 界面预览
+
+当前桌面端已经把服务总览、Token 用量观测、账号资产、Provider 配置、策略路由与号池调度整合进一个本地控制台，便于持续观测和快速排障。
+
+<p align="center">
+  <img src="docs/assets/readme/local-ai-gateway-preview.png" alt="Local AI Gateway desktop console preview" />
+</p>
 
 ## 目录
 
@@ -108,8 +105,10 @@
 - Token 用量统计
   - 历史累计
   - 近 24 小时 / 7 天 / 30 天
-  - 输入 / 输出 / 总 Token
-  - 缓存 Token、成功率、平均延迟
+  - 总请求数、输入 / 输出 / 总 Token
+  - 缓存 Token、思考 Token、成功率、平均延迟
+  - 账号 / 客户端 / 模型排行明细
+  - 本地历史请求事件回补（仅本项目数据）
 - 路由预演
 - 路由命中观测
 - 统计持久化
@@ -197,7 +196,7 @@ npm run dev:desktop
 1. 导入一个或多个 Codex 账号
 2. 选中当前活动账号
 3. 保持默认模型 `codex-default`
-4. 复制第三方接入模板
+4. 复制 OpenClaw / Hermes / 通用 cURL 接入模板
 5. 在第三方客户端填入 `baseUrl + model`
 
 ## 第三方接入
@@ -218,8 +217,10 @@ API Key: 你在桌面端“诊断”页保存的网关访问密钥
 当前桌面端已内置三套可复制模板：
 
 - OpenClaw
-- localRagHub
+- Hermes
 - 通用 cURL
+
+`localRagHub` 仍可继续接入，但当前已降级为次要兼容对象，不再占据桌面端模板主位。
 
 ## 常用命令
 
@@ -285,7 +286,7 @@ docs/
 - 号池运行时观测
 - 更细的成员级解释与消耗归因
 
-状态：**进行中**
+状态：**核心闭环已落地，持续增强中**
 
 ## 文档入口
 
