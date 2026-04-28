@@ -1516,16 +1516,10 @@ function updateAccountToolbarState(): void {
 
 function renderTopSummary(): void {
   const health = state.health;
-  const sessions = state.sessions;
-  if (!health || !sessions) {
+  if (!health) {
     return;
   }
-
-  const activeSession = sessions.data.find(
-    (session) => session.id === sessions.activeSessionId,
-  );
   const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
-  const routing = health.routingObservability;
 
   const statusNode = document.getElementById("top-summary-status");
   if (statusNode) {
@@ -1548,28 +1542,6 @@ function renderTopSummary(): void {
             : "error"
     }`;
   }
-  setText(
-    "top-summary-route",
-    health.openclaw?.model ?? health.defaultModel ?? "codex-default",
-  );
-  setText(
-    "top-summary-routing-hit",
-    routing
-      ? `${routingWindowLabel(state.routingObserveWindow).replace("命中", "")} ${getRoutingWindowCount(routing, state.routingObserveWindow)} 次 / 累计 ${routing.totalMatched} 次`
-      : "暂无命中",
-  );
-  setText(
-    "top-summary-session",
-    activeSession ? getSessionTitle(activeSession) : "未选择活动会话",
-  );
-  setText(
-    "top-summary-auth",
-    (state.securitySettings?.enabled ?? health.inferenceAuth?.enabled)
-      ? (state.securitySettings?.hasApiKey ?? health.inferenceAuth?.hasApiKey)
-        ? "API Key 鉴权"
-        : "鉴权缺少密钥"
-      : "无鉴权",
-  );
 }
 
 function renderOverview(): void {
@@ -1583,22 +1555,42 @@ function renderOverview(): void {
   setText("service-state", health.ok ? "运行中" : "异常");
   setText("service-mode", health.managed ? "桌面托管" : "外部服务");
   setText("default-provider", getActiveProviderLabel());
-  setText("default-model", health.defaultModel ?? "codex-default");
+  setText(
+    "default-model",
+    health.openclaw?.model ?? health.defaultModel ?? "codex-default",
+  );
+  const activeSession = sessions.data.find(
+    (session) => session.id === sessions.activeSessionId,
+  );
+  setText(
+    "runtime-active-session",
+    activeSession ? getSessionTitle(activeSession) : "未选择活动会话",
+  );
+  setText(
+    "runtime-inference-auth",
+    (state.securitySettings?.enabled ?? health.inferenceAuth?.enabled)
+      ? (state.securitySettings?.hasApiKey ?? health.inferenceAuth?.hasApiKey)
+        ? "API Key 鉴权"
+        : "鉴权缺少密钥"
+      : "无鉴权",
+  );
   setText(
     "openclaw-base-url",
     health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1",
   );
+  const routing = health.routingObservability;
+  setText(
+    "runtime-routing-hit",
+    routing
+      ? `${routingWindowLabel(state.routingObserveWindow).replace("命中", "")} ${getRoutingWindowCount(routing, state.routingObserveWindow)} 次 / 累计 ${routing.totalMatched} 次`
+      : "暂无命中",
+  );
   const sourceCounts = getAccountGroups();
   setText("local-account-count", String(sourceCounts.localImport));
   setText("openclaw-source-count", String(sourceCounts.openclaw));
-  setText("provider-count", String(providers.data.length));
   setText(
     "default-selection",
     health.defaultSelection?.reason ?? "使用默认规则",
-  );
-  setText(
-    "snippet-model",
-    health.openclaw?.model ?? health.defaultModel ?? "codex-default",
   );
   renderAccountActivityOverview();
   renderRoutingObservability();

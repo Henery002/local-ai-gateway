@@ -1797,6 +1797,10 @@ button, input, select {
 }
 
 .usage-kpi-card {
+  --usage-accent: #2563eb;
+  --usage-accent-soft: rgba(37, 99, 235, 0.14);
+  --usage-title-color: #2563eb;
+  --usage-value-color: #1d4ed8;
   position: relative;
   border-radius: 18px;
   border: 1px solid rgba(22, 119, 255, 0.12);
@@ -1817,34 +1821,47 @@ button, input, select {
   height: 4px;
   border-radius: 999px;
   opacity: 0.95;
+  background: linear-gradient(90deg, var(--usage-accent-soft) 0%, var(--usage-accent) 45%, var(--usage-accent-soft) 100%);
 }
 
-.usage-kpi-card:nth-child(1)::before {
-  background: linear-gradient(90deg, rgba(80, 143, 255, 0.15) 0%, rgba(80, 143, 255, 0.95) 45%, rgba(80, 143, 255, 0.15) 100%);
+.usage-kpi-card:nth-child(1) {
+  --usage-accent: rgba(80, 143, 255, 0.95);
+  --usage-accent-soft: rgba(80, 143, 255, 0.15);
+  --usage-title-color: #3b82f6;
+  --usage-value-color: #2563eb;
 }
 
-.usage-kpi-card:nth-child(2)::before {
-  background: linear-gradient(90deg, rgba(34, 197, 94, 0.12) 0%, rgba(20, 184, 166, 0.9) 45%, rgba(34, 197, 94, 0.12) 100%);
+.usage-kpi-card:nth-child(2) {
+  --usage-accent: rgba(20, 184, 166, 0.9);
+  --usage-accent-soft: rgba(34, 197, 94, 0.12);
+  --usage-title-color: #0f766e;
+  --usage-value-color: #0f766e;
 }
 
-.usage-kpi-card:nth-child(3)::before {
-  background: linear-gradient(90deg, rgba(168, 85, 247, 0.12) 0%, rgba(192, 132, 252, 0.9) 45%, rgba(168, 85, 247, 0.12) 100%);
+.usage-kpi-card:nth-child(3) {
+  --usage-accent: rgba(192, 132, 252, 0.9);
+  --usage-accent-soft: rgba(168, 85, 247, 0.12);
+  --usage-title-color: #8b5cf6;
+  --usage-value-color: #7c3aed;
 }
 
-.usage-kpi-card:nth-child(4)::before {
-  background: linear-gradient(90deg, rgba(249, 115, 22, 0.12) 0%, rgba(251, 146, 60, 0.92) 45%, rgba(249, 115, 22, 0.12) 100%);
+.usage-kpi-card:nth-child(4) {
+  --usage-accent: rgba(251, 146, 60, 0.92);
+  --usage-accent-soft: rgba(249, 115, 22, 0.12);
+  --usage-title-color: #f97316;
+  --usage-value-color: #ea580c;
 }
 
 .usage-kpi-card small {
   font-size: 14px !important;
-  color: rgba(0, 0, 0, 0.58);
-  font-weight: 600;
+  color: var(--usage-title-color);
+  font-weight: 700;
 }
 
 .usage-kpi-card strong {
   font-size: 46px !important;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  color: var(--usage-value-color);
   letter-spacing: -0.02em;
   line-height: 1.05;
 }
@@ -1852,14 +1869,6 @@ button, input, select {
 .usage-kpi-card span {
   font-size: 15px !important;
   color: var(--text-secondary);
-}
-
-.usage-kpi-card.usage-kpi-primary strong {
-  color: var(--info);
-}
-
-.usage-kpi-card.usage-kpi-primary small {
-  color: #4f7cff;
 }
 
 .usage-observe-meta {

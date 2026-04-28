@@ -77,27 +77,6 @@
               <button id="open-logs" class="btn secondary">打开日志</button>
             </div>
           </div>
-          <div class="header-stats">
-            <div class="stat-item">
-              <span class="stat-label">当前路由</span>
-              <span class="stat-value" id="top-summary-route">加载中</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-label">路由命中</span>
-              <span class="stat-value routing-hit" id="top-summary-routing-hit">加载中</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-label">活动授权</span>
-              <span class="stat-value" id="top-summary-session">加载中</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-label">接入鉴权</span>
-              <span class="stat-value" id="top-summary-auth">加载中</span>
-            </div>
-          </div>
           <div id="header-usage-observe-panel"></div>
         </header>
 
@@ -114,9 +93,11 @@
                 <div class="card mini-stat"><small>服务状态</small><strong id="service-state">加载中</strong></div>
                 <div class="card mini-stat"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
                 <div class="card mini-stat"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
-                <div class="card mini-stat"><small>默认模型</small><strong id="default-model">加载中</strong></div>
+                <div class="card mini-stat"><small>当前路由模型</small><strong id="default-model">加载中</strong></div>
+                <div class="card mini-stat"><small>活动授权</small><strong id="runtime-active-session">加载中</strong></div>
+                <div class="card mini-stat"><small>接入鉴权</small><strong id="runtime-inference-auth">加载中</strong></div>
                 <div class="card mini-stat"><small>主接入 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
-                <div class="card mini-stat"><small>接入片段模型</small><strong id="snippet-model">加载中</strong></div>
+                <div class="card mini-stat"><small>路由命中概览</small><strong id="runtime-routing-hit">加载中</strong></div>
                 <div class="card mini-stat"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
                 <div class="card mini-stat"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
                 <div class="card mini-stat" style="grid-column: 1 / -1;">
