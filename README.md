@@ -1,6 +1,15 @@
 <div align="center">
 
-# Local AI Gateway
+<table>
+  <tr>
+    <td align="center" valign="middle">
+      <img src="apps/desktop/assets/icons/source/brand-icon.svg" alt="Local AI Gateway icon" width="76" />
+    </td>
+    <td align="center" valign="middle">
+      <h1>Local AI Gateway</h1>
+    </td>
+  </tr>
+</table>
 
 ### 本地单机 AI 网关与账号调度控制台
 
@@ -21,6 +30,8 @@
 [开发阶段](#开发阶段)
 ·
 [文档入口](#文档入口)
+
+<img src="docs/assets/readme/local-ai-gateway-preview.png" alt="Local AI Gateway desktop console preview" />
 
 </div>
 
