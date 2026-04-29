@@ -1254,6 +1254,7 @@ export class GatewayRuntime {
     sessionId: string;
     failureClass: GatewayPoolFailureClass;
     resetAt?: number;
+    retryAfterSeconds?: number;
   }): void {
     const pool = this.getPoolDefinition(input.poolId);
     const state = this.getPoolMemberRuntimeState(input.poolId, input.sessionId);
@@ -1266,7 +1267,15 @@ export class GatewayRuntime {
       10_000,
       (pool?.cooldownSeconds ?? 300) * 1_000,
     );
-    let cooldownUntil = now + defaultCooldownMs;
+    const failureCountFactor = Math.min(
+      6,
+      Math.max(1, state.consecutiveFailures + 1),
+    );
+    const steppedCooldownMs = Math.min(
+      6 * 60 * 60 * 1_000,
+      defaultCooldownMs * failureCountFactor,
+    );
+    let cooldownUntil = now + steppedCooldownMs;
 
     if (input.failureClass === "quota_exhausted") {
       cooldownUntil =
@@ -1274,11 +1283,22 @@ export class GatewayRuntime {
           ? input.resetAt
           : now + quotaCooldownMs;
     } else if (input.failureClass === "auth_invalid") {
-      cooldownUntil = now + Math.max(defaultCooldownMs, 30 * 60 * 1_000);
+      cooldownUntil = now + Math.max(steppedCooldownMs, 30 * 60 * 1_000);
     } else if (input.failureClass === "rate_limited") {
-      cooldownUntil = now + Math.max(defaultCooldownMs, 5 * 60 * 1_000);
+      cooldownUntil = now + Math.max(steppedCooldownMs, 5 * 60 * 1_000);
     } else if (input.failureClass === "network_retryable") {
-      cooldownUntil = now + Math.max(30_000, defaultCooldownMs);
+      cooldownUntil = now + Math.max(30_000, steppedCooldownMs);
+    }
+
+    if (
+      typeof input.retryAfterSeconds === "number" &&
+      Number.isFinite(input.retryAfterSeconds) &&
+      input.retryAfterSeconds > 0
+    ) {
+      cooldownUntil = Math.max(
+        cooldownUntil,
+        now + Math.ceil(input.retryAfterSeconds) * 1_000,
+      );
     }
 
     state.lastFailureAt = now;

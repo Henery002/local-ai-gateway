@@ -658,6 +658,7 @@ export function streamLocalOpenAICodexResponses(
           }
 
           const errorText = await response.text();
+          const retryAfterHeader = response.headers.get("retry-after")?.trim();
           if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
             await sleep(BASE_DELAY_MS * 2 ** attempt, options.signal);
             continue;
@@ -668,7 +669,10 @@ export function streamLocalOpenAICodexResponses(
             statusText: response.statusText,
           });
           const info = await parseErrorResponse(fakeResponse);
-          throw new Error(info.message);
+          const retryAfterHint = retryAfterHeader
+            ? `[retry-after:${retryAfterHeader}]`
+            : "";
+          throw new Error(`[status:${response.status}]${retryAfterHint} ${info.message}`);
         } catch (error) {
           const normalized = error instanceof Error ? error : new Error(String(error));
           if (normalized.name === "AbortError" || normalized.message === "Request was aborted") {

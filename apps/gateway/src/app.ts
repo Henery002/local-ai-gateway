@@ -172,11 +172,33 @@ function extractUsageCounters(
 }
 
 function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
+  if (error instanceof GatewayError) {
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      return "auth_invalid";
+    }
+    if (error.statusCode === 429) {
+      return "rate_limited";
+    }
+  }
+
   if (error instanceof GatewayError && error.code === "gateway_auth_required") {
     return "auth_invalid";
   }
 
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  const taggedStatus = message.match(/\[status:(\d{3})\]/);
+  if (taggedStatus?.[1]) {
+    const statusCode = Number.parseInt(taggedStatus[1], 10);
+    if (statusCode === 401 || statusCode === 403) {
+      return "auth_invalid";
+    }
+    if (statusCode === 429) {
+      return "rate_limited";
+    }
+    if (statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504) {
+      return "upstream_retryable";
+    }
+  }
   if (
     message.includes("failed to refresh oauth token") ||
     message.includes("oauth refresh failed") ||
@@ -218,6 +240,38 @@ function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
     return "upstream_retryable";
   }
   return "non_retryable";
+}
+
+function parseRetryAfterHintSeconds(error: unknown): number | undefined {
+  if (error instanceof GatewayError) {
+    const value = error.details?.retryAfterSeconds;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.max(1, Math.ceil(value));
+    }
+  }
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  const tagged = message.match(/\[retry-after:(\d+)\]/);
+  if (tagged?.[1]) {
+    return Math.max(1, Number.parseInt(tagged[1], 10));
+  }
+  const inline = message.match(/retry[- ]?after[:=]?\s*(\d+)\s*s?/);
+  if (inline?.[1]) {
+    return Math.max(1, Number.parseInt(inline[1], 10));
+  }
+  return undefined;
+}
+
+function parseQuotaResetAtHint(error: unknown): number | undefined {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  const unixSeconds = message.match(/\breset(?:[_\s-]*at)?[:=]?\s*(\d{10})\b/);
+  if (unixSeconds?.[1]) {
+    return Number.parseInt(unixSeconds[1], 10) * 1000;
+  }
+  const unixMs = message.match(/\breset(?:[_\s-]*at)?[:=]?\s*(\d{13})\b/);
+  if (unixMs?.[1]) {
+    return Number.parseInt(unixMs[1], 10);
+  }
+  return undefined;
 }
 
 function isRetryablePoolFailureClass(failureClass: GatewayPoolFailureClass): boolean {
@@ -520,6 +574,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const selectNextPoolSessionId = (
       failedSessionId: string | undefined,
       failureClass: GatewayPoolFailureClass,
+      failureSource?: unknown,
     ): string | undefined => {
       if (!targetPoolId || !isRetryablePoolFailureClass(failureClass)) {
         return undefined;
@@ -533,11 +588,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         ? runtime.listSessions().find((session) => session.id === failedSessionId)
         : undefined;
       if (failedSessionId && selectedByPoolMember) {
+        const retryAfterSeconds = parseRetryAfterHintSeconds(failureSource);
         runtime.recordPoolSelectionFailure({
           poolId: targetPoolId,
           sessionId: failedSessionId,
           failureClass,
-          resetAt: failedSession?.quota?.resetAt,
+          resetAt:
+            parseQuotaResetAtHint(failureSource) ?? failedSession?.quota?.resetAt,
+          retryAfterSeconds,
         });
       }
 
@@ -670,6 +728,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         const poolFallbackSessionId = selectNextPoolSessionId(
           resolvedSessionId,
           classifyPoolFailure(error),
+          error,
         );
         const fallbackSessionId =
           poolFallbackSessionId ??
@@ -724,6 +783,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             const poolFallbackSessionId = selectNextPoolSessionId(
               streamingSessionId,
               classifyPoolFailure(error),
+              error,
             );
             const fallbackSessionId =
               poolFallbackSessionId ??
@@ -795,6 +855,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         const poolFallbackSessionId = selectNextPoolSessionId(
           usedSessionId,
           classifyPoolFailure(finalMessage.errorMessage),
+          finalMessage.errorMessage,
         );
         const fallbackSessionId =
           poolFallbackSessionId ??
@@ -885,7 +946,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             poolId: targetPoolId,
             sessionId: usedSessionId,
             failureClass,
-            resetAt: failedSession?.quota?.resetAt,
+            resetAt: parseQuotaResetAtHint(error) ?? failedSession?.quota?.resetAt,
+            retryAfterSeconds: parseRetryAfterHintSeconds(error),
           });
         }
         runtime.recordInferenceResult({

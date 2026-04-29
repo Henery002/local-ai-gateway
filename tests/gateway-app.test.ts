@@ -1608,6 +1608,247 @@ describe("gateway app", () => {
     }
   });
 
+  it("honors upstream retry-after hint when putting pool members into cooldown", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:retry-after-a",
+      profileId: "fake:retry-after-a",
+      accountId: "acct_retry_after_a",
+      quotaPercentage: 94,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:retry-after-b",
+      profileId: "fake:retry-after-b",
+      accountId: "acct_retry_after_b",
+      quotaPercentage: 88,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("[status:429][retry-after:180] rate limited")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionB.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-retry-after",
+          name: "Retry-After 池",
+          enabled: true,
+          selectionStrategy: "priority",
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-openclaw-pool-retry-after",
+          name: "openclaw-pool-retry-after",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-retry-after",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const startedAt = Date.now();
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      const memberA = adminHealth
+        .json()
+        .poolObservability.find((pool: { poolId: string }) => pool.poolId === "pool-retry-after")
+        ?.members.find((member: { sessionId?: string }) => member.sessionId === sessionA.id);
+      expect(memberA?.status).toBe("cooldown");
+      expect(memberA?.lastFailureClass).toBe("rate_limited");
+      expect(typeof memberA?.cooldownUntil).toBe("number");
+      expect((memberA?.cooldownUntil as number) - startedAt).toBeGreaterThanOrEqual(170_000);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("classifies tagged upstream 403 as auth_invalid and marks failed member accordingly", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:auth403-a",
+      profileId: "fake:auth403-a",
+      accountId: "acct_auth403_a",
+      quotaPercentage: 90,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:auth403-b",
+      profileId: "fake:auth403-b",
+      accountId: "acct_auth403_b",
+      quotaPercentage: 83,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("[status:403] oauth rejected by upstream")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionB.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-auth403",
+          name: "Auth403 池",
+          enabled: true,
+          selectionStrategy: "priority",
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-hermes-auth403",
+          name: "hermes-auth403",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "hermes",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-auth403",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "hermes",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const adminHealth = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(adminHealth.statusCode).toBe(200);
+      const memberA = adminHealth
+        .json()
+        .poolObservability.find((pool: { poolId: string }) => pool.poolId === "pool-auth403")
+        ?.members.find((member: { sessionId?: string }) => member.sessionId === sessionA.id);
+      expect(memberA?.status).toBe("cooldown");
+      expect(memberA?.lastFailureClass).toBe("auth_invalid");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("updates dynamic pool runtime timestamps for streaming requests", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);
