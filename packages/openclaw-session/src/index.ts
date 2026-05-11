@@ -18,6 +18,8 @@ import {
 
 const SESSION_USAGE_REFRESH_CONCURRENCY = 4;
 
+type CredentialRefreshMode = "managed" | "external-readonly";
+
 interface RawProfile {
   type?: string;
   provider?: string;
@@ -30,6 +32,7 @@ interface RawProfile {
   email?: string;
   planType?: string;
   quota?: SessionQuotaSnapshot;
+  credentialRefreshMode?: CredentialRefreshMode;
   importedAt?: string;
   updatedAt?: string;
 }
@@ -194,9 +197,14 @@ function extractRawProfile(value: unknown): RawProfile | undefined {
           ? value.plan_type
           : undefined,
     quota: pickQuotaSnapshot(value),
+    credentialRefreshMode: normalizeCredentialRefreshMode(value.credentialRefreshMode),
     importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
   });
+}
+
+function normalizeCredentialRefreshMode(value: unknown): CredentialRefreshMode | undefined {
+  return value === "managed" || value === "external-readonly" ? value : undefined;
 }
 
 function sanitizeProfile(value: RawProfile): RawProfile {
@@ -212,6 +220,7 @@ function sanitizeProfile(value: RawProfile): RawProfile {
     email: typeof value.email === "string" ? value.email : undefined,
     planType: typeof value.planType === "string" ? value.planType : undefined,
     quota: value.quota,
+    credentialRefreshMode: normalizeCredentialRefreshMode(value.credentialRefreshMode),
     importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
   };
@@ -333,6 +342,10 @@ function shouldRetryUsageWithOAuthRefresh(
   profile: RawProfile,
   error: unknown,
 ): boolean {
+  if (!canRefreshOAuthCredentials(profile)) {
+    return false;
+  }
+
   if (!profile.refresh) {
     return false;
   }
@@ -355,6 +368,10 @@ function shouldRetryUsageWithOAuthRefresh(
   }
 
   return typeof profile.expires === "number" && profile.expires <= Date.now() + 30_000;
+}
+
+function canRefreshOAuthCredentials(profile: RawProfile): boolean {
+  return profile.credentialRefreshMode === "managed";
 }
 
 function mapOAuthRefreshError(sessionId: string, error: unknown): GatewayError {
@@ -530,7 +547,11 @@ export class ImportedCodexAccountStore {
 
   importOAuthProfile(
     profile: RawProfile,
-    options: { label?: string; profileId?: string } = {},
+    options: {
+      label?: string;
+      profileId?: string;
+      credentialRefreshMode?: CredentialRefreshMode;
+    } = {},
   ): { profileId: string; profile: RawProfile; filePath: string } {
     const current = this.listProfiles();
     const now = createNowIso();
@@ -539,6 +560,10 @@ export class ImportedCodexAccountStore {
       type: "oauth",
       provider: "openai-codex",
       label: options.label ?? profile.label,
+      credentialRefreshMode:
+        options.credentialRefreshMode ??
+        profile.credentialRefreshMode ??
+        "external-readonly",
       importedAt: profile.importedAt ?? now,
       updatedAt: now,
     });
@@ -562,7 +587,11 @@ export class ImportedCodexAccountStore {
 
   upsertOAuthCredentials(
     credentials: OAuthCredentials,
-    options: { label?: string; profileId?: string } = {},
+    options: {
+      label?: string;
+      profileId?: string;
+      credentialRefreshMode?: CredentialRefreshMode;
+    } = {},
   ): { profileId: string; profile: RawProfile; filePath: string } {
     return this.importOAuthProfile(
       {
@@ -573,6 +602,7 @@ export class ImportedCodexAccountStore {
         expires: credentials.expires,
         accountId: typeof credentials.accountId === "string" ? credentials.accountId : undefined,
         label: options.label,
+        credentialRefreshMode: options.credentialRefreshMode ?? "managed",
       },
       options,
     );
@@ -589,6 +619,7 @@ export class ImportedCodexAccountStore {
       const profileId = buildUniqueProfileId(normalized, current);
       current[profileId] = {
         ...normalized,
+        credentialRefreshMode: "external-readonly",
         importedAt: normalized.importedAt ?? now,
         updatedAt: now,
       };
@@ -629,6 +660,7 @@ export class ImportedCodexAccountStore {
       current[profileId] = {
         ...existing,
         ...normalized,
+        credentialRefreshMode: "external-readonly",
         importedAt: existing?.importedAt ?? normalized.importedAt ?? now,
         updatedAt: now,
       };
@@ -807,6 +839,14 @@ export class OpenClawSessionSource {
       );
     }
 
+    if (!canRefreshOAuthCredentials(rawProfile)) {
+      throw new GatewayError(
+        503,
+        "gateway_auth_required",
+        `Session ${target.id} is externally managed. Re-import or re-authorize this account after Cockpit refreshes it.`,
+      );
+    }
+
     let refreshed: Awaited<ReturnType<typeof getOAuthApiKey>>;
     try {
       refreshed = await this.oauthApiKeyResolver("openai-codex", {
@@ -877,6 +917,7 @@ export class OpenClawSessionSource {
 
     return this.importedStore.importOAuthProfile(rawProfile, {
       label: options.label ?? rawProfile.label ?? target.accountId ?? "从 OpenClaw 导入的 Codex 账号",
+      credentialRefreshMode: "external-readonly",
     });
   }
 

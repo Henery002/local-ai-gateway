@@ -156,6 +156,7 @@ describe("openclaw session source", () => {
       email: "demo@example.com",
       displayName: "demo@example.com",
       planType: "free",
+      credentialRefreshMode: "external-readonly",
       quota: {
         scope: "hourly",
         percentage: 72,
@@ -240,6 +241,7 @@ describe("openclaw session source", () => {
       planType: "plus",
       access: "new-access-token",
       refresh: "new-refresh-token",
+      credentialRefreshMode: "external-readonly",
       quota: {
         scope: "hourly",
         percentage: 91,
@@ -263,11 +265,78 @@ describe("openclaw session source", () => {
     const localImported = sessions.find((session) => session.id === `local-import:${copied.profileId}`);
 
     expect(copied.profile.accountId).toBe("acct_fixture");
+    expect(copied.profile.credentialRefreshMode).toBe("external-readonly");
     expect(localImported).toMatchObject({
       sourceKind: "local-import",
       sourceLabel: "桌面端 Codex 账号",
       accountId: "acct_fixture",
       status: "available",
+    });
+  });
+
+  it("does not OAuth-refresh externally imported accounts when usage access is unauthorized", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-external-readonly-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const profileId = store.importFromObject([
+      {
+        id: "codex_external_readonly",
+        email: "readonly@example.com",
+        auth_mode: "oauth",
+        account_id: "acct_external_readonly",
+        tokens: {
+          access_token: "readonly-expired-access",
+          refresh_token: "readonly-refresh-token",
+        },
+      },
+    ]).profileIds[0];
+
+    const refreshSpy = vi.fn().mockResolvedValue({
+      apiKey: "should-not-be-used",
+      newCredentials: {
+        access: "should-not-be-used",
+        refresh: "should-not-be-used",
+        expires: 4_102_444_800_000,
+        accountId: "acct_external_readonly",
+      },
+    });
+
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "token expired",
+          },
+        }),
+        {
+          status: 401,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      refreshSpy,
+    );
+
+    const summary = await source.refreshUsage(`local-import:${profileId}`);
+    const persisted = store.listProfiles()[profileId];
+
+    expect(summary).toMatchObject({
+      ok: false,
+      refreshed: 0,
+      failed: 1,
+    });
+    expect(summary.errors[0]?.message).toContain("Codex 额度接口请求失败 (401)");
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(persisted).toMatchObject({
+      access: "readonly-expired-access",
+      refresh: "readonly-refresh-token",
+      credentialRefreshMode: "external-readonly",
     });
   });
 
@@ -552,6 +621,39 @@ describe("openclaw session source", () => {
       statusCode: 503,
       code: "gateway_auth_required",
     } satisfies Partial<GatewayError>);
+  });
+
+  it("does not OAuth-refresh externally imported accounts during session resolution", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-resolve-external-readonly-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+    const profileId = store.importFromObject([
+      {
+        id: "codex_expired_external_readonly",
+        email: "expired-readonly@example.com",
+        auth_mode: "oauth",
+        account_id: "acct_expired_external_readonly",
+        expires: 1,
+        tokens: {
+          access_token: "expired-readonly-access",
+          refresh_token: "expired-readonly-refresh",
+        },
+      },
+    ]).profileIds[0];
+    const refreshSpy = vi.fn();
+    const source = new OpenClawSessionSource(
+      new URL("./fixtures/openclaw", import.meta.url).pathname,
+      importedProfilesPath,
+      refreshSpy,
+    );
+
+    await expect(
+      source.resolveSession(`local-import:${profileId}`),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      code: "gateway_auth_required",
+    } satisfies Partial<GatewayError>);
+    expect(refreshSpy).not.toHaveBeenCalled();
   });
 
   it("deletes imported codex accounts from the local desktop store", () => {

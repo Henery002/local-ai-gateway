@@ -9,6 +9,22 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-11 23:10 CST]
+
+### 修复
+
+- Codex 导入账号新增凭据刷新所有权标记：本项目 OAuth 授权创建的账号标记为 `managed`，JSON / Cockpit / OpenClaw 文件导入账号标记为 `external-readonly`。
+- 外部只读账号不再触发 OAuth refresh：当 access token 过期或 usage 接口返回鉴权失败时，网关不再使用其 refresh token 主动换新凭据，避免破坏 Cockpit / OpenClaw 侧同一批账号的授权状态。
+- 从 OpenClaw 可复用授权一键导入为桌面端账号时，也默认按外部只读凭据处理，避免本项目与外部工具争抢同一 refresh token。
+
+### 文档
+
+- 桌面控制台说明补充“本项目托管账号”和“外部只读导入账号”的刷新边界，明确 Cockpit 侧重新授权后需要重新导出导入或后续接入外部源同步机制。
+
+### 测试
+
+- 新增 `openclaw-session` 回归测试，覆盖外部只读导入账号在 usage 401 与会话解析过期场景下均不会调用 OAuth refresh。
+
 ## [2026-04-29 13:47 CST]
 
 ### 优化
