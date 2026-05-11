@@ -558,11 +558,60 @@
                     </div>
                     <div class="form-field">
                       <label>Gateway API Key</label>
-                      <input id="gateway-auth-api-key" class="input-field" type="password" placeholder="请输入新的 API Key" />
+                      <div class="secret-field-stack">
+                        <div class="secret-inline-row">
+                          <div class="secret-input-shell">
+                            <input
+                              id="gateway-auth-api-key"
+                              class="input-field"
+                              data-secret-input="gateway-auth-api-key"
+                              type="password"
+                              placeholder="请输入新的 API Key"
+                            />
+                            <div class="secret-inline-actions">
+                              <button
+                                class="icon-btn"
+                                data-tone="visibility"
+                                type="button"
+                                data-secret-visibility-toggle="#gateway-auth-api-key"
+                                title="显示或隐藏密钥"
+                                aria-label="显示或隐藏密钥"
+                              ></button>
+                              <button
+                                class="icon-btn"
+                                data-tone="copy"
+                                type="button"
+                                data-secret-copy-target="#gateway-auth-api-key"
+                                title="复制密钥"
+                                aria-label="复制密钥"
+                              ></button>
+                            </div>
+                          </div>
+                          <button id="generate-gateway-auth-api-key" class="btn primary mini secret-generate-btn" type="button">生成密钥</button>
+                        </div>
+                      </div>
                       <div class="form-hint">安全原因不会回显已有密钥。留空时保留已有密钥不变。</div>
                     </div>
                     <div class="form-field full">
                       <div id="gateway-auth-status" class="form-hint">当前未启用推理接口鉴权，适合本机单用户场景。</div>
+                    </div>
+                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                      <label>按客户端密钥解析来源标签</label>
+                      <div class="form-hint">开启后，网关可根据客户端专属 API Key 自动写入来源标签（如 hermes / openclaw），无需依赖上游显式携带 `x-client-tag`。</div>
+                      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                        <input id="gateway-auth-resolve-client-tag-by-api-key" type="checkbox" style="width: 18px; height: 18px;" />
+                        <span style="font-size: 14px; color: var(--text-secondary);">启用“按 API Key 识别客户端标签”</span>
+                      </div>
+                    </div>
+                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div>
+                          <label>客户端密钥映射</label>
+                          <div class="form-hint">为不同客户端配置独立密钥与默认标签。建议每个客户端使用不同 key，便于路由和统计隔离。</div>
+                        </div>
+                        <button id="add-security-client-mapping" class="btn secondary" type="button">新增映射</button>
+                      </div>
+                      <div id="gateway-auth-client-mappings"></div>
                     </div>
                     <div class="form-field full" style="display: flex; justify-content: flex-end;">
                       <button id="save-security-settings" class="btn primary">保存鉴权配置</button>

@@ -22,6 +22,14 @@ import {
   type RuntimeDiagnostic,
   type RuntimeDiagnosticLoadFailure,
 } from "./runtime-diagnostics.js";
+import {
+  collectAccountDeletionTargets,
+  normalizeAccountSelection,
+} from "./account-bulk-actions.js";
+import {
+  deleteSelectedPools,
+  normalizePoolSelection,
+} from "./pool-bulk-actions.js";
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
@@ -99,7 +107,15 @@ declare global {
       resetTelemetry?: () => Promise<{ ok: boolean; reset: boolean }>;
       deleteCodexAccount: (sessionId: string) => Promise<{
         ok: boolean;
-        data: { removed: boolean; profileId: string; filePath: string };
+        data: {
+          removed: boolean;
+          profileId: string;
+          filePath: string;
+          poolCleanup?: {
+            removedMemberCount: number;
+            affectedPoolIds: string[];
+          };
+        };
       }>;
       restartGateway: () => Promise<any>;
       copyOpenClawSnippet: () => Promise<any>;
@@ -236,6 +252,9 @@ type DashboardHealth = {
     mode: "none" | "api-key";
     enabled: boolean;
     hasApiKey: boolean;
+    resolveClientTagByApiKey?: boolean;
+    mappingCount?: number;
+    enabledMappingCount?: number;
   };
   usageObservability?: UsageObservability;
   routingObservability?: {
@@ -591,12 +610,35 @@ type PoolMemberPanelState = {
 type SecuritySettingsInput = {
   mode?: "none" | "api-key";
   apiKey?: string;
+  resolveClientTagByApiKey?: boolean;
+  clientMappings?: SecurityClientMappingInput[];
+};
+
+type SecurityClientMappingInput = {
+  name: string;
+  apiKey: string;
+  clientTag: string;
+  enabled?: boolean;
+  allowHeaderOverride?: boolean;
+};
+
+type SecurityClientMapping = {
+  name: string;
+  clientTag: string;
+  enabled: boolean;
+  allowHeaderOverride: boolean;
+  hasApiKey: boolean;
+  draftApiKey?: string;
 };
 
 type SecuritySettings = {
   mode: "none" | "api-key";
   enabled: boolean;
   hasApiKey: boolean;
+  resolveClientTagByApiKey: boolean;
+  mappingCount: number;
+  enabledMappingCount: number;
+  clientMappings: SecurityClientMapping[];
 };
 
 type SecuritySettingsResponse = {
@@ -686,6 +728,7 @@ const state: {
   backgroundRefreshInFlight?: boolean;
   sessionPulseInFlight?: boolean;
   isViewStackScrolling?: boolean;
+  lastViewStackScrollAt?: number;
   pendingVisibleRefresh?: boolean;
   runtimeDiagnostics: RuntimeDiagnostic[];
   usageClientFilter: UsageClientFilter;
@@ -710,7 +753,12 @@ let autoRefreshTimer: number | undefined;
 let sessionActivityTimer: number | undefined;
 let viewStackScrollIdleTimer: number | undefined;
 let visibleRefreshFrame: number | undefined;
+let accountRenderFrame: number | undefined;
+let accountRenderToken = 0;
+const poolMemberFieldFrames = new Map<string, number>();
 const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
+const selectedAccountKeys = new Set<string>();
+const selectedPoolIds = new Set<string>();
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 
 function getGatewayApi() {
@@ -1122,6 +1170,9 @@ function initCollapsibleSettingsGroups(): void {
 
 function setActiveView(view: DashboardView): void {
   state.activeView = view;
+  if (view !== "accounts") {
+    cancelAccountRenderFrame();
+  }
   try {
     window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
   } catch {
@@ -1143,6 +1194,7 @@ function setActiveView(view: DashboardView): void {
   if (hasHydratedDashboardState()) {
     cancelVisibleRefreshFrame();
     renderActiveViewContent();
+    applyActiveViewFormState();
   }
 }
 
@@ -1295,6 +1347,22 @@ function cancelVisibleRefreshFrame(): void {
   }
 }
 
+function cancelAccountRenderFrame(): void {
+  if (accountRenderFrame) {
+    window.cancelAnimationFrame(accountRenderFrame);
+    accountRenderFrame = undefined;
+  }
+  accountRenderToken += 1;
+}
+
+function cancelPoolMemberFieldFrame(poolId: string): void {
+  const frame = poolMemberFieldFrames.get(poolId);
+  if (frame) {
+    window.cancelAnimationFrame(frame);
+    poolMemberFieldFrames.delete(poolId);
+  }
+}
+
 function hasHydratedDashboardState(): boolean {
   return Boolean(
     state.health ||
@@ -1308,7 +1376,8 @@ function hasHydratedDashboardState(): boolean {
   );
 }
 
-function renderActiveViewContent(): void {
+function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
+  const liveOnly = Boolean(options?.liveOnly);
   renderTopSummary();
   renderUsageOverview();
 
@@ -1329,24 +1398,53 @@ function renderActiveViewContent(): void {
 
   if (state.activeView === "routing") {
     renderRoutingObservability();
-    renderRoutingRules();
+    if (!liveOnly) {
+      renderRoutingRules();
+    }
     return;
   }
 
   if (state.activeView === "pools") {
-    renderPoolCards();
+    if (!liveOnly) {
+      renderPoolCards();
+    }
     return;
   }
 
   renderDiagnostics();
   renderErrors();
-  renderGuide();
+  if (!liveOnly) {
+    renderGuide();
+  }
+}
+
+function applyActiveViewFormState(): void {
+  if (state.activeView === "providers") {
+    applySettingsToForm();
+    return;
+  }
+
+  if (state.activeView === "routing") {
+    applyRoutingSettingsToForm();
+    resetRoutingPreviewResult();
+    return;
+  }
+
+  if (state.activeView === "pools") {
+    applyPoolSettingsToForm();
+    return;
+  }
+
+  if (state.activeView === "diagnostics") {
+    applySecuritySettingsToForm();
+    applySystemSettingsToForm();
+  }
 }
 
 function flushDeferredVisibleRefresh(): void {
   cancelVisibleRefreshFrame();
   state.pendingVisibleRefresh = false;
-  renderActiveViewContent();
+  renderActiveViewContent({ liveOnly: true });
 }
 
 function scheduleVisibleRefresh(): void {
@@ -1371,6 +1469,7 @@ function scheduleVisibleRefresh(): void {
 
 function markViewStackScrolling(): void {
   state.isViewStackScrolling = true;
+  state.lastViewStackScrollAt = Date.now();
   clearViewStackScrollIdleTimer();
   viewStackScrollIdleTimer = window.setTimeout(() => {
     state.isViewStackScrolling = false;
@@ -1478,6 +1577,69 @@ function getAccountGroups() {
     state.sessions?.data ?? [],
     state.sessions?.activeSessionId,
   );
+}
+
+function getVisibleLocalImportAccountGroups(): ReturnType<
+  typeof getAccountGroups
+>["groups"] {
+  return sortAccountGroups(
+    getAccountGroups().groups.filter((group) => group.sourceKind === "local-import"),
+    {
+      search: state.accountSearch,
+      sortKey: state.accountSortKey,
+      sortDirection: state.accountSortDirection,
+      pinnedSessionId: state.systemSettings?.pinnedSessionId,
+    },
+  );
+}
+
+function reconcileSelectedAccountKeys(
+  accounts: ReturnType<typeof getAccountGroups>["groups"],
+): void {
+  const normalized = normalizeAccountSelection(accounts, selectedAccountKeys);
+  selectedAccountKeys.clear();
+  for (const accountKey of normalized) {
+    selectedAccountKeys.add(accountKey);
+  }
+}
+
+function buildAccountBulkToolbarMarkup(
+  accounts: ReturnType<typeof getAccountGroups>["groups"],
+): string {
+  const selectedCount = selectedAccountKeys.size;
+  const allSelected = accounts.length > 0 && selectedCount === accounts.length;
+  const hasSelection = selectedCount > 0;
+  return `
+    <div class="account-bulk-toolbar">
+      <div class="account-bulk-toolbar-main">
+        <label class="account-bulk-select" data-account-select-control="true">
+          <input
+            type="checkbox"
+            data-field="account-bulk-select-all"
+            aria-label="选择全部当前账号"
+            ${allSelected ? "checked" : ""}
+          />
+          <span>选择当前账号</span>
+        </label>
+        <span class="badge neutral">已选 ${escapeHtml(String(selectedCount))} / 当前 ${escapeHtml(String(accounts.length))}</span>
+        <span class="account-bulk-hint">删除会移除 local-ai-gateway 本地账号副本，并同步清理号池成员引用。</span>
+      </div>
+      <div class="account-bulk-actions">
+        <button
+          type="button"
+          class="btn ghost mini"
+          data-action="account-clear-selection"
+          ${hasSelection ? "" : "disabled"}
+        >清空选择</button>
+        <button
+          type="button"
+          class="btn danger-ghost mini"
+          data-action="account-delete-selected"
+          ${hasSelection ? "" : "disabled"}
+        >删除选中账号</button>
+      </div>
+    </div>
+  `;
 }
 
 function isPinnedAccountSession(sessionId: string): boolean {
@@ -2038,16 +2200,8 @@ function renderCodexAccounts(): void {
     return getQuotaPercentage(account.representative);
   };
 
-  const accountGroups = getAccountGroups();
-  const accounts = sortAccountGroups(
-    accountGroups.groups.filter((group) => group.sourceKind === "local-import"),
-    {
-      search: state.accountSearch,
-      sortKey: state.accountSortKey,
-      sortDirection: state.accountSortDirection,
-      pinnedSessionId: state.systemSettings?.pinnedSessionId,
-    },
-  );
+  const accounts = getVisibleLocalImportAccountGroups();
+  reconcileSelectedAccountKeys(accounts);
   const activitySummary = buildAccountActivitySummary(accounts);
   const healthyQuotaCount = accounts.filter(
     (account) => (getDisplayQuotaPercentage(account) ?? 0) > 50,
@@ -2063,157 +2217,162 @@ function renderCodexAccounts(): void {
     return typeof percentage === "number" && percentage <= 20;
   }).length;
 
-  container.innerHTML = "";
-  const section = document.createElement("section");
-  section.style.marginBottom = "32px";
-  const cards = accounts.length
-    ? accounts
-        .map(
-          (account) => `
-        ${(() => {
-          const title = getSessionTitle(account.representative);
-          const avatarTone = getAvatarToneIndex(account.representative.id);
-          const refreshErrorMessage = getAccountRefreshError(account);
-          const quotaIsStale = isQuotaSnapshotStale(account, refreshErrorMessage);
-          const quotaPercentage = quotaIsStale
-            ? undefined
-            : getQuotaPercentage(account.representative);
-          const quotaScope = formatQuotaWindowLabel(account.representative);
-          const quotaToneClass = getQuotaToneClass(quotaPercentage).replace(
-            "quota-",
-            "",
-          );
-          const activity = account.representative.activity;
-          const requestCount = activity?.requestCount ?? 0;
-          const recentCallLabel = formatRecentCall(activity?.lastRequestAt);
-          const clientTagBadges = renderClientTagBadges(
-            activity?.byClientTag ?? [],
-          );
-          const recentClientTagBadges = renderRecentClientTagBadges(
-            activity?.recentByClientTag5m ?? [],
-            activity?.recentRequestCount5m ?? 0,
-          );
-          const isLive =
-            typeof activity?.lastRequestAt === "number" &&
-            Date.now() - activity.lastRequestAt <= 90_000;
-          const isPinned = isPinnedAccountSession(account.representative.id);
-          const quotaUpdatedAt = account.representative.quota?.updatedAt
-            ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
-            : "尚未同步";
-          return `
-        <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}">
-          <div class="acc-header">
-            <div class="acc-title-group">
-              <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
-              <div class="acc-info">
-                <h4>${escapeHtml(title)}</h4>
-                <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
-              </div>
-            </div>
-            <div class="acc-status-group">
-              ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
-              ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
-              ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
-              ${refreshErrorMessage ? `<span class="badge incomplete">${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
-              <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
-            </div>
-          </div>
-          <div class="acc-meta">
-            <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
-            <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
-          </div>
-          <div class="acc-meta">
-            <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
-            <span>请求数: ${requestCount}</span>
-          </div>
-          <div class="acc-meta" style="align-items: center;">
-            <span>来源分布:</span>
-            <span class="client-tag-list">${clientTagBadges}</span>
-          </div>
-          <div class="acc-meta" style="align-items: center;">
-            <span>近5分钟:</span>
-            <span class="client-tag-list">${recentClientTagBadges}</span>
-          </div>
-          <div class="acc-meta">
-            <span>近1小时请求: ${activity?.recentRequestCount1h ?? 0}</span>
-            <span>近24小时: ${activity?.recentRequestCount24h ?? 0}</span>
-          </div>
-          <div style="margin-top: 4px;">
-            <div style="display: flex; justify-content: space-between; font-size: 14px;">
-              <span style="color: var(--text-secondary);">${quotaScope}</span>
-              <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
-            </div>
-            <div class="acc-quota-bar">
-              <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
-            </div>
-            <div style="font-size: 14px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
-              <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
-              <span>${escapeHtml(quotaUpdatedAt)}</span>
-            </div>
-          </div>
-          ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</div>` : ""}
-          <div class="acc-actions">
-            <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="activate"
-              data-tone="${account.isActive ? "active" : "activate"}"
-              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-              aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-              type="button"
+  cancelAccountRenderFrame();
+
+  const buildAccountCardMarkup = (
+    account: ReturnType<typeof getAccountGroups>["groups"][number],
+  ): string => {
+    const title = getSessionTitle(account.representative);
+    const avatarTone = getAvatarToneIndex(account.representative.id);
+    const refreshErrorMessage = getAccountRefreshError(account);
+    const quotaIsStale = isQuotaSnapshotStale(account, refreshErrorMessage);
+    const quotaPercentage = quotaIsStale
+      ? undefined
+      : getQuotaPercentage(account.representative);
+    const quotaScope = formatQuotaWindowLabel(account.representative);
+    const quotaToneClass = getQuotaToneClass(quotaPercentage).replace(
+      "quota-",
+      "",
+    );
+    const activity = account.representative.activity;
+    const requestCount = activity?.requestCount ?? 0;
+    const recentCallLabel = formatRecentCall(activity?.lastRequestAt);
+    const clientTagBadges = renderClientTagBadges(activity?.byClientTag ?? []);
+    const recentClientTagBadges = renderRecentClientTagBadges(
+      activity?.recentByClientTag5m ?? [],
+      activity?.recentRequestCount5m ?? 0,
+    );
+    const isLive =
+      typeof activity?.lastRequestAt === "number" &&
+      Date.now() - activity.lastRequestAt <= 90_000;
+    const isPinned = isPinnedAccountSession(account.representative.id);
+    const selected = selectedAccountKeys.has(account.key);
+    const quotaUpdatedAt = account.representative.quota?.updatedAt
+      ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+      : "尚未同步";
+    return `
+      <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}" data-account-key="${escapeHtml(account.key)}" data-selected="${selected ? "true" : "false"}">
+        <div class="acc-header">
+          <div class="acc-title-group">
+            <label
+              class="account-card-select"
+              data-account-select-control="true"
+              title="选择此账号用于批量操作"
             >
-              ${renderActionIcon(account.isActive ? "active" : "activate")}
-            </button>
-            <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="toggle-pin-session"
-              data-tone="${isPinned ? "pin-active" : "pin"}"
-              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="${isPinned ? "取消置顶" : "置顶账号"}"
-              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
-              type="button"
-            >
-              ${renderActionIcon(isPinned ? "unpin" : "pin")}
-            </button>
-            <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="refresh-session-usage"
-              data-tone="refresh"
-              data-tooltip="刷新额度"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="刷新额度"
-              aria-label="刷新额度"
-              type="button"
-            >
-              ${renderActionIcon("refresh")}
-            </button>
-            <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="delete-codex-account"
-              data-tone="delete"
-              data-tooltip="删除账号"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="删除账号"
-              aria-label="删除账号"
-              style="margin-left: auto;"
-              type="button"
-            >
-              ${renderActionIcon("delete")}
-            </button>
+              <input
+                type="checkbox"
+                data-field="account-card-selector"
+                data-account-key="${escapeHtml(account.key)}"
+                aria-label="选择账号 ${escapeHtml(title)}"
+                ${selected ? "checked" : ""}
+              />
+            </label>
+            <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
+            <div class="acc-info">
+              <h4>${escapeHtml(title)}</h4>
+              <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
+            </div>
+          </div>
+          <div class="acc-status-group">
+            ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
+            ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
+            ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
+            ${refreshErrorMessage ? `<span class="badge incomplete">${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
+            <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
           </div>
         </div>
-      `;
-        })()}
-      `,
-        )
-        .join("")
-    : "<div class='empty-state'>当前还没有导入任何桌面端 Codex 账号。可通过“添加账号”或“导入配置”补充。</div>";
+        <div class="acc-meta">
+          <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
+          <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+        </div>
+        <div class="acc-meta">
+          <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
+          <span>请求数: ${requestCount}</span>
+        </div>
+        <div class="acc-meta" style="align-items: center;">
+          <span>来源分布:</span>
+          <span class="client-tag-list">${clientTagBadges}</span>
+        </div>
+        <div class="acc-meta" style="align-items: center;">
+          <span>近5分钟:</span>
+          <span class="client-tag-list">${recentClientTagBadges}</span>
+        </div>
+        <div class="acc-meta">
+          <span>近1小时请求: ${activity?.recentRequestCount1h ?? 0}</span>
+          <span>近24小时: ${activity?.recentRequestCount24h ?? 0}</span>
+        </div>
+        <div style="margin-top: 4px;">
+          <div style="display: flex; justify-content: space-between; font-size: 14px;">
+            <span style="color: var(--text-secondary);">${quotaScope}</span>
+            <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
+          </div>
+          <div class="acc-quota-bar">
+            <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
+          </div>
+          <div style="font-size: 14px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
+            <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
+            <span>${escapeHtml(quotaUpdatedAt)}</span>
+          </div>
+        </div>
+        ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</div>` : ""}
+        <div class="acc-actions">
+          <button
+            class="icon-btn"
+            data-icon-only="true"
+            data-action="activate"
+            data-tone="${account.isActive ? "active" : "activate"}"
+            data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+            data-session-id="${escapeHtml(account.representative.id)}"
+            title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+            aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+            type="button"
+          >
+            ${renderActionIcon(account.isActive ? "active" : "activate")}
+          </button>
+          <button
+            class="icon-btn"
+            data-icon-only="true"
+            data-action="toggle-pin-session"
+            data-tone="${isPinned ? "pin-active" : "pin"}"
+            data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
+            data-session-id="${escapeHtml(account.representative.id)}"
+            title="${isPinned ? "取消置顶" : "置顶账号"}"
+            aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
+            type="button"
+          >
+            ${renderActionIcon(isPinned ? "unpin" : "pin")}
+          </button>
+          <button
+            class="icon-btn"
+            data-icon-only="true"
+            data-action="refresh-session-usage"
+            data-tone="refresh"
+            data-tooltip="刷新额度"
+            data-session-id="${escapeHtml(account.representative.id)}"
+            title="刷新额度"
+            aria-label="刷新额度"
+            type="button"
+          >
+            ${renderActionIcon("refresh")}
+          </button>
+          <button
+            class="icon-btn"
+            data-icon-only="true"
+            data-action="delete-codex-account"
+            data-tone="delete"
+            data-tooltip="删除账号"
+            data-session-id="${escapeHtml(account.representative.id)}"
+            title="删除账号"
+            aria-label="删除账号"
+            style="margin-left: auto;"
+            type="button"
+          >
+            ${renderActionIcon("delete")}
+          </button>
+        </div>
+      </div>
+    `;
+  };
 
   const topHeader = document.getElementById("accounts-top-header");
   if (topHeader) {
@@ -2289,7 +2448,49 @@ function renderCodexAccounts(): void {
       </div>
       `;
   }
-  container.innerHTML = `<div class="grid-layout accounts-grid">${cards}</div>`;
+  if (accounts.length === 0) {
+    selectedAccountKeys.clear();
+    container.innerHTML =
+      "<div class='empty-state'>当前还没有导入任何桌面端 Codex 账号。可通过“添加账号”或“导入配置”补充。</div>";
+    updateAccountToolbarState();
+    return;
+  }
+
+  container.innerHTML = `
+    ${buildAccountBulkToolbarMarkup(accounts)}
+    <div class="grid-layout accounts-grid" data-accounts-grid></div>
+  `;
+  const grid = container.querySelector<HTMLElement>("[data-accounts-grid]");
+  if (!grid) {
+    updateAccountToolbarState();
+    return;
+  }
+
+  const batchToken = accountRenderToken;
+  let cursor = 0;
+  const batchSize = 10;
+
+  const appendNextBatch = () => {
+    if (batchToken !== accountRenderToken) {
+      return;
+    }
+    const nextHtml = accounts
+      .slice(cursor, cursor + batchSize)
+      .map((account) => buildAccountCardMarkup(account))
+      .join("");
+    if (nextHtml) {
+      const fragment = document.createRange().createContextualFragment(nextHtml);
+      grid.appendChild(fragment);
+    }
+    cursor += batchSize;
+    if (cursor < accounts.length) {
+      accountRenderFrame = window.requestAnimationFrame(appendNextBatch);
+      return;
+    }
+    accountRenderFrame = undefined;
+  };
+
+  appendNextBatch();
 
   updateAccountToolbarState();
 }
@@ -2919,6 +3120,67 @@ function getPoolsContainer(): HTMLElement | null {
   return document.getElementById("pool-list");
 }
 
+function reconcileSelectedPoolIds(pools: PoolDefinition[]): void {
+  const normalized = normalizePoolSelection(pools, selectedPoolIds);
+  selectedPoolIds.clear();
+  for (const poolId of normalized) {
+    selectedPoolIds.add(poolId);
+  }
+}
+
+function cleanupDeletedPoolState(poolIds: Iterable<string>): void {
+  for (const poolId of poolIds) {
+    cancelPoolMemberFieldFrame(poolId);
+    poolMemberPanelState.delete(poolId);
+    selectedPoolIds.delete(poolId);
+  }
+}
+
+function syncAllPoolDraftsFromRows(): void {
+  for (const row of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-pool-row]"),
+  )) {
+    syncPoolDraftFromRow(row);
+  }
+}
+
+function buildPoolBulkToolbarMarkup(pools: PoolDefinition[]): string {
+  const selectedCount = selectedPoolIds.size;
+  const allSelected = pools.length > 0 && selectedCount === pools.length;
+  const hasSelection = selectedCount > 0;
+  return `
+    <div class="pool-bulk-toolbar">
+      <div class="pool-bulk-toolbar-main">
+        <label class="pool-bulk-select" data-pool-select-control="true">
+          <input
+            type="checkbox"
+            data-field="pool-bulk-select-all"
+            aria-label="选择全部号池"
+            ${allSelected ? "checked" : ""}
+          />
+          <span>选择全部号池</span>
+        </label>
+        <span class="badge neutral">已选 ${escapeHtml(String(selectedCount))} / 共 ${escapeHtml(String(pools.length))}</span>
+        <span class="pool-bulk-hint">批量删除只影响当前编辑态，保存号池配置后正式生效。</span>
+      </div>
+      <div class="pool-bulk-actions">
+        <button
+          type="button"
+          class="btn ghost mini"
+          data-action="pool-clear-selection"
+          ${hasSelection ? "" : "disabled"}
+        >清空选择</button>
+        <button
+          type="button"
+          class="btn danger-ghost mini"
+          data-action="pool-delete-selected"
+          ${hasSelection ? "" : "disabled"}
+        >删除选中号池</button>
+      </div>
+    </div>
+  `;
+}
+
 function resolveRoutingDispatchMode(rule: RoutingRule): RoutingDispatchMode {
   const explicit = rule.target?.dispatchMode;
   if (
@@ -3369,6 +3631,28 @@ function buildPoolMemberRuntimeMarkup(
           : ""
       }
     </div>
+  `;
+}
+
+function renderUtilityIcon(type: "copy" | "eye" | "eye-off"): string {
+  if (type === "copy") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M5 2.25A1.75 1.75 0 0 0 3.25 4v6c0 .966.784 1.75 1.75 1.75h.25V12A2.75 2.75 0 0 0 8 14.75h4A2.75 2.75 0 0 0 14.75 12V6A2.75 2.75 0 0 0 12 3.25h-.25V4c0 .966-.784 1.75-1.75 1.75H5.25V4A.25.25 0 0 1 5.5 3.75h4.75a.75.75 0 0 0 0-1.5H5Zm3 2.5h4c.69 0 1.25.56 1.25 1.25v6c0 .69-.56 1.25-1.25 1.25H8c-.69 0-1.25-.56-1.25-1.25V6c0-.69.56-1.25 1.25-1.25Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  if (type === "eye") {
+    return `
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 3c3.528 0 6.205 2.352 7.352 4.324a1.33 1.33 0 0 1 0 1.352C14.205 10.648 11.528 13 8 13s-6.205-2.352-7.352-4.324a1.33 1.33 0 0 1 0-1.352C1.795 5.352 4.472 3 8 3Zm0 1.5c-2.84 0-5.034 1.86-6.044 3.5 1.01 1.64 3.204 3.5 6.044 3.5s5.034-1.86 6.044-3.5C13.034 6.36 10.84 4.5 8 4.5Zm0 1.25A2.25 2.25 0 1 1 5.75 8 2.25 2.25 0 0 1 8 5.75Zm0 1.5A.75.75 0 1 0 8.75 8 .75.75 0 0 0 8 7.25Z" fill="currentColor"/>
+      </svg>
+    `;
+  }
+  return `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.53 1.47a.75.75 0 0 0-1.06 1.06l10 10a.75.75 0 1 0 1.06-1.06l-1.35-1.35c1.74-.58 3.05-1.86 3.97-3.46a1.33 1.33 0 0 0 0-1.352C14.005 3.398 11.328 1.046 7.8 1.046c-1.27 0-2.436.305-3.465.826L2.53 1.47Zm2.88 2.88A2.25 2.25 0 0 1 8.75 7.69l-3.34-3.34ZM8 3.5c2.84 0 5.034 1.86 6.044 3.5-.763 1.239-2.22 2.556-4.151 3.181l-1.32-1.32a2.25 2.25 0 0 1-2.934-2.934L4.463 4.75A6.684 6.684 0 0 1 8 3.5Zm-6.044 3.5c.49.797 1.25 1.628 2.272 2.285l-1.08 1.08C2.155 9.692 1.35 8.889.648 7.676a1.33 1.33 0 0 1 0-1.352c.37-.637.802-1.254 1.292-1.825l1.09 1.09A9.867 9.867 0 0 0 1.956 7Z" fill="currentColor"/>
+    </svg>
   `;
 }
 
@@ -3944,23 +4228,41 @@ function renderPoolCards(): void {
   }
 
   const pools = state.poolSettings?.pools ?? [];
+  reconcileSelectedPoolIds(pools);
   if (pools.length === 0) {
+    selectedPoolIds.clear();
     container.innerHTML =
       "<div class='empty-state'>当前还没有号池。你可以新增一个号池，把多个桌面端 Codex 账号纳入自动调度。</div>";
     return;
   }
 
-  container.innerHTML = pools
+  container.innerHTML = [
+    buildPoolBulkToolbarMarkup(pools),
+    ...pools
     .map((pool, index) => {
       const panelState = getPoolPanelState(pool.id);
       const candidates = buildPoolMemberCandidates();
       const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
         "\n",
       );
+      const selected = selectedPoolIds.has(pool.id);
       return `
-        <div class="routing-rule-card pool-config-card ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}">
+        <div class="routing-rule-card pool-config-card ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}" data-selected="${selected ? "true" : "false"}">
           <div class="routing-rule-top pool-card-top" data-action="toggle-pool-card" data-pool-id="${escapeHtml(pool.id)}">
             <div class="pool-card-title-wrap">
+              <label
+                class="pool-card-select"
+                data-pool-select-control="true"
+                title="选择此号池用于批量操作"
+              >
+                <input
+                  type="checkbox"
+                  data-field="pool-card-selector"
+                  data-pool-id="${escapeHtml(pool.id)}"
+                  aria-label="选择号池 ${escapeHtml(pool.name || pool.id)}"
+                  ${selected ? "checked" : ""}
+                />
+              </label>
               <div class="pool-card-index-avatar">${index + 1}</div>
               <div class="pool-card-title-text">
                 <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
@@ -4004,7 +4306,7 @@ function renderPoolCards(): void {
               <label>说明（可选）</label>
               <input class="input-field" data-field="pool-description" placeholder="例如：给 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
             </div>
-            <div class="form-field" style="grid-column: 1 / -1;">
+            <div class="form-field" data-pool-members-field="true" style="grid-column: 1 / -1;">
               <label>池成员（推荐直接勾选桌面端账号）</label>
               ${buildPoolMemberSelectorMarkup(pool)}
               <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
@@ -4056,8 +4358,8 @@ function renderPoolCards(): void {
           </div>
         </div>
       `;
-    })
-    .join("");
+    }),
+  ].join("");
 }
 
 function applyPoolSettingsToForm(): void {
@@ -4178,6 +4480,57 @@ function syncPoolDraftFromRow(row: HTMLElement): void {
     ...settings,
     pools: nextPools,
   };
+}
+
+function getPoolMembersFieldContainer(row: HTMLElement): HTMLElement | null {
+  return row.querySelector<HTMLElement>('[data-pool-members-field="true"]');
+}
+
+function renderPoolMembersField(
+  row: HTMLElement,
+  options?: { preserveSearchFocus?: boolean },
+): void {
+  const poolId = row.dataset.poolId || createPoolId();
+  const pool =
+    state.poolSettings?.pools?.find((item) => item.id === poolId) ??
+    collectPoolDefinitionFromRow(row);
+  const membersContainer = getPoolMembersFieldContainer(row);
+  if (!membersContainer) {
+    renderPoolCards();
+    return;
+  }
+  const activeSearch = row.querySelector(
+    '[data-pool-ui="search"]',
+  ) as HTMLInputElement | null;
+  const selectionStart = activeSearch?.selectionStart ?? null;
+  const selectionEnd = activeSearch?.selectionEnd ?? null;
+  membersContainer.innerHTML = `
+    <label>池成员（推荐直接勾选桌面端账号）</label>
+    ${buildPoolMemberSelectorMarkup(pool)}
+    <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
+  `;
+  if (options?.preserveSearchFocus) {
+    const newInput = row.querySelector('[data-pool-ui="search"]') as HTMLInputElement | null;
+    if (newInput) {
+      newInput.focus();
+      const start = selectionStart ?? newInput.value.length;
+      const end = selectionEnd ?? newInput.value.length;
+      newInput.setSelectionRange(start, end);
+    }
+  }
+}
+
+function schedulePoolMembersFieldRender(
+  row: HTMLElement,
+  options?: { preserveSearchFocus?: boolean },
+): void {
+  const poolId = row.dataset.poolId || createPoolId();
+  cancelPoolMemberFieldFrame(poolId);
+  const frame = window.requestAnimationFrame(() => {
+    poolMemberFieldFrames.delete(poolId);
+    renderPoolMembersField(row, options);
+  });
+  poolMemberFieldFrames.set(poolId, frame);
 }
 
 function collectRoutingSettingsFromForm(): RoutingSettings {
@@ -4432,6 +4785,193 @@ function resetRoutingPreviewResult(): void {
     "<div class='routing-preview-result-card neutral'><span style='font-size: 14px; color: var(--text-secondary);'>填写条件后点击“预演路由结果”查看命中情况。</span></div>";
 }
 
+function renderSecurityClientMappings(
+  mappings: SecurityClientMapping[],
+): void {
+  const listNode = document.getElementById("gateway-auth-client-mappings");
+  if (!listNode) {
+    return;
+  }
+  if (mappings.length === 0) {
+    listNode.innerHTML = `
+      <div class="form-hint">当前暂无客户端映射。可新增独立 API Key，将来源稳定标记为 hermes / openclaw 等。</div>
+    `;
+    return;
+  }
+
+  listNode.innerHTML = mappings
+    .map(
+      (mapping, index) => `
+      <div class="routing-rule-card" data-security-mapping-row="${index}" style="margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <strong style="font-size: 14px;">客户端映射 #${index + 1}</strong>
+          <button class="btn danger-ghost mini" type="button" data-remove-security-mapping="${index}">删除</button>
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>名称</label>
+            <input class="input-field" data-security-mapping-name="${index}" value="${escapeHtml(mapping.name)}" placeholder="例如 Hermes" />
+          </div>
+          <div class="form-field">
+            <label>客户端标签</label>
+            <input class="input-field" data-security-mapping-client-tag="${index}" value="${escapeHtml(mapping.clientTag)}" placeholder="例如 hermes" />
+          </div>
+          <div class="form-field full">
+            <label>客户端 API Key</label>
+            <div class="secret-field-stack">
+              <div class="secret-inline-row">
+                <div class="secret-input-shell">
+                  <input
+                    id="security-mapping-api-key-${index}"
+                    class="input-field"
+                    data-secret-input="security-mapping-api-key-${index}"
+                    type="password"
+                    data-security-mapping-api-key="${index}"
+                    value="${escapeHtml(mapping.draftApiKey ?? "")}"
+                    placeholder="${mapping.hasApiKey ? "已保存；如需更新请输入新值" : "请输入该客户端专属密钥"}"
+                  />
+                  <div class="secret-inline-actions">
+                    <button
+                      class="icon-btn"
+                      data-tone="visibility"
+                      type="button"
+                      data-secret-visibility-toggle="#security-mapping-api-key-${index}"
+                      title="显示或隐藏密钥"
+                      aria-label="显示或隐藏密钥"
+                    ></button>
+                    <button
+                      class="icon-btn"
+                      data-tone="copy"
+                      type="button"
+                      data-secret-copy-target="#security-mapping-api-key-${index}"
+                      title="复制密钥"
+                      aria-label="复制密钥"
+                    ></button>
+                  </div>
+                </div>
+                <button class="btn primary mini secret-generate-btn" type="button" data-generate-security-mapping-api-key="${index}">生成专属密钥</button>
+              </div>
+            </div>
+            <div class="form-hint">安全原因不会回显已有密钥。留空表示保留已有密钥不变。</div>
+          </div>
+          <div class="form-field" style="flex-direction: row; align-items: center; gap: 8px;">
+            <input type="checkbox" data-security-mapping-enabled="${index}" ${mapping.enabled ? "checked" : ""} />
+            <label style="margin: 0;">启用该映射</label>
+          </div>
+          <div class="form-field" style="flex-direction: row; align-items: center; gap: 8px;">
+            <input type="checkbox" data-security-mapping-allow-header="${index}" ${mapping.allowHeaderOverride ? "checked" : ""} />
+            <label style="margin: 0;">允许 header 覆盖标签</label>
+          </div>
+        </div>
+      </div>
+    `,
+    )
+    .join("");
+  syncSecretFieldActionState(listNode);
+}
+
+function updateSecretVisibilityButton(
+  button: HTMLButtonElement,
+  input: HTMLInputElement,
+): void {
+  const visible = input.type === "text";
+  button.innerHTML = renderUtilityIcon(visible ? "eye-off" : "eye");
+  button.setAttribute("aria-pressed", visible ? "true" : "false");
+  button.title = visible ? "隐藏密钥" : "显示密钥";
+  button.setAttribute("aria-label", visible ? "隐藏密钥" : "显示密钥");
+  button.disabled = input.value.trim().length === 0;
+}
+
+function updateSecretCopyButton(
+  button: HTMLButtonElement,
+  input: HTMLInputElement,
+): void {
+  button.innerHTML = renderUtilityIcon("copy");
+  button.title = "复制密钥";
+  button.setAttribute("aria-label", "复制密钥");
+  button.disabled = input.value.trim().length === 0;
+}
+
+function syncSecretFieldActionState(root: ParentNode = document): void {
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-secret-visibility-toggle]")
+    .forEach((button) => {
+      const selector = button.dataset.secretVisibilityToggle;
+      if (!selector) {
+        return;
+      }
+      const input = document.querySelector(selector) as HTMLInputElement | null;
+      if (!input) {
+        return;
+      }
+      updateSecretVisibilityButton(button, input);
+    });
+
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-secret-copy-target]")
+    .forEach((button) => {
+      const selector = button.dataset.secretCopyTarget;
+      if (!selector) {
+        return;
+      }
+      const input = document.querySelector(selector) as HTMLInputElement | null;
+      if (!input) {
+        return;
+      }
+      updateSecretCopyButton(button, input);
+    });
+}
+
+function syncSecurityMappingDraftsFromDom(): void {
+  if (!state.securitySettings) {
+    return;
+  }
+  const rows = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-security-mapping-row]"),
+  );
+  if (rows.length === 0) {
+    return;
+  }
+  const nextMappings = rows
+    .map((row, rowIndex) => {
+      const current = state.securitySettings?.clientMappings[rowIndex];
+      const nameNode = row.querySelector(
+        `[data-security-mapping-name="${rowIndex}"]`,
+      ) as HTMLInputElement | null;
+      const clientTagNode = row.querySelector(
+        `[data-security-mapping-client-tag="${rowIndex}"]`,
+      ) as HTMLInputElement | null;
+      const apiKeyNode = row.querySelector(
+        `[data-security-mapping-api-key="${rowIndex}"]`,
+      ) as HTMLInputElement | null;
+      const enabledNode = row.querySelector(
+        `[data-security-mapping-enabled="${rowIndex}"]`,
+      ) as HTMLInputElement | null;
+      const allowHeaderNode = row.querySelector(
+        `[data-security-mapping-allow-header="${rowIndex}"]`,
+      ) as HTMLInputElement | null;
+
+      return {
+        name: nameNode?.value.trim() || current?.name || `client-${rowIndex + 1}`,
+        clientTag:
+          clientTagNode?.value.trim() || current?.clientTag || `client-${rowIndex + 1}`,
+        enabled: enabledNode?.checked ?? current?.enabled ?? true,
+        allowHeaderOverride:
+          allowHeaderNode?.checked ?? current?.allowHeaderOverride ?? false,
+        hasApiKey:
+          Boolean(apiKeyNode?.value.trim()) || current?.hasApiKey || false,
+        draftApiKey: apiKeyNode?.value.trim() || undefined,
+      } satisfies SecurityClientMapping;
+    })
+    .filter((item) => item.name.trim().length > 0);
+
+  state.securitySettings.clientMappings = nextMappings;
+  state.securitySettings.mappingCount = nextMappings.length;
+  state.securitySettings.enabledMappingCount = nextMappings.filter(
+    (item) => item.enabled,
+  ).length;
+}
+
 function applySecuritySettingsToForm(): void {
   const settings = state.securitySettings;
   const modeNode = document.getElementById(
@@ -4442,6 +4982,9 @@ function applySecuritySettingsToForm(): void {
   ) as HTMLElement | null;
   const keyNode = document.getElementById(
     "gateway-auth-api-key",
+  ) as HTMLInputElement | null;
+  const resolveByApiKeyNode = document.getElementById(
+    "gateway-auth-resolve-client-tag-by-api-key",
   ) as HTMLInputElement | null;
 
   const mode = settings?.mode === "api-key" ? "api-key" : "none";
@@ -4463,6 +5006,11 @@ function applySecuritySettingsToForm(): void {
       ? "如需更新密钥，请在此输入新值"
       : "请输入新的 API Key";
   }
+  if (resolveByApiKeyNode) {
+    resolveByApiKeyNode.checked = Boolean(settings?.resolveClientTagByApiKey);
+  }
+  renderSecurityClientMappings(settings?.clientMappings ?? []);
+  syncSecretFieldActionState();
 }
 
 function applySystemSettingsToForm(): void {
@@ -4728,10 +5276,67 @@ async function saveSecuritySettings(): Promise<void> {
     (
       document.getElementById("gateway-auth-api-key") as HTMLInputElement | null
     )?.value.trim() || undefined;
+  const resolveClientTagByApiKey =
+    (
+      document.getElementById(
+        "gateway-auth-resolve-client-tag-by-api-key",
+      ) as HTMLInputElement | null
+    )?.checked ?? false;
+
+  const mappingRows = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-security-mapping-row]"),
+  );
+  const clientMappings = mappingRows
+    .map((row) => {
+      const index = Number(row.dataset.securityMappingRow ?? "-1");
+      if (index < 0) {
+        return undefined;
+      }
+      const name = (
+        document.querySelector(
+          `[data-security-mapping-name="${index}"]`,
+        ) as HTMLInputElement | null
+      )?.value.trim();
+      const clientTag = (
+        document.querySelector(
+          `[data-security-mapping-client-tag="${index}"]`,
+        ) as HTMLInputElement | null
+      )?.value.trim();
+      const mappingApiKey = (
+        document.querySelector(
+          `[data-security-mapping-api-key="${index}"]`,
+        ) as HTMLInputElement | null
+      )?.value.trim();
+      const enabled =
+        (
+          document.querySelector(
+            `[data-security-mapping-enabled="${index}"]`,
+          ) as HTMLInputElement | null
+        )?.checked ?? true;
+      const allowHeaderOverride =
+        (
+          document.querySelector(
+            `[data-security-mapping-allow-header="${index}"]`,
+          ) as HTMLInputElement | null
+        )?.checked ?? false;
+      if (!name || !clientTag) {
+        return undefined;
+      }
+      return {
+        name,
+        clientTag,
+        apiKey: mappingApiKey || "",
+        enabled,
+        allowHeaderOverride,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   const payload: SecuritySettingsInput = {
     mode,
     apiKey,
+    resolveClientTagByApiKey,
+    clientMappings,
   };
   const response = await api.saveSecuritySettings(payload);
   state.securitySettings = response.data;
@@ -5362,6 +5967,69 @@ async function importAccountConfig(): Promise<void> {
   );
 }
 
+function appendSecurityClientMappingDraft(): void {
+  const current = state.securitySettings ?? {
+    mode: "none" as const,
+    enabled: false,
+    hasApiKey: false,
+    resolveClientTagByApiKey: false,
+    mappingCount: 0,
+    enabledMappingCount: 0,
+    clientMappings: [],
+  };
+  syncSecurityMappingDraftsFromDom();
+  const nextIndex = current.clientMappings.length + 1;
+  current.clientMappings = [
+    ...current.clientMappings,
+    {
+      name: `client-${nextIndex}`,
+      clientTag: `client-${nextIndex}`,
+      enabled: true,
+      allowHeaderOverride: false,
+      hasApiKey: false,
+    },
+  ];
+  current.mappingCount = current.clientMappings.length;
+  current.enabledMappingCount = current.clientMappings.filter((item) => item.enabled)
+    .length;
+  state.securitySettings = current;
+  renderSecurityClientMappings(current.clientMappings);
+  syncSecretFieldActionState();
+}
+
+function generateApiKey(prefix: string): string {
+  const normalizedPrefix = prefix
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "client";
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(40);
+  globalThis.crypto.getRandomValues(bytes);
+  let body = "";
+  for (let i = 0; i < 36; i += 1) {
+    body += alphabet[bytes[i] % alphabet.length];
+  }
+  return `lagw_${normalizedPrefix}_${body}`;
+}
+
+function removeSecurityClientMappingDraft(index: number): void {
+  if (!state.securitySettings) {
+    return;
+  }
+  syncSecurityMappingDraftsFromDom();
+  state.securitySettings.clientMappings = state.securitySettings.clientMappings.filter(
+    (_item, itemIndex) => itemIndex !== index,
+  );
+  state.securitySettings.mappingCount = state.securitySettings.clientMappings.length;
+  state.securitySettings.enabledMappingCount = state.securitySettings.clientMappings
+    .filter((item) => item.enabled).length;
+  renderSecurityClientMappings(state.securitySettings.clientMappings);
+  syncSecretFieldActionState();
+}
+
 function bindActions(): void {
   document.getElementById("refresh")?.addEventListener("click", async () => {
     const button = document.getElementById(
@@ -5473,6 +6141,145 @@ function bindActions(): void {
         setButtonLoading(button, false);
       }
     });
+
+  document
+    .getElementById("add-security-client-mapping")
+    ?.addEventListener("click", () => {
+      appendSecurityClientMappingDraft();
+    });
+
+  document
+    .getElementById("gateway-auth-client-mappings")
+    ?.addEventListener("click", async (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+      const trigger = target.closest<HTMLElement>("[data-remove-security-mapping]");
+      if (!trigger) {
+        return;
+      }
+      const index = Number(trigger.dataset.removeSecurityMapping ?? "-1");
+      if (index < 0) {
+        return;
+      }
+      const confirmed = await requestConfirmation({
+        title: "确认删除客户端映射",
+        message:
+          "删除后该客户端映射会立即从当前编辑态中移除；保存鉴权配置后才会正式生效。是否继续？",
+        confirmLabel: "删除映射",
+        tone: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
+      removeSecurityClientMappingDraft(index);
+    });
+
+  document
+    .getElementById("generate-gateway-auth-api-key")
+    ?.addEventListener("click", () => {
+      const keyNode = document.getElementById(
+        "gateway-auth-api-key",
+      ) as HTMLInputElement | null;
+      if (!keyNode) {
+        return;
+      }
+      keyNode.value = generateApiKey("default");
+      syncSecretFieldActionState();
+      setBanner("已生成新的 Gateway API Key。请记得保存并同步到客户端。", "success");
+    });
+
+  document
+    .getElementById("gateway-auth-client-mappings")
+    ?.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+      const trigger = target.closest<HTMLElement>(
+        "[data-generate-security-mapping-api-key]",
+      );
+      if (!trigger) {
+        return;
+      }
+      const index = Number(
+        trigger.dataset.generateSecurityMappingApiKey ?? "-1",
+      );
+      if (index < 0) {
+        return;
+      }
+      const nameNode = document.querySelector(
+        `[data-security-mapping-name="${index}"]`,
+      ) as HTMLInputElement | null;
+      const apiKeyNode = document.querySelector(
+        `[data-security-mapping-api-key="${index}"]`,
+      ) as HTMLInputElement | null;
+      if (!apiKeyNode) {
+        return;
+      }
+      const prefix = nameNode?.value?.trim() || `client-${index + 1}`;
+      apiKeyNode.value = generateApiKey(prefix);
+      syncSecretFieldActionState();
+      setBanner(
+        `已为映射 #${index + 1} 生成专属密钥。请记得保存并同步到对应客户端。`,
+        "success",
+      );
+    });
+
+  document.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return;
+    }
+
+    const toggleTrigger = target.closest<HTMLElement>(
+      "[data-secret-visibility-toggle]",
+    );
+    if (toggleTrigger) {
+      const selector = toggleTrigger.dataset.secretVisibilityToggle;
+      const input = selector
+        ? (document.querySelector(selector) as HTMLInputElement | null)
+        : null;
+      if (input) {
+        input.type = input.type === "password" ? "text" : "password";
+        syncSecretFieldActionState();
+      }
+      return;
+    }
+
+    const copyTrigger = target.closest<HTMLElement>("[data-secret-copy-target]");
+    if (copyTrigger) {
+      const selector = copyTrigger.dataset.secretCopyTarget;
+      const input = selector
+        ? (document.querySelector(selector) as HTMLInputElement | null)
+        : null;
+      const value = input?.value.trim() ?? "";
+      if (!value) {
+        setBanner("当前密钥输入框为空，暂无可复制内容。", "info");
+        return;
+      }
+      try {
+        await copyTextWithFallback(value);
+        setBanner("密钥已复制。", "success");
+      } catch (error) {
+        setBanner(`复制密钥失败：${String(error)}`, "error");
+      }
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (
+      target.matches("[data-secret-input]") ||
+      target.matches("[data-security-mapping-name]")
+    ) {
+      syncSecretFieldActionState();
+    }
+  });
 
   document.getElementById("add-pool")?.addEventListener("click", () => {
     const settings = state.poolSettings ?? {};
@@ -5681,35 +6488,10 @@ function bindActions(): void {
       if (!row) {
         return;
       }
-      syncPoolDraftFromRow(row);
       setPoolPanelState(row.dataset.poolId || createPoolId(), {
         search: target.value,
       });
-      // 只更新该号池内的成员列表区域，避免重绘整个卡片导致失焦
-      const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-        state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-          collectPoolDefinitionFromRow(row),
-      );
-      const membersContainer = row.querySelector(".form-field:nth-child(4)"); // 也就是"池成员"所在的div
-      if (membersContainer) {
-        membersContainer.innerHTML = `
-          <label>池成员（推荐直接勾选桌面端账号）</label>
-          ${memberSelectorMarkup}
-          <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-        `;
-        const newInput = row.querySelector(
-          '[data-pool-ui="search"]',
-        ) as HTMLInputElement;
-        if (newInput) {
-          newInput.focus();
-          newInput.setSelectionRange(
-            newInput.value.length,
-            newInput.value.length,
-          );
-        }
-      } else {
-        renderPoolCards();
-      }
+      schedulePoolMembersFieldRender(row, { preserveSearchFocus: true });
       return;
     }
 
@@ -5775,26 +6557,71 @@ function bindActions(): void {
     ) {
       const row = target.closest<HTMLElement>("[data-pool-row]");
       if (row) {
-        syncPoolDraftFromRow(row);
         setPoolPanelState(row.dataset.poolId || createPoolId(), {
           sortKey: target.value as PoolMemberSortKey,
         });
+        schedulePoolMembersFieldRender(row);
+      }
+    }
 
-        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-            collectPoolDefinitionFromRow(row),
-        );
-        const membersContainer = row.querySelector(".form-field:nth-child(4)");
-        if (membersContainer) {
-          membersContainer.innerHTML = `
-            <label>池成员（推荐直接勾选桌面端账号）</label>
-            ${memberSelectorMarkup}
-            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-          `;
-        } else {
-          renderPoolCards();
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-field="account-bulk-select-all"]')
+    ) {
+      selectedAccountKeys.clear();
+      if (target.checked) {
+        for (const account of getVisibleLocalImportAccountGroups()) {
+          selectedAccountKeys.add(account.key);
         }
       }
+      renderCodexAccounts();
+      return;
+    }
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-field="account-card-selector"]')
+    ) {
+      const accountKey = target.dataset.accountKey;
+      if (accountKey) {
+        if (target.checked) {
+          selectedAccountKeys.add(accountKey);
+        } else {
+          selectedAccountKeys.delete(accountKey);
+        }
+      }
+      renderCodexAccounts();
+      return;
+    }
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-field="pool-bulk-select-all"]')
+    ) {
+      selectedPoolIds.clear();
+      if (target.checked) {
+        for (const pool of state.poolSettings?.pools ?? []) {
+          selectedPoolIds.add(pool.id);
+        }
+      }
+      renderPoolCards();
+      return;
+    }
+
+    if (
+      target instanceof HTMLInputElement &&
+      target.matches('[data-field="pool-card-selector"]')
+    ) {
+      const poolId = target.dataset.poolId;
+      if (poolId) {
+        if (target.checked) {
+          selectedPoolIds.add(poolId);
+        } else {
+          selectedPoolIds.delete(poolId);
+        }
+      }
+      renderPoolCards();
+      return;
     }
 
     if (
@@ -5808,21 +6635,7 @@ function bindActions(): void {
       const row = target.closest<HTMLElement>("[data-pool-row]");
       if (row) {
         syncPoolDraftFromRow(row);
-
-        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-            collectPoolDefinitionFromRow(row),
-        );
-        const membersContainer = row.querySelector(".form-field:nth-child(4)");
-        if (membersContainer) {
-          membersContainer.innerHTML = `
-            <label>池成员（推荐直接勾选桌面端账号）</label>
-            ${memberSelectorMarkup}
-            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-          `;
-        } else {
-          renderPoolCards();
-        }
+        schedulePoolMembersFieldRender(row);
       }
     }
 
@@ -6002,10 +6815,20 @@ function bindActions(): void {
     clearSessionActivityTimer();
     clearViewStackScrollIdleTimer();
     cancelVisibleRefreshFrame();
+    cancelAccountRenderFrame();
+    for (const poolId of poolMemberFieldFrames.keys()) {
+      cancelPoolMemberFieldFrame(poolId);
+    }
   });
 
   document.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement | null;
+    if (target?.closest("[data-account-select-control]")) {
+      return;
+    }
+    if (target?.closest("[data-pool-select-control]")) {
+      return;
+    }
     const button = target?.closest<HTMLElement>("[data-action]");
     if (!button) {
       return;
@@ -6170,12 +6993,100 @@ function bindActions(): void {
       }
     }
 
+    if (action === "account-clear-selection") {
+      selectedAccountKeys.clear();
+      renderCodexAccounts();
+      setBanner("已清空账号批量选择。", "info");
+      return;
+    }
+
+    if (action === "account-delete-selected") {
+      const accounts = getVisibleLocalImportAccountGroups();
+      const targets = collectAccountDeletionTargets(accounts, selectedAccountKeys);
+      const selectedAccounts = accounts.filter((account) =>
+        selectedAccountKeys.has(account.key),
+      );
+      if (targets.length === 0) {
+        selectedAccountKeys.clear();
+        renderCodexAccounts();
+        setBanner("当前没有可删除的已选本地账号。", "info");
+        return;
+      }
+
+      const accountNames = selectedAccounts
+        .slice(0, 5)
+        .map((account) => getSessionTitle(account.representative))
+        .join("、");
+      const suffix =
+        selectedAccounts.length > 5
+          ? ` 等 ${selectedAccounts.length} 个账号`
+          : "";
+      const confirmed = await requestConfirmation({
+        title: "确认批量删除账号",
+        message: `即将删除 local-ai-gateway 本地维护的 ${selectedAccounts.length} 个账号：${accountNames}${suffix}。这会从本项目的本地账号配置中移除对应凭据，并同步清理号池中的账号引用；不会删除或改写 Cockpit 原始配置。是否继续？`,
+        confirmLabel: "批量删除",
+        tone: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const deleteButton = button as HTMLButtonElement;
+      const errors: string[] = [];
+      let removedSessionCount = 0;
+      let removedPoolMemberCount = 0;
+      const affectedPoolIds = new Set<string>();
+
+      try {
+        setButtonLoading(deleteButton, true, "删除中");
+        setBanner(
+          `正在删除 ${selectedAccounts.length} 个本地账号并清理号池引用...`,
+          "info",
+        );
+        for (const target of targets) {
+          try {
+            const result = await getGatewayApi().deleteCodexAccount(
+              target.sessionId,
+            );
+            if (result.data.removed) {
+              removedSessionCount += 1;
+            }
+            const poolCleanup = result.data.poolCleanup;
+            removedPoolMemberCount += poolCleanup?.removedMemberCount ?? 0;
+            for (const poolId of poolCleanup?.affectedPoolIds ?? []) {
+              affectedPoolIds.add(poolId);
+            }
+          } catch (error) {
+            errors.push(
+              `${target.sessionId}: ${normalizeErrorMessage(error)}`,
+            );
+          }
+        }
+        selectedAccountKeys.clear();
+        await refresh();
+        if (errors.length > 0) {
+          setBanner(
+            `已删除 ${removedSessionCount} 个本地账号会话，但 ${errors.length} 个删除失败：${errors[0]}`,
+            "error",
+          );
+          return;
+        }
+        setBanner(
+          `已删除 ${selectedAccounts.length} 个本地账号，清理 ${removedPoolMemberCount} 个号池成员引用${affectedPoolIds.size ? `，影响 ${affectedPoolIds.size} 个号池` : ""}。`,
+          "success",
+        );
+      } finally {
+        setButtonLoading(deleteButton, false);
+      }
+      return;
+    }
+
     if (action === "delete-codex-account" && button.dataset.sessionId) {
       try {
         const confirmed = await requestConfirmation({
           title: "确认删除账号",
           message:
-            "删除后将从桌面端本地账号存储中移除该 Codex 账号。是否继续？",
+            "删除后将从 local-ai-gateway 本地账号配置中移除该 Codex 账号，并同步清理号池中的账号引用；不会删除或改写 Cockpit 原始配置。是否继续？",
           confirmLabel: "删除账号",
           tone: "danger",
         });
@@ -6192,7 +7103,7 @@ function bindActions(): void {
         await refresh();
         setBanner(
           result.data.removed
-            ? "桌面端 Codex 账号已删除。"
+            ? `桌面端 Codex 账号已删除，已清理 ${result.data.poolCleanup?.removedMemberCount ?? 0} 个号池成员引用。`
             : "目标账号不存在，已刷新列表。",
           "success",
         );
@@ -6224,6 +7135,57 @@ function bindActions(): void {
       resetRoutingPreviewResult();
     }
 
+    if (action === "pool-clear-selection") {
+      selectedPoolIds.clear();
+      renderPoolCards();
+      setBanner("已清空号池批量选择。", "info");
+      return;
+    }
+
+    if (action === "pool-delete-selected") {
+      syncAllPoolDraftsFromRows();
+      const settings = state.poolSettings ?? {};
+      const result = deleteSelectedPools(settings.pools ?? [], selectedPoolIds);
+      if (result.deletedPools.length === 0) {
+        selectedPoolIds.clear();
+        renderPoolCards();
+        setBanner("当前没有可删除的已选号池。", "info");
+        return;
+      }
+
+      const deletedNames = result.deletedPools
+        .slice(0, 5)
+        .map((pool) => pool.name || pool.id)
+        .join("、");
+      const suffix =
+        result.deletedPools.length > 5
+          ? ` 等 ${result.deletedPools.length} 个号池`
+          : "";
+      const confirmed = await requestConfirmation({
+        title: "确认批量删除号池",
+        message: `即将从当前编辑态删除 ${result.deletedPools.length} 个号池：${deletedNames}${suffix}。保存号池配置后会正式生效；若仍有路由规则引用这些号池，请同步检查策略路由配置。是否继续？`,
+        confirmLabel: "批量删除",
+        tone: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      cleanupDeletedPoolState(result.deletedPools.map((pool) => pool.id));
+      state.poolSettings = {
+        ...settings,
+        pools: result.remainingPools,
+      };
+      applyPoolSettingsToForm();
+      applyRoutingSettingsToForm();
+      resetRoutingPreviewResult();
+      setBanner(
+        `已从当前编辑态删除 ${result.deletedPools.length} 个号池；保存号池配置后正式生效。`,
+        "success",
+      );
+      return;
+    }
+
     if (action === "pool-remove" && button.dataset.poolId) {
       const confirmed = await requestConfirmation({
         title: "确认删除号池",
@@ -6243,61 +7205,35 @@ function bindActions(): void {
         ...settings,
         pools,
       };
+      cleanupDeletedPoolState([button.dataset.poolId]);
       applyPoolSettingsToForm();
       applyRoutingSettingsToForm();
       resetRoutingPreviewResult();
+      setBanner("已从当前编辑态删除号池；保存号池配置后正式生效。", "success");
     }
 
     if (action === "pool-toggle-collapse" && button.dataset.poolId) {
       const row = button.closest<HTMLElement>("[data-pool-row]");
-      if (row) {
-        syncPoolDraftFromRow(row);
-      }
       const panelState = getPoolPanelState(button.dataset.poolId);
       setPoolPanelState(button.dataset.poolId, {
         collapsed: !panelState.collapsed,
       });
       if (row) {
-        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-            collectPoolDefinitionFromRow(row),
-        );
-        const membersContainer = row.querySelector(".form-field:nth-child(4)");
-        if (membersContainer) {
-          membersContainer.innerHTML = `
-            <label>池成员（推荐直接勾选桌面端账号）</label>
-            ${memberSelectorMarkup}
-            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-          `;
-          return;
-        }
+        schedulePoolMembersFieldRender(row);
+        return;
       }
       renderPoolCards();
     }
 
     if (action === "pool-toggle-sort" && button.dataset.poolId) {
       const row = button.closest<HTMLElement>("[data-pool-row]");
-      if (row) {
-        syncPoolDraftFromRow(row);
-      }
       const panelState = getPoolPanelState(button.dataset.poolId);
       setPoolPanelState(button.dataset.poolId, {
         sortDirection: panelState.sortDirection === "asc" ? "desc" : "asc",
       });
       if (row) {
-        const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-          state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-            collectPoolDefinitionFromRow(row),
-        );
-        const membersContainer = row.querySelector(".form-field:nth-child(4)");
-        if (membersContainer) {
-          membersContainer.innerHTML = `
-            <label>池成员（推荐直接勾选桌面端账号）</label>
-            ${memberSelectorMarkup}
-            <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-          `;
-          return;
-        }
+        schedulePoolMembersFieldRender(row);
+        return;
       }
       renderPoolCards();
     }
@@ -6324,20 +7260,8 @@ function bindActions(): void {
         }
       }
       syncPoolDraftFromRow(row);
-
-      const memberSelectorMarkup = buildPoolMemberSelectorMarkup(
-        state.poolSettings?.pools?.find((p) => p.id === row.dataset.poolId) ||
-          collectPoolDefinitionFromRow(row),
-      );
-      const membersContainer = row.querySelector(".form-field:nth-child(4)");
-      if (membersContainer) {
-        membersContainer.innerHTML = `
-          <label>池成员（推荐直接勾选桌面端账号）</label>
-          ${memberSelectorMarkup}
-          <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-        `;
-        return;
-      }
+      schedulePoolMembersFieldRender(row);
+      return;
       renderPoolCards();
     }
   });
@@ -6471,6 +7395,10 @@ async function refresh(): Promise<void> {
       mode: "none",
       enabled: false,
       hasApiKey: false,
+      resolveClientTagByApiKey: false,
+      mappingCount: 0,
+      enabledMappingCount: 0,
+      clientMappings: [],
     };
   }
 
@@ -6486,21 +7414,10 @@ async function refresh(): Promise<void> {
 
   updateRuntimeDiagnostics(loadFailures);
 
-  renderOverview();
-  renderTopSummary();
-  renderCodexAccounts();
-  renderProviderRegistry();
-  renderDiagnostics();
-  renderErrors();
-  renderGuide();
+  renderActiveViewContent();
+  applyActiveViewFormState();
   renderPoolEventsModal();
   renderUsageDetailsModal();
-  applySettingsToForm();
-  applyRoutingSettingsToForm();
-  applyPoolSettingsToForm();
-  resetRoutingPreviewResult();
-  applySecuritySettingsToForm();
-  applySystemSettingsToForm();
   configureAutoRefreshTimer();
   configureSessionActivityTimer();
   setOAuthBusyState(Boolean(state.oauthInFlight));
@@ -6508,10 +7425,25 @@ async function refresh(): Promise<void> {
 
 async function refreshHealthAndSessionsOnly(): Promise<void> {
   const api = getGatewayApi();
+  const shouldFetchUsage =
+    state.activeView === "overview" ||
+    state.activeView === "accounts" ||
+    Boolean(state.usageDetailsModalOpen);
+  const shouldFetchSessions =
+    state.activeView === "overview" ||
+    state.activeView === "accounts" ||
+    state.activeView === "pools";
+
   const [healthResult, usageSummaryResult, sessionsResult] = await Promise.allSettled([
     api.getHealth(),
-    api.getUsageSummary(state.usageClientFilter),
-    api.getSessions(),
+    shouldFetchUsage
+      ? api.getUsageSummary(state.usageClientFilter)
+      : Promise.resolve(
+          state.usageSummary ? { data: state.usageSummary } : undefined,
+        ),
+    shouldFetchSessions
+      ? api.getSessions()
+      : Promise.resolve(state.sessions),
   ]);
 
   if (
@@ -6530,12 +7462,16 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   if (healthResult.status === "fulfilled") {
     state.health = healthResult.value;
   }
-  if (usageSummaryResult.status === "fulfilled") {
+  if (
+    usageSummaryResult.status === "fulfilled" &&
+    usageSummaryResult.value &&
+    "data" in usageSummaryResult.value
+  ) {
     state.usageSummary = usageSummaryResult.value.data;
   } else if (healthResult.status === "fulfilled") {
     state.usageSummary = healthResult.value.usageObservability;
   }
-  if (sessionsResult.status === "fulfilled") {
+  if (sessionsResult.status === "fulfilled" && sessionsResult.value) {
     state.sessions = sessionsResult.value;
   }
   updateRuntimeDiagnostics([]);
@@ -6664,6 +7600,12 @@ async function resetTelemetryWithFeedback(
 
 async function syncSessionActivitySilently(): Promise<void> {
   if (state.sessionPulseInFlight || state.backgroundRefreshInFlight) {
+    return;
+  }
+  const millisSinceLastScroll = state.lastViewStackScrollAt
+    ? Date.now() - state.lastViewStackScrollAt
+    : Number.POSITIVE_INFINITY;
+  if (state.isViewStackScrolling || millisSinceLastScroll < 1200) {
     return;
   }
   state.sessionPulseInFlight = true;

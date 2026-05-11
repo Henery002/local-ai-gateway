@@ -8,6 +8,9 @@
 - [架构总览](./architecture/overview.md)
 - [概念地图](./architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
 - [动态号池设计方案](./architecture/%E5%8A%A8%E6%80%81%E5%8F%B7%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88.md)
+- 共享中转站专题：
+  - [公网共享中转站技术可行性分析](./architecture/shared-gateway/%E5%85%AC%E7%BD%91%E5%85%B1%E4%BA%AB%E4%B8%AD%E8%BD%AC%E7%AB%99%E6%8A%80%E6%9C%AF%E5%8F%AF%E8%A1%8C%E6%80%A7%E5%88%86%E6%9E%90.md)
+  - [API 中转站生态与风险评析](./architecture/shared-gateway/API%E4%B8%AD%E8%BD%AC%E7%AB%99%E7%94%9F%E6%80%81%E4%B8%8E%E9%A3%8E%E9%99%A9%E8%AF%84%E6%9E%90.md)
 - [OpenClaw 接入与运行说明（专项）](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
 - [第三方客户端接入模板与错误排查](./operations/%E7%AC%AC%E4%B8%89%E6%96%B9%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%8E%A5%E5%85%A5%E6%A8%A1%E6%9D%BF%E4%B8%8E%E9%94%99%E8%AF%AF%E6%8E%92%E6%9F%A5.md)
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
@@ -27,6 +30,7 @@
 
 - `prd/`：产品需求文档、范围定义、阶段目标
 - `architecture/`：架构设计、接口设计、数据流说明
+- `architecture/shared-gateway/`：公网共享、多租户中转站、账号池运营与风险评估专题记录
 - `operations/`：运行、部署、调试、维护文档
 - `decisions/`：关键技术决策与变更记录
 

@@ -667,6 +667,71 @@ button, input, select {
   outline: none;
 }
 
+.secret-field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.secret-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.secret-input-shell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s;
+}
+
+.secret-input-shell:hover {
+  border-color: var(--accent-color);
+}
+
+.secret-input-shell:focus-within {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1);
+}
+
+.secret-input-shell .input-field {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.secret-input-shell .input-field:hover,
+.secret-input-shell .input-field:focus {
+  border: none;
+  box-shadow: none;
+}
+
+.secret-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+}
+
+.secret-generate-btn {
+  flex-shrink: 0;
+  min-width: 96px;
+}
+
 .search-input {
   width: 260px;
 }
@@ -1124,6 +1189,13 @@ button, input, select {
   box-shadow: var(--shadow-md);
 }
 
+.account-item[data-selected="true"] {
+  border-color: color-mix(in oklab, var(--accent-color) 42%, var(--border-light));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent-color) 18%, transparent),
+    var(--shadow-md);
+}
+
 .account-item.active {
   border-color: var(--accent-color);
 }
@@ -1167,6 +1239,81 @@ button, input, select {
   gap: 12px;
   flex: 1 1 220px;
   min-width: 0;
+}
+
+.account-card-select {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  background: var(--bg-main);
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.account-card-select:hover {
+  border-color: var(--accent-color);
+  background: var(--info-bg);
+}
+
+.account-card-select input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.account-bulk-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in oklab, var(--accent-color) 22%, var(--border-light));
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--accent-color) 8%, transparent), transparent 55%),
+    var(--bg-main);
+  box-shadow: var(--shadow-sm);
+}
+
+.account-bulk-toolbar-main,
+.account-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.account-bulk-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.account-bulk-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.account-bulk-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .acc-avatar {
@@ -1279,6 +1426,8 @@ button, input, select {
 
 .icon-btn[data-tone="activate"]:hover { color: var(--accent-color); background: var(--accent-soft); }
 .icon-btn[data-tone="active"] { color: var(--accent-color); background: var(--accent-soft); }
+.icon-btn[data-tone="copy"]:hover { color: var(--accent-color); background: var(--accent-soft); }
+.icon-btn[data-tone="visibility"]:hover { color: var(--accent-color); background: var(--accent-soft); }
 .icon-btn[data-tone="pin"]:hover { color: var(--warning); background: var(--warning-bg); }
 .icon-btn[data-tone="pin-active"] { color: var(--warning); background: var(--warning-bg); }
 .icon-btn[data-tone="delete"]:hover { color: var(--danger); background: var(--danger-bg); }
@@ -1452,6 +1601,13 @@ button, input, select {
   align-items: center;
 }
 
+.pool-config-card[data-selected="true"] {
+  border-color: color-mix(in oklab, var(--accent-color) 42%, var(--border-light));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent-color) 18%, transparent),
+    var(--shadow-md);
+}
+
 .pool-card-top .routing-rule-meta {
   align-items: center;
 }
@@ -1476,6 +1632,35 @@ button, input, select {
   border: 1px solid color-mix(in oklab, var(--primary-btn-bg) 40%, var(--border-light));
   background: color-mix(in oklab, var(--primary-btn-bg) 12%, white);
   flex: 0 0 auto;
+}
+
+.pool-card-select {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  background: var(--bg-main);
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.pool-card-select:hover {
+  border-color: var(--accent-color);
+  background: var(--info-bg);
+}
+
+.pool-card-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
 }
 
 .pool-card-title-text {
@@ -1970,6 +2155,51 @@ button, input, select {
 
 
 /* Pool UI */
+.pool-bulk-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in oklab, var(--accent-color) 22%, var(--border-light));
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--accent-color) 8%, transparent), transparent 55%),
+    var(--bg-main);
+  box-shadow: var(--shadow-sm);
+}
+
+.pool-bulk-toolbar-main,
+.pool-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pool-bulk-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.pool-bulk-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.pool-bulk-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .pool-member-toolbar {
   display: flex;
   justify-content: space-between;
@@ -2386,5 +2616,15 @@ button, input, select {
   .routing-observe-grid { grid-template-columns: 1fr; }
   .usage-observe-grid { grid-template-columns: 1fr; }
   .pool-runtime-summary { grid-template-columns: 1fr; }
+  .account-bulk-toolbar,
+  .account-bulk-toolbar-main,
+  .account-bulk-actions { align-items: stretch; }
+  .account-bulk-toolbar { flex-direction: column; }
+  .account-bulk-actions .btn { width: 100%; }
+  .pool-bulk-toolbar,
+  .pool-bulk-toolbar-main,
+  .pool-bulk-actions { align-items: stretch; }
+  .pool-bulk-toolbar { flex-direction: column; }
+  .pool-bulk-actions .btn { width: 100%; }
   .usage-kpi-card strong { font-size: 28px; }
 }

@@ -214,6 +214,20 @@ Model: codex-default
 API Key: 你在桌面端“诊断”页保存的网关访问密钥
 ```
 
+从 `2026-05-01` 起，网关支持“客户端密钥映射”：
+
+- 可为不同客户端配置独立 API Key，并按 key 自动识别来源标签（`clientTag`）
+- 适合 `Hermes` 这类不方便显式传 `x-client-tag` 的接入场景
+- 可按映射项控制是否允许 header 覆盖标签（`allowHeaderOverride`）
+
+推荐长期配置：
+
+- 保留一个兜底 `Gateway API Key`（兼容未迁移客户端）
+- 为 `OpenClaw`、`Hermes` 分配各自独立 key
+- 启用“按 API Key 识别客户端标签”
+  - `OpenClaw -> openclaw`
+  - `Hermes -> hermes`
+
 当前桌面端已内置三套可复制模板：
 
 - OpenClaw

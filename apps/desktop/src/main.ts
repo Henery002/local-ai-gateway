@@ -1,4 +1,5 @@
 import { basename, dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   appendFileSync,
@@ -27,6 +28,10 @@ import {
 } from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
+import {
+  pruneDeletedAccountPoolMembers,
+  type AccountDeletionTarget,
+} from "./account-bulk-actions.js";
 
 import {
   APP_NAME,
@@ -62,6 +67,7 @@ import {
 } from "./backup-utils.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const appContentRoot = app.isPackaged ? join(process.resourcesPath, "app.asar") : join(__dirname, "../../..");
 const gatewayEntrypoint = app.isPackaged
   ? join(appContentRoot, "apps/gateway/dist/cli.js")
@@ -75,6 +81,13 @@ const iconAssetDir = join(__dirname, "../assets/icons/generated");
 const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
 const desktopMainLogPath = join(gatewayPaths.logsDir, "desktop-main.log");
+const BetterSqlite3 = require("better-sqlite3") as new (path: string) => {
+  pragma: (sql: string) => void;
+  prepare: (sql: string) => {
+    get: (...params: unknown[]) => Record<string, unknown> | undefined;
+  };
+  close: () => void;
+};
 const importedCodexAccountStore = new ImportedCodexAccountStore(gatewayPaths.codexProfilesPath);
 const desktopSessionSource = new OpenClawSessionSource(undefined, gatewayPaths.codexProfilesPath);
 const DESKTOP_UI_ZOOM_LEVEL = -1;
@@ -83,8 +96,6 @@ const BACKUP_STORE_RETAIN_DAYS = 30;
 const ACTIVE_TRAY_FRAME_COUNT = 12;
 const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
 const TRAY_REFRESH_INTERVAL_MS = 1_200;
-const TRAY_MENU_REFRESH_INTERVAL_MS = 900;
-const TRAY_MENU_LIVE_REFRESH_WINDOW_MS = 12_000;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
@@ -104,6 +115,10 @@ type TraySnapshot = {
   activeSessionResetAt?: number;
   inFlightCount?: number;
   recentlyFinished?: boolean;
+  usage30mTotalTokens?: number;
+  usage30mRequestCount?: number;
+  usage30mTopClientLabel?: string;
+  lastActivityAt?: number;
 };
 
 type TrayStickyContext = {
@@ -138,9 +153,7 @@ let trayAnimationFrame = 0;
 let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
-let lastTrayMenuRefreshAt = 0;
 let trayMenuIsOpen = false;
-let trayMenuLiveRefreshUntil = 0;
 let trayStickyContext: TrayStickyContext = {};
 let allowAppQuit = false;
 let hasShownMainProcessFatalDialog = false;
@@ -714,6 +727,38 @@ async function callAdminWithPoolCompatibility(
   }
 }
 
+async function prunePoolsForDeletedAccounts(
+  targets: readonly AccountDeletionTarget[],
+): Promise<{ removedMemberCount: number; affectedPoolIds: string[] }> {
+  if (targets.length === 0) {
+    return {
+      removedMemberCount: 0,
+      affectedPoolIds: [],
+    };
+  }
+
+  const poolPayload = (await callAdminWithPoolCompatibility("/admin/config/pools")) as {
+    data?: GatewaySessionPoolSettings;
+  };
+  const currentSettings = poolPayload.data ?? {};
+  const pruned = pruneDeletedAccountPoolMembers(currentSettings, targets);
+  if (pruned.removedMemberCount === 0) {
+    return {
+      removedMemberCount: 0,
+      affectedPoolIds: [],
+    };
+  }
+
+  await callAdminWithPoolCompatibility("/admin/config/pools", {
+    method: "PUT",
+    body: JSON.stringify(pruned.settings),
+  });
+  return {
+    removedMemberCount: pruned.removedMemberCount,
+    affectedPoolIds: pruned.affectedPoolIds,
+  };
+}
+
 async function buildOpenClawSnippet(): Promise<string> {
   const payload = (await callAdmin("/admin/health")) as {
     openclaw?: {
@@ -813,6 +858,19 @@ function formatRelativePast(timestamp?: number): string | undefined {
   return `${Math.floor(totalHours / 24)} 天前`;
 }
 
+function formatCompactNumber(value?: number): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  }
+  return String(Math.round(value));
+}
+
 function buildQuotaBar(percentage?: number): string | undefined {
   if (typeof percentage !== "number" || !Number.isFinite(percentage)) {
     return undefined;
@@ -841,6 +899,74 @@ function formatQuotaLine(percentage?: number): string | undefined {
   }
   const quotaBar = buildQuotaBar(percentage);
   return `${getQuotaTonePrefix(percentage)} ${percentage}%${quotaBar ? `  ${quotaBar}` : ""}`;
+}
+
+function formatClientTagBadgeLabel(clientTag?: string): string | undefined {
+  const label = formatClientTagLabel(clientTag);
+  if (!label) {
+    return undefined;
+  }
+  return `◉ ${label}`;
+}
+
+function getTrayUsageSummary30m() {
+  const sinceTimestamp = Date.now() - 30 * 60_000;
+  const database = new BetterSqlite3(gatewayPaths.dbPath);
+  database.pragma("journal_mode = WAL");
+  try {
+    const totalsRow = database
+      .prepare(
+        `
+          SELECT
+            COUNT(1) AS request_count,
+            SUM(
+              CASE
+                WHEN COALESCE(total_tokens, 0) > 0 THEN total_tokens
+                ELSE COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
+              END
+            ) AS total_tokens
+          FROM inference_usage_events
+          WHERE timestamp >= ?
+        `,
+      )
+      .get(sinceTimestamp);
+    const topClientRow = database
+      .prepare(
+        `
+          SELECT
+            COALESCE(NULLIF(client_tag, ''), 'unknown') AS client_tag,
+            SUM(
+              CASE
+                WHEN COALESCE(total_tokens, 0) > 0 THEN total_tokens
+                ELSE COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)
+              END
+            ) AS total_tokens
+          FROM inference_usage_events
+          WHERE timestamp >= ?
+          GROUP BY client_tag
+          ORDER BY total_tokens DESC
+          LIMIT 1
+        `,
+      )
+      .get(sinceTimestamp);
+
+    return {
+      totalTokens:
+        typeof totalsRow?.total_tokens === "number"
+          ? totalsRow.total_tokens
+          : 0,
+      requestCount:
+        typeof totalsRow?.request_count === "number"
+          ? totalsRow.request_count
+          : 0,
+      topClientTag:
+        typeof topClientRow?.client_tag === "string"
+          ? topClientRow.client_tag
+          : undefined,
+    };
+  } finally {
+    database.close();
+  }
 }
 
 function resolveCurrentPool(
@@ -994,6 +1120,7 @@ function ensureTrayAnimation(): void {
 async function resolveTraySnapshot(): Promise<TraySnapshot> {
   try {
     await gatewayManager.ensureRunning();
+    const usage30m = getTrayUsageSummary30m();
     const [healthPayload, sessionPayload, poolSettingsPayload] = await Promise.all([
       callAdmin("/admin/health") as Promise<{
         activeSessionId?: string;
@@ -1059,6 +1186,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         inference?.lastFinishedAt &&
           Date.now() - inference.lastFinishedAt <= TRAY_RECENT_FINISH_GRACE_MS,
       );
+    const usage30mTopClientLabel = usage30m.topClientTag;
 
     if (currentSessionId) {
       trayStickyContext.sessionId = currentSessionId;
@@ -1116,6 +1244,10 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
           activeSession?.quota?.resetAt ?? trayStickyContext.resetAt,
         inFlightCount: inference?.inFlightCount ?? 0,
         recentlyFinished: justFinished,
+        usage30mTotalTokens: usage30m.totalTokens,
+        usage30mRequestCount: usage30m.requestCount,
+        usage30mTopClientLabel,
+        lastActivityAt: inference?.lastFinishedAt ?? lastMatchedAt,
       };
     }
 
@@ -1137,6 +1269,10 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         activeSession?.quota?.percentage ?? trayStickyContext.quotaPercentage,
       activeSessionResetAt:
         activeSession?.quota?.resetAt ?? trayStickyContext.resetAt,
+      usage30mTotalTokens: usage30m.totalTokens,
+      usage30mRequestCount: usage30m.requestCount,
+      usage30mTopClientLabel,
+      lastActivityAt: inference?.lastFinishedAt ?? lastMatchedAt,
     };
   } catch (error) {
     return {
@@ -1182,7 +1318,6 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   }
 
   if (showMenu) {
-    trayMenuLiveRefreshUntil = Date.now() + TRAY_MENU_LIVE_REFRESH_WINDOW_MS;
     await refreshTrayUsageIfNeeded(true);
   }
 
@@ -1196,15 +1331,25 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   applyTrayImage(snapshot.state);
 
   statusTray.setToolTip(`Local AI Gateway · ${snapshot.label}`);
+  if (trayMenuIsOpen && !showMenu) {
+    return;
+  }
   const quotaLine = formatQuotaLine(snapshot.activeSessionQuotaPercentage);
-  const recentSourceLine =
-    snapshot.clientLabel || snapshot.modelAlias
-      ? `${snapshot.clientLabel ?? "未标记"} · ${snapshot.modelAlias ?? "codex-default"}`
+  const clientTagLine = formatClientTagBadgeLabel(
+    snapshot.clientLabel ?? snapshot.usage30mTopClientLabel,
+  );
+  const modelLine = snapshot.modelAlias ?? "codex-default";
+  const usage30mLine =
+    typeof snapshot.usage30mTotalTokens === "number"
+      ? `${formatCompactNumber(snapshot.usage30mTotalTokens) ?? "0"} Token · ${formatCompactNumber(snapshot.usage30mRequestCount) ?? "0"} 请求`
       : undefined;
-  const currentThresholdLine =
-    typeof snapshot.activePoolThreshold === "number"
-      ? `低于 ${snapshot.activePoolThreshold}% 自动跳过`
-      : undefined;
+  const lastActivityLine =
+    formatRelativePast(snapshot.lastActivityAt) ?? snapshot.detail;
+  const poolLine = snapshot.activePoolName
+    ? typeof snapshot.activePoolThreshold === "number"
+      ? `${snapshot.activePoolName} · 阈值 ${snapshot.activePoolThreshold}%`
+      : snapshot.activePoolName
+    : undefined;
   const menu = Menu.buildFromTemplate([
       {
         label: APP_NAME,
@@ -1214,33 +1359,33 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: `当前状态：${snapshot.label}`,
+        label: `状态 · ${snapshot.label}`,
         enabled: false,
       },
       {
-        label: snapshot.detail,
+        label: `活动 · ${lastActivityLine}`,
         enabled: false,
       },
       ...(typeof snapshot.inFlightCount === "number" && snapshot.inFlightCount > 0
         ? [
             {
-              label: `并发请求：${snapshot.inFlightCount} 个`,
+              label: `并发 · ${snapshot.inFlightCount} 个请求`,
               enabled: false,
             },
           ]
         : []),
-      ...(recentSourceLine
+      ...(clientTagLine
         ? [
             {
-              label: `当前来源：${recentSourceLine}`,
+              label: `客户端 · ${clientTagLine}`,
               enabled: false,
             },
           ]
         : []),
-      ...(snapshot.activePoolName
+      ...(snapshot.modelAlias
         ? [
             {
-              label: `当前号池：${snapshot.activePoolName}`,
+              label: `模型 · ${modelLine}`,
               enabled: false,
             },
           ]
@@ -1248,7 +1393,23 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(snapshot.activeSessionLabel
         ? [
             {
-              label: `当前账号：${snapshot.activeSessionLabel}`,
+              label: `账号 · ${snapshot.activeSessionLabel}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(poolLine
+        ? [
+            {
+              label: `号池 · ${poolLine}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(usage30mLine
+        ? [
+            {
+              label: `30 分钟消耗 · ${usage30mLine}`,
               enabled: false,
             },
           ]
@@ -1256,7 +1417,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(quotaLine
         ? [
             {
-              label: `剩余额度：${quotaLine}`,
+              label: `额度 · ${quotaLine}`,
               enabled: false,
             },
           ]
@@ -1264,15 +1425,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(snapshot.activeSessionResetAt
         ? [
             {
-              label: `重置时间：${formatRelativeDuration(snapshot.activeSessionResetAt) ?? "待同步"}`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(currentThresholdLine
-        ? [
-            {
-              label: `阈值策略：${currentThresholdLine}`,
+              label: `重置 · ${formatRelativeDuration(snapshot.activeSessionResetAt) ?? "待同步"}`,
               enabled: false,
             },
           ]
@@ -1280,31 +1433,13 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(snapshot.recentlyFinished
         ? [
             {
-              label: "状态切换：请求刚结束，图标即将恢复空闲态",
+              label: "状态 · 请求刚结束，正在回落为空闲态",
               enabled: false,
             },
           ]
         : []),
       {
         type: "separator",
-      },
-      {
-        label: "打开主界面",
-        click: () => {
-          void showMainWindow();
-        },
-      },
-      {
-        label: "打开日志目录",
-        click: () => {
-          void shell.openPath(gatewayPaths.logsDir);
-        },
-      },
-      {
-        label: "打开数据目录",
-        click: () => {
-          void shell.openPath(gatewayPaths.rootDir);
-        },
       },
       {
         label: "重启本地网关",
@@ -1333,16 +1468,9 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   });
   menu.once("menu-will-close", () => {
     trayMenuIsOpen = false;
-    trayMenuLiveRefreshUntil = 0;
   });
   statusTray.setContextMenu(menu);
-  const now = Date.now();
-  const shouldRefreshVisibleMenu =
-    trayMenuIsOpen &&
-    now <= trayMenuLiveRefreshUntil &&
-    now - lastTrayMenuRefreshAt >= TRAY_MENU_REFRESH_INTERVAL_MS;
-  if (showMenu || shouldRefreshVisibleMenu) {
-    lastTrayMenuRefreshAt = now;
+  if (showMenu) {
     statusTray.popUpContextMenu(menu);
   }
 }
@@ -1735,9 +1863,22 @@ ipcMain.handle("gateway:reset-telemetry", async () => {
 });
 
 ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string) => {
+  const targetSession = desktopSessionSource
+    .listSessions()
+    .find((session) => session.id === sessionId);
+  const deletionTargets: AccountDeletionTarget[] = targetSession
+    ? [
+        {
+          sessionId: targetSession.id,
+          profileId: targetSession.profileId,
+          accountId: targetSession.accountId,
+        },
+      ]
+    : [];
   const removed = desktopSessionSource.deleteImportedSession(sessionId);
 
   await gatewayManager.ensureRunning();
+  const poolCleanup = await prunePoolsForDeletedAccounts(deletionTargets);
   const sessionPayload = (await callAdmin("/admin/sessions")) as {
     activeSessionId?: string;
   };
@@ -1758,7 +1899,10 @@ ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string)
   void refreshTrayStatus();
   return {
     ok: true,
-    data: removed,
+    data: {
+      ...removed,
+      poolCleanup,
+    },
   };
 });
 

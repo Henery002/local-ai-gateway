@@ -82,15 +82,9 @@ function getFirstHeaderValue(
   return undefined;
 }
 
-function resolveClientTag(request: FastifyRequest): string | undefined {
-  const explicit =
-    getFirstHeaderValue(request, "x-local-ai-client-tag") ??
-    getFirstHeaderValue(request, "x-client-tag") ??
-    getFirstHeaderValue(request, "x-source-app");
-  if (explicit) {
-    return explicit.trim().toLowerCase();
-  }
-
+function resolveClientTagFromUserAgent(
+  request: FastifyRequest,
+): string | undefined {
   const userAgent = getFirstHeaderValue(request, "user-agent")?.toLowerCase();
   if (!userAgent) {
     return undefined;
@@ -108,6 +102,122 @@ function resolveClientTag(request: FastifyRequest): string | undefined {
     return "curl";
   }
   return undefined;
+}
+
+function resolveHeaderClientTag(request: FastifyRequest): string | undefined {
+  const explicit =
+    getFirstHeaderValue(request, "x-local-ai-client-tag") ??
+    getFirstHeaderValue(request, "x-client-tag") ??
+    getFirstHeaderValue(request, "x-source-app");
+  if (!explicit) {
+    return undefined;
+  }
+  const normalized = explicit.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+type NormalizedClientMapping = {
+  name: string;
+  apiKey: string;
+  clientTag: string;
+  enabled: boolean;
+  allowHeaderOverride: boolean;
+};
+
+function normalizeInferenceClientMappings(
+  settings: GatewayInferenceAuthSettings,
+): NormalizedClientMapping[] {
+  const mappings = Array.isArray(settings.clientMappings)
+    ? settings.clientMappings
+    : [];
+  const deduped = new Map<string, NormalizedClientMapping>();
+  for (const item of mappings) {
+    const name = String(item?.name ?? "").trim();
+    const apiKey = String(item?.apiKey ?? "").trim();
+    const clientTag = String(item?.clientTag ?? "").trim().toLowerCase();
+    if (!name || !apiKey || !clientTag) {
+      continue;
+    }
+    if (deduped.has(apiKey)) {
+      continue;
+    }
+    deduped.set(apiKey, {
+      name,
+      apiKey,
+      clientTag,
+      enabled: item?.enabled !== false,
+      allowHeaderOverride: Boolean(item?.allowHeaderOverride),
+    });
+  }
+  return [...deduped.values()];
+}
+
+function resolveAuthAndClientTag(
+  runtime: GatewayRuntime,
+  request: FastifyRequest,
+): {
+  clientTag?: string;
+  authMatchedByMapping: boolean;
+  matchedMappingName?: string;
+} {
+  const settings = runtime.configStore.getInferenceAuthSettings();
+  const mode = settings.mode === "api-key" ? "api-key" : "none";
+  const incomingKey = readClientApiKey(request);
+  const mappings = normalizeInferenceClientMappings(settings);
+  const matchedMapping =
+    incomingKey && incomingKey.length > 0
+      ? mappings.find((item) => item.enabled && item.apiKey === incomingKey)
+      : undefined;
+
+  if (mode === "api-key") {
+    const expectedKey = settings.apiKey?.trim();
+    const hasMappedKey = Boolean(matchedMapping);
+    const hasDefaultKey = Boolean(expectedKey);
+    if (!hasMappedKey && !hasDefaultKey) {
+      throw new GatewayError(
+        503,
+        "gateway_api_key_not_configured",
+        "Gateway API key auth is enabled but key is not configured.",
+      );
+    }
+    if (!incomingKey) {
+      throw new GatewayError(
+        401,
+        "gateway_api_key_required",
+        "Missing API key for gateway inference endpoint.",
+      );
+    }
+    if (!hasMappedKey && incomingKey !== expectedKey) {
+      throw new GatewayError(
+        403,
+        "gateway_api_key_invalid",
+        "Invalid API key for gateway inference endpoint.",
+      );
+    }
+  }
+
+  const headerClientTag = resolveHeaderClientTag(request);
+  const resolveByApiKey = Boolean(settings.resolveClientTagByApiKey);
+  if (resolveByApiKey && matchedMapping) {
+    if (matchedMapping.allowHeaderOverride && headerClientTag) {
+      return {
+        clientTag: headerClientTag,
+        authMatchedByMapping: true,
+        matchedMappingName: matchedMapping.name,
+      };
+    }
+    return {
+      clientTag: matchedMapping.clientTag,
+      authMatchedByMapping: true,
+      matchedMappingName: matchedMapping.name,
+    };
+  }
+
+  return {
+    clientTag: headerClientTag ?? resolveClientTagFromUserAgent(request),
+    authMatchedByMapping: Boolean(matchedMapping),
+    matchedMappingName: matchedMapping?.name,
+  };
 }
 
 function resolveUsageClientFilter(value: unknown): GatewayUsageClientFilter {
@@ -309,43 +419,6 @@ function readClientApiKey(request: FastifyRequest): string | undefined {
   return getFirstHeaderValue(request, "x-api-key");
 }
 
-function requireInferenceAuth(
-  runtime: GatewayRuntime,
-  request: FastifyRequest,
-): void {
-  const settings = runtime.configStore.getInferenceAuthSettings();
-  const mode = settings.mode === "api-key" ? "api-key" : "none";
-  if (mode !== "api-key") {
-    return;
-  }
-
-  const expectedKey = settings.apiKey?.trim();
-  if (!expectedKey) {
-    throw new GatewayError(
-      503,
-      "gateway_api_key_not_configured",
-      "Gateway API key auth is enabled but key is not configured.",
-    );
-  }
-
-  const incomingKey = readClientApiKey(request);
-  if (!incomingKey) {
-    throw new GatewayError(
-      401,
-      "gateway_api_key_required",
-      "Missing API key for gateway inference endpoint.",
-    );
-  }
-
-  if (incomingKey !== expectedKey) {
-    throw new GatewayError(
-      403,
-      "gateway_api_key_invalid",
-      "Invalid API key for gateway inference endpoint.",
-    );
-  }
-}
-
 export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   const app = Fastify({
     logger: false,
@@ -379,15 +452,15 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   app.get("/healthz", async () => runtime.getHealth());
 
   app.get("/v1/models", async (request) => {
-    requireInferenceAuth(runtime, request);
+    resolveAuthAndClientTag(runtime, request);
     return buildModelsResponse(runtime.modelRegistry.list());
   });
 
   app.post("/v1/chat/completions", async (request, reply) => {
-    requireInferenceAuth(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
     const startedAt = Date.now();
     const currentSessionId = runtime.getActiveSessionId();
-    const clientTag = resolveClientTag(request);
+    const clientTag = authContext.clientTag;
     const clientCircuit = runtime.checkClientCircuit(clientTag);
     if (clientCircuit.blocked) {
       throw new GatewayError(
@@ -1113,22 +1186,72 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const mode = body.mode === "api-key" ? "api-key" : "none";
     const previous = runtime.configStore.getInferenceAuthSettings();
     const nextApiKey = body.apiKey?.trim() || previous.apiKey?.trim() || "";
+    const resolveClientTagByApiKey = Boolean(body.resolveClientTagByApiKey);
 
-    if (mode === "api-key" && !nextApiKey) {
+    const previousMappings = normalizeInferenceClientMappings(previous);
+    const previousApiKeyByIdentity = new Map<string, string>();
+    for (const item of previousMappings) {
+      previousApiKeyByIdentity.set(`${item.name}::${item.clientTag}`, item.apiKey);
+    }
+    const bodyMappings = Array.isArray(body.clientMappings)
+      ? body.clientMappings
+      : [];
+    const mergedMappings = bodyMappings.map((item) => {
+      const name = String(item?.name ?? "").trim();
+      const clientTag = String(item?.clientTag ?? "").trim().toLowerCase();
+      const providedKey = String(item?.apiKey ?? "").trim();
+      const fallbackKey = previousApiKeyByIdentity.get(`${name}::${clientTag}`) ?? "";
+      return {
+        ...item,
+        name,
+        clientTag,
+        apiKey: providedKey || fallbackKey,
+      };
+    });
+    const duplicatedMappingKey = (() => {
+      const seen = new Set<string>();
+      for (const item of mergedMappings) {
+        const apiKey = String(item?.apiKey ?? "").trim();
+        if (!apiKey) {
+          continue;
+        }
+        if (seen.has(apiKey)) {
+          return apiKey;
+        }
+        seen.add(apiKey);
+      }
+      return undefined;
+    })();
+    if (duplicatedMappingKey) {
       throw new GatewayError(
         400,
         "invalid_request",
-        "启用 API Key 鉴权时必须提供至少一个有效密钥。",
+        "客户端密钥映射中存在重复 API Key。请确保每个客户端使用独立密钥。",
+      );
+    }
+    const normalizedMappings = normalizeInferenceClientMappings({
+      clientMappings: mergedMappings,
+    });
+
+    if (mode === "api-key" && !nextApiKey && normalizedMappings.length === 0) {
+      throw new GatewayError(
+        400,
+        "invalid_request",
+        "启用 API Key 鉴权时必须提供默认 API Key，或至少配置一个客户端密钥映射。",
       );
     }
 
     runtime.configStore.setInferenceAuthSettings({
       mode,
       apiKey: nextApiKey || undefined,
+      resolveClientTagByApiKey,
+      clientMappings: normalizedMappings,
     });
     runtime.logger.info("inference_auth_settings_saved", {
       mode,
       hasApiKey: Boolean(nextApiKey),
+      resolveClientTagByApiKey,
+      clientMappingCount: normalizedMappings.length,
     });
     return {
       ok: true,

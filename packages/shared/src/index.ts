@@ -253,15 +253,37 @@ export interface GatewayRoutingSettings {
 
 export type GatewayInferenceAuthMode = "none" | "api-key";
 
+export interface GatewayInferenceAuthClientMapping {
+  name: string;
+  apiKey: string;
+  clientTag: string;
+  enabled?: boolean;
+  allowHeaderOverride?: boolean;
+}
+
 export interface GatewayInferenceAuthSettings {
   mode?: GatewayInferenceAuthMode;
   apiKey?: string;
+  resolveClientTagByApiKey?: boolean;
+  clientMappings?: GatewayInferenceAuthClientMapping[];
+}
+
+export interface GatewayInferenceAuthPublicClientMapping {
+  name: string;
+  clientTag: string;
+  enabled: boolean;
+  allowHeaderOverride: boolean;
+  hasApiKey: boolean;
 }
 
 export interface GatewayInferenceAuthPublicSettings {
   mode: GatewayInferenceAuthMode;
   enabled: boolean;
   hasApiKey: boolean;
+  resolveClientTagByApiKey: boolean;
+  mappingCount: number;
+  enabledMappingCount: number;
+  clientMappings: GatewayInferenceAuthPublicClientMapping[];
 }
 
 export interface GatewayRoutingPreviewInput {

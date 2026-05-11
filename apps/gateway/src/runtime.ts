@@ -507,10 +507,35 @@ export class GatewayRuntime {
     const settings = this.configStore.getInferenceAuthSettings();
     const mode = settings.mode === "api-key" ? "api-key" : "none";
     const apiKey = settings.apiKey?.trim();
+    const mappings = Array.isArray(settings.clientMappings)
+      ? settings.clientMappings
+      : [];
+    const normalizedMappings = mappings
+      .map((item) => {
+        const name = String(item?.name ?? "").trim();
+        const clientTag = String(item?.clientTag ?? "").trim().toLowerCase();
+        const mappingApiKey = String(item?.apiKey ?? "").trim();
+        if (!name || !clientTag) {
+          return undefined;
+        }
+        return {
+          name,
+          clientTag,
+          enabled: item?.enabled !== false,
+          allowHeaderOverride: Boolean(item?.allowHeaderOverride),
+          hasApiKey: mappingApiKey.length > 0,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
     return {
       mode,
       enabled: mode === "api-key",
       hasApiKey: Boolean(apiKey),
+      resolveClientTagByApiKey: Boolean(settings.resolveClientTagByApiKey),
+      mappingCount: normalizedMappings.length,
+      enabledMappingCount: normalizedMappings.filter((item) => item.enabled)
+        .length,
+      clientMappings: normalizedMappings,
     };
   }
 

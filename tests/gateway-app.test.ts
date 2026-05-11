@@ -2432,6 +2432,153 @@ describe("gateway app", () => {
     }
   });
 
+  it("accepts mapped client api keys and resolves client tag from mapping", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      resolveClientTagByApiKey: true,
+      clientMappings: [
+        {
+          name: "Hermes",
+          apiKey: "hermes-client-key",
+          clientTag: "hermes",
+          enabled: true,
+          allowHeaderOverride: false,
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const modelsResponse = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer hermes-client-key",
+        },
+      });
+      expect(modelsResponse.statusCode).toBe(200);
+
+      const chatResponse = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer hermes-client-key",
+          "content-type": "application/json",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Reply with exactly OK." }],
+        },
+      });
+      expect(chatResponse.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const usageSummary = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary?clientFilter=hermes",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(usageSummary.statusCode).toBe(200);
+      expect(usageSummary.json().data.daily.clients[0]).toMatchObject({
+        clientTag: "hermes",
+      });
+      expect(usageSummary.json().data.daily.totals.requestCount).toBe(1);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("respects allowHeaderOverride for mapped client keys", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      resolveClientTagByApiKey: true,
+      clientMappings: [
+        {
+          name: "Hermes",
+          apiKey: "hermes-client-key",
+          clientTag: "hermes",
+          enabled: true,
+          allowHeaderOverride: false,
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer hermes-client-key",
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Reply with exactly OK." }],
+        },
+      });
+      expect(first.statusCode).toBe(200);
+
+      runtime.configStore.setInferenceAuthSettings({
+        mode: "api-key",
+        resolveClientTagByApiKey: true,
+        clientMappings: [
+          {
+            name: "Hermes",
+            apiKey: "hermes-client-key",
+            clientTag: "hermes",
+            enabled: true,
+            allowHeaderOverride: true,
+          },
+        ],
+      });
+
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer hermes-client-key",
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Reply with exactly OK." }],
+        },
+      });
+      expect(second.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const usageSummary = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(usageSummary.statusCode).toBe(200);
+      const clients = usageSummary.json().data.daily.clients as Array<{
+        clientTag: string;
+        usage: { requestCount: number };
+      }>;
+      const hermesUsage = clients.find((item) => item.clientTag === "hermes");
+      const openclawUsage = clients.find((item) => item.clientTag === "openclaw");
+      expect(hermesUsage?.usage.requestCount).toBe(1);
+      expect(openclawUsage?.usage.requestCount).toBe(1);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("opens client circuit and returns 429 with retry-after after repeated retryable failures", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);

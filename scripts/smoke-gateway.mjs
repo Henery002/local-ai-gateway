@@ -17,6 +17,24 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function readGatewayConfig() {
+  if (!existsSync(configPath)) {
+    throw new Error(`Admin config not found: ${configPath}`);
+  }
+  return JSON.parse(readFileSync(configPath, "utf8"));
+}
+
+function buildInferenceHeaders() {
+  const config = readGatewayConfig();
+  const apiKey = config?.inferenceAuthSettings?.apiKey?.trim();
+  if (!apiKey) {
+    return {};
+  }
+  return {
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
 async function fetchJson(path, init) {
   const response = await fetch(`${baseUrl}${path}`, init);
   const payload = await response.json().catch(() => ({}));
@@ -61,10 +79,7 @@ async function waitForHealth(timeoutMs = 15000) {
 }
 
 function readAdminToken() {
-  if (!existsSync(configPath)) {
-    throw new Error(`Admin config not found: ${configPath}`);
-  }
-  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  const config = readGatewayConfig();
   if (!config.adminToken) {
     throw new Error("adminToken is missing in config.json");
   }
@@ -97,12 +112,16 @@ async function main() {
       logStep("检测到已有 gateway 正在运行，复用现有实例");
     }
 
+    const inferenceHeaders = buildInferenceHeaders();
+
     logStep("验证健康检查");
     const health = await fetchJson("/healthz");
     console.log(health);
 
     logStep("验证模型列表");
-    const models = await fetchJson("/v1/models");
+    const models = await fetchJson("/v1/models", {
+      headers: inferenceHeaders,
+    });
     if (!Array.isArray(models.data) || !models.data.find((item) => item.id === "codex-default")) {
       throw new Error("未发现默认模型 codex-default");
     }
@@ -112,6 +131,7 @@ async function main() {
       const chat = await fetchJson("/v1/chat/completions", {
         method: "POST",
         headers: {
+          ...inferenceHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -130,6 +150,7 @@ async function main() {
       const toolChat = await fetchJson("/v1/chat/completions", {
         method: "POST",
         headers: {
+          ...inferenceHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
