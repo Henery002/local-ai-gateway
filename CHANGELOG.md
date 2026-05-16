@@ -9,6 +9,14 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-17 04:36 CST]
+
+### 新增
+
+- 推进 P1-B AccessPolicy 执行层第一段：访问成员配置 `quota.dailyTokenLimit` 后，网关会在 `/v1/chat/completions` 推理前按成员当天已记录 Token 用量做前置拦截，超额返回 `429 access_policy_daily_quota_exceeded`，并带回成员、key、限额、已用量、剩余量、重置时间和 `Retry-After`。
+- `GatewayDatabase` 新增按 `consumerId` 聚合用量的内部方法，为成员额度、后续 QPS / 并发和告警联动提供更稳定的执行层查询入口；旧 `clientMappings` 兼容路径不受影响。
+- 新增 gateway 回归测试，覆盖访问成员当天 Token 已达限额后被拒绝的行为。
+
 ## [2026-05-17 01:55 CST]
 
 ### 调整

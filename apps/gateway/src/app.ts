@@ -435,6 +435,90 @@ function assertAccessPolicyAllowsModel(
   }
 }
 
+function normalizeTokenLimit(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
+function getAccessPolicyDailyQuotaWindow(
+  now: number,
+  resetTimezone: string | undefined,
+): { start: number; resetAt: number; timezone: string } {
+  const normalizedTimezone = resetTimezone?.trim().toUpperCase();
+  if (normalizedTimezone === "UTC") {
+    const current = new Date(now);
+    const start = Date.UTC(
+      current.getUTCFullYear(),
+      current.getUTCMonth(),
+      current.getUTCDate(),
+    );
+    return {
+      start,
+      resetAt: start + 24 * 60 * 60 * 1000,
+      timezone: "UTC",
+    };
+  }
+
+  const current = new Date(now);
+  const start = new Date(
+    current.getFullYear(),
+    current.getMonth(),
+    current.getDate(),
+  ).getTime();
+  return {
+    start,
+    resetAt: new Date(
+      current.getFullYear(),
+      current.getMonth(),
+      current.getDate() + 1,
+    ).getTime(),
+    timezone: "local",
+  };
+}
+
+function assertAccessPolicyWithinDailyQuota(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  const limit = normalizeTokenLimit(
+    accessContext?.policy?.quota?.dailyTokenLimit,
+  );
+  if (typeof limit !== "number" || !accessContext) {
+    return;
+  }
+
+  const now = Date.now();
+  const window = getAccessPolicyDailyQuotaWindow(
+    now,
+    accessContext.policy?.quota?.resetTimezone,
+  );
+  const usage = runtime.database.getUsageTotalsForAccessConsumer({
+    consumerId: accessContext.consumerId,
+    sinceTimestamp: window.start,
+  });
+  if (usage.totalTokens < limit) {
+    return;
+  }
+
+  throw new GatewayError(
+    429,
+    "access_policy_daily_quota_exceeded",
+    "Access consumer daily token quota has been exceeded.",
+    {
+      consumerId: accessContext.consumerId,
+      accessKeyId: accessContext.accessKeyId,
+      limit,
+      usedTokens: usage.totalTokens,
+      remainingTokens: 0,
+      resetAt: new Date(window.resetAt).toISOString(),
+      resetTimezone: window.timezone,
+      retryAfterSeconds: Math.max(1, Math.ceil((window.resetAt - now) / 1000)),
+    },
+  );
+}
+
 function normalizeInferenceClientMappings(
   settings: GatewayInferenceAuthSettings,
 ): NormalizedClientMapping[] {
@@ -799,6 +883,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     }
     const parsed = parseChatCompletionsRequest(request.body);
     assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
+    assertAccessPolicyWithinDailyQuota(runtime, authContext.accessContext);
     const routingPreview = runtime.previewRouting({
       clientTag,
       requestedModelAlias: parsed.model,

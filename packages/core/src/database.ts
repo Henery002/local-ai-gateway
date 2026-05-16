@@ -317,6 +317,63 @@ export class GatewayDatabase {
     return result.changes > 0;
   }
 
+  getUsageTotalsForAccessConsumer(options: {
+    consumerId: string;
+    sinceTimestamp?: number;
+  }): GatewayUsageCounters {
+    const params: Array<string | number> = [options.consumerId];
+    const sinceClause =
+      typeof options.sinceTimestamp === "number" && Number.isFinite(options.sinceTimestamp)
+        ? " AND timestamp >= ?"
+        : "";
+    if (sinceClause) {
+      params.push(options.sinceTimestamp as number);
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            COUNT(1) AS request_count,
+            SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+            SUM(latency_ms) AS total_latency_ms,
+            SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens,
+            SUM(total_tokens) AS total_tokens,
+            SUM(cached_tokens) AS cached_tokens,
+            SUM(reasoning_tokens) AS reasoning_tokens
+          FROM inference_usage_events
+          WHERE consumer_id = ?${sinceClause}
+        `,
+      )
+      .get(...params) as
+      | {
+          request_count?: number | null;
+          success_count?: number | null;
+          failure_count?: number | null;
+          total_latency_ms?: number | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          cached_tokens?: number | null;
+          reasoning_tokens?: number | null;
+        }
+      | undefined;
+
+    return {
+      requestCount: normalizeUsageCounterValue(row?.request_count),
+      successCount: normalizeUsageCounterValue(row?.success_count),
+      failureCount: normalizeUsageCounterValue(row?.failure_count),
+      totalLatencyMs: normalizeUsageCounterValue(row?.total_latency_ms),
+      inputTokens: normalizeUsageCounterValue(row?.input_tokens),
+      outputTokens: normalizeUsageCounterValue(row?.output_tokens),
+      totalTokens: normalizeUsageCounterValue(row?.total_tokens),
+      cachedTokens: normalizeUsageCounterValue(row?.cached_tokens),
+      reasoningTokens: normalizeUsageCounterValue(row?.reasoning_tokens),
+    };
+  }
+
   backfillUsageFromSessionActivityEvents(): { imported: number; skipped: number } {
     const earliestLiveUsageRow = this.db
       .prepare(
