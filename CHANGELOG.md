@@ -9,6 +9,13 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-17 01:55 CST]
+
+### 调整
+
+- 推进 UI/UX Phase 7 系统与诊断页重构：系统页接入 `system-diagnostics-workbench / system-config-panel / system-config-form-grid`，运行诊断区接入 `diagnostics-shell / diagnostic-card / diagnostic-fact-grid`，保留鉴权、LAN 共享、端口、自动刷新、数据迁移恢复和诊断日志原有行为。
+- 推进 UI/UX Phase 8 用量与告警页重构：用量页接入 `usage-alerts-workbench / usage-chart-panel / usage-dimension-grid / usage-alert-rule-list`，新增 24 小时趋势占位、成员/账号/模型/失败维度卡和告警规则预留位；当前不引入新图表库，不改变既有 Token 用量统计口径和告警执行状态。
+
 ## [2026-05-16 13:30 CST]
 
 ### 文档
@@ -26,6 +33,11 @@
 - 访问与密钥页补齐成员详情与 Key 管理第一版：点击成员可查看成员摘要和 Key 列表，支持暂停 / 启用单个 Key、编辑到期时间、轮换 Key 并一次性展示新明文；旧 Key 轮换后立即失效，持久化仍不保存明文。
 - 《二期 / 三期共享网关开发进度清单》新增功能开发暂停点，记录 P0 / P1-A / P1-B 已完成范围，以及后续恢复功能开发时优先推进的额度、QPS、并发、号池授权和用量告警任务。
 - 启动 UI/UX Phase 1 重构：桌面端默认主题切换为浅色，按 Figma 重构方案调整应用壳层、紧凑侧边栏、页面头、卡片、按钮、输入框、badge、设置组和基础页面背景，并改用 Electron 开发环境做真实界面观测。
+- 推进 UI/UX Phase 2 组件化细化：侧边栏文字占位图标替换为一致 SVG 图标系统，并为账号列表容器、成员详情抽屉、新增成员卡片、账号导入弹窗和 tab 接入 Figma 风格组件 hook。
+- 推进 UI/UX Phase 3 统计卡片统一：运行总览指标卡接入 `stat-card`，顶部 Token 用量总览接入 `usage-overview-card / card-header / stat-card-grid`，并保留原有统计口径、筛选、窗口切换和明细操作。
+- 推进 UI/UX Phase 4 列表 table 化：访问成员 / 兼容客户端密钥列表接入 `figma-table` 并在桌面宽度保持真实表格列；账号资产动态行拆成账号、刷新所有权 / 来源、调用与额度、操作 4 个稳定 cell；不改变账号删除边界、外部只读账号刷新边界或 Cockpit / OpenClaw 原始配置。
+- 推进 UI/UX Phase 5 号池与路由页重构：号池页接入 `pool-route-workbench / pool-control-panel / pool-list-shell`，动态号池卡片接入 `detail-drawer-panel / card-header / pool-config-form-grid / pool-member-table-shell`，保留现有号池保存、批量删除、成员搜索排序、调度事件和兼容策略路由入口。
+- 推进 UI/UX Phase 6 模型与 Provider 页重构：静态配置区接入 `model-provider-workbench / provider-config-panel / provider-config-form-grid`，已注册 Provider 清单切换为 `figma-table provider-registry-table`，保留 Codex / OpenAI-compatible / Ollama 表单 ID、保存重启行为和 Provider 注册展示语义。
 - 评审当前 Figma Make 的 UI/UX 输出：早期版本只能作为视觉方向和局部配置页参考；最新导出的「figma UI/UX重构方案」已解压到 `/Users/henery/code/local-ai-gateway-design-system`，可作为二期桌面端设计基线，但根目录 React / Vite / shadcn 脚手架不能整包照搬。
 - 更新《二期 / 三期共享网关重构技术方案》的 Figma 设计评审章节，补充 `design-system/` 目录交付物、可复用范围、适配边界和阶段 A 的集成映射任务。
 - 文档总览与项目答疑清单同步补充二期 / 三期共享网关重构入口和后续高优先级开发项。

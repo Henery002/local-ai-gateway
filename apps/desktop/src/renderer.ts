@@ -1206,7 +1206,9 @@ function saveExpandedGroupIds(expandedIds: Set<string>): void {
 
 function initCollapsibleSettingsGroups(): void {
   const groups = Array.from(
-    document.querySelectorAll<HTMLElement>(".settings-group"),
+    document.querySelectorAll<HTMLElement>(
+      ".settings-group, .provider-config-panel",
+    ),
   );
   const collapsedIds = loadCollapsedGroupIds();
   const expandedIds = loadExpandedGroupIds();
@@ -1986,7 +1988,7 @@ function renderAccessConsumerList(
         key,
       ]);
     }
-    node.innerHTML = consumers
+    const rows = consumers
       .map((consumer) => {
         const keys = keysByConsumer.get(consumer.id) ?? [];
         const enabledKeys = keys.filter((key) => key.status === "enabled").length;
@@ -1995,20 +1997,20 @@ function renderAccessConsumerList(
         );
         const selected = consumer.id === state.selectedAccessConsumerId;
         return `
-          <div class="access-consumer-row" data-selected="${selected ? "true" : "false"}">
-            <div>
+          <div class="figma-table-row access-consumer-row" role="row" data-selected="${selected ? "true" : "false"}">
+            <div class="figma-table-cell">
               <strong>${escapeHtml(consumer.name || consumer.clientTag || "未命名访问者")}</strong>
               <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")}</span>
             </div>
-            <div>
+            <div class="figma-table-cell">
               <small>Key 状态</small>
               <strong>${formatCompactCount(enabledKeys)} / ${formatCompactCount(keys.length)} 可用</strong>
             </div>
-            <div>
+            <div class="figma-table-cell">
               <small>模型权限</small>
               <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 个模型` : "未限制"}</strong>
             </div>
-            <div class="access-consumer-actions">
+            <div class="figma-table-cell access-consumer-actions">
               <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
               <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">${selected ? "已选择" : "查看"}</button>
             </div>
@@ -2016,6 +2018,17 @@ function renderAccessConsumerList(
         `;
       })
       .join("");
+    node.innerHTML = `
+      <div class="figma-table access-consumer-table" role="table" aria-label="访问成员">
+        <div class="figma-table-head access-consumer-table-head" role="row">
+          <span>成员</span>
+          <span>Key 状态</span>
+          <span>模型权限</span>
+          <span>状态 / 操作</span>
+        </div>
+        ${rows}
+      </div>
+    `;
     return;
   }
 
@@ -2026,27 +2039,40 @@ function renderAccessConsumerList(
     return;
   }
 
-  node.innerHTML = mappings
+  const rows = mappings
     .map(
       (mapping) => `
-        <div class="access-consumer-row">
-          <div>
+        <div class="figma-table-row access-consumer-row" role="row">
+          <div class="figma-table-cell">
             <strong>${escapeHtml(mapping.name || mapping.clientTag || "未命名客户端")}</strong>
             <span>${escapeHtml(mapping.clientTag || "未设置 clientTag")}</span>
           </div>
-          <div>
+          <div class="figma-table-cell">
             <small>Key 状态</small>
             <strong>${mapping.hasApiKey ? "已保存" : "缺少密钥"}</strong>
           </div>
-          <div>
+          <div class="figma-table-cell">
             <small>Header 覆盖</small>
             <strong>${mapping.allowHeaderOverride ? "允许" : "禁止"}</strong>
           </div>
-          <span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>
+          <div class="figma-table-cell access-consumer-actions">
+            <span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>
+          </div>
         </div>
       `,
     )
     .join("");
+  node.innerHTML = `
+    <div class="figma-table access-consumer-table" role="table" aria-label="兼容客户端密钥">
+      <div class="figma-table-head access-consumer-table-head" role="row">
+        <span>客户端</span>
+        <span>Key 状态</span>
+        <span>Header 覆盖</span>
+        <span>状态</span>
+      </div>
+      ${rows}
+    </div>
+  `;
 }
 
 function formatAccessStatusLabel(
@@ -2494,10 +2520,11 @@ function renderUsageOverview(): void {
   const windowLabel = usageWindowLabel(state.usageObserveWindow);
 
   container.innerHTML = `
-    <div class="usage-observe-head">
+    <section class="usage-overview-card">
+    <div class="card-header usage-card-header">
       <div>
-        <strong style="font-size: 16px;">Token 用量总览</strong>
-        <div style="font-size: 14px; color: var(--text-secondary);">持续观察 ${escapeHtml(usageClientFilterLabel(state.usageClientFilter))} 在本地网关中的请求量、Token 消耗、缓存命中与延迟表现。当前窗口：${escapeHtml(windowLabel)}。</div>
+        <strong class="card-title">Token 用量总览</strong>
+        <div class="card-description">持续观察 ${escapeHtml(usageClientFilterLabel(state.usageClientFilter))} 在本地网关中的请求量、Token 消耗、缓存命中与延迟表现。当前窗口：${escapeHtml(windowLabel)}。</div>
       </div>
       <div class="usage-observe-controls">
         <button class="btn secondary mini" data-action="open-usage-details">查看明细</button>
@@ -2527,23 +2554,23 @@ function renderUsageOverview(): void {
         </div>
       </div>
     </div>
-    <div class="usage-observe-grid">
-      <div class="usage-kpi-card usage-kpi-primary">
+    <div class="usage-observe-grid stat-card-grid">
+      <div class="usage-kpi-card stat-card usage-kpi-primary">
         <small>总请求数</small>
         <strong>${escapeHtml(formatCompactCount(usage.requestCount))}</strong>
         <span>成功 ${escapeHtml(formatCompactCount(usage.successCount))} / 失败 ${escapeHtml(formatCompactCount(usage.failureCount))}</span>
       </div>
-      <div class="usage-kpi-card">
+      <div class="usage-kpi-card stat-card">
         <small>总 Token 数</small>
         <strong>${escapeHtml(formatCompactCount(usage.totalTokens))}</strong>
         <span>输入 ${escapeHtml(formatCompactCount(usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(usage.outputTokens))}</span>
       </div>
-      <div class="usage-kpi-card">
+      <div class="usage-kpi-card stat-card">
         <small>缓存 / 思考</small>
         <strong>${escapeHtml(cachedAndReasoningLabel)}</strong>
         <span>缓存 ${hasCachedSignal ? escapeHtml(formatCompactCount(usage.cachedTokens)) : "待接入"} / 思考 ${hasReasoningSignal ? escapeHtml(formatCompactCount(usage.reasoningTokens)) : "待接入"}</span>
       </div>
-      <div class="usage-kpi-card">
+      <div class="usage-kpi-card stat-card">
         <small>平均延迟</small>
         <strong>${escapeHtml(formatUsageLatency(usage))}</strong>
         <span>成功率 ${escapeHtml(formatUsageSuccessRate(usage))}</span>
@@ -2558,6 +2585,7 @@ function renderUsageOverview(): void {
       <span>最忙账号：${escapeHtml(topAccount ? `${topAccount.email ?? topAccount.accountId} (${formatCompactCount(topAccount.usage.totalTokens)})` : "暂无")}</span>
       <span>主要模型：${escapeHtml(topModel ? `${topModel.modelAlias} (${formatCompactCount(topModel.usage.totalTokens)})` : "暂无")}</span>
     </div>
+    </section>
   `;
 }
 
@@ -2967,26 +2995,28 @@ function renderCodexAccounts(): void {
       ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
       : "尚未同步";
     return `
-      <div class="account-item${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}" data-account-key="${escapeHtml(account.key)}" data-selected="${selected ? "true" : "false"}">
-        <div class="acc-header">
-          <div class="acc-title-group">
-            <label
-              class="account-card-select"
-              data-account-select-control="true"
-              title="选择此账号用于批量操作"
-            >
-              <input
-                type="checkbox"
-                data-field="account-card-selector"
-                data-account-key="${escapeHtml(account.key)}"
-                aria-label="选择账号 ${escapeHtml(title)}"
-                ${selected ? "checked" : ""}
-              />
-            </label>
-            <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
-            <div class="acc-info">
-              <h4>${escapeHtml(title)}</h4>
-              <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
+      <div class="figma-table-row account-item account-assets-table-row${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}" role="row" data-account-key="${escapeHtml(account.key)}" data-selected="${selected ? "true" : "false"}">
+        <div class="figma-table-cell account-assets-main-cell">
+          <div class="acc-header">
+            <div class="acc-title-group">
+              <label
+                class="account-card-select"
+                data-account-select-control="true"
+                title="选择此账号用于批量操作"
+              >
+                <input
+                  type="checkbox"
+                  data-field="account-card-selector"
+                  data-account-key="${escapeHtml(account.key)}"
+                  aria-label="选择账号 ${escapeHtml(title)}"
+                  ${selected ? "checked" : ""}
+                />
+              </label>
+              <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
+              <div class="acc-info">
+                <h4>${escapeHtml(title)}</h4>
+                <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
+              </div>
             </div>
           </div>
           <div class="acc-status-group">
@@ -2999,98 +3029,109 @@ function renderCodexAccounts(): void {
             <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
           </div>
         </div>
-        <div class="acc-meta">
-          <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
-          <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
-        </div>
-        <div class="acc-meta">
-          <span>来源路径: ${escapeHtml(account.representative.sourcePath)}</span>
-          <span>${refreshMode === "managed" ? "凭据刷新: 本项目托管" : "凭据刷新: 外部只读，不主动刷新 refresh token"}</span>
-        </div>
-        <div class="acc-meta">
-          <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
-          <span>请求数: ${requestCount}</span>
-        </div>
-        <div class="acc-meta" style="align-items: center;">
-          <span>来源分布:</span>
-          <span class="client-tag-list">${clientTagBadges}</span>
-        </div>
-        <div class="acc-meta" style="align-items: center;">
-          <span>近5分钟:</span>
-          <span class="client-tag-list">${recentClientTagBadges}</span>
-        </div>
-        <div class="acc-meta">
-          <span>近1小时请求: ${activity?.recentRequestCount1h ?? 0}</span>
-          <span>近24小时: ${activity?.recentRequestCount24h ?? 0}</span>
-        </div>
-        <div style="margin-top: 4px;">
-          <div style="display: flex; justify-content: space-between; font-size: 14px;">
-            <span style="color: var(--text-secondary);">${quotaScope}</span>
-            <span style="font-weight: 500;">${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</span>
+        <div class="figma-table-cell account-assets-ownership-cell">
+          <div class="account-row-meta">
+            <small>来源</small>
+            <strong>${escapeHtml(sourceBadge)}</strong>
+            <span>${escapeHtml(account.representative.sourcePath)}</span>
           </div>
-          <div class="acc-quota-bar">
-            <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
+          <div class="account-row-meta">
+            <small>刷新所有权</small>
+            <strong>${escapeHtml(ownershipBadge)}</strong>
+            <span>${refreshMode === "managed" ? "凭据刷新由本项目托管" : "外部只读，不主动刷新 refresh token"}</span>
           </div>
-          <div style="font-size: 14px; color: var(--text-tertiary); margin-top: 6px; display: flex; justify-content: space-between;">
+          <div class="account-row-meta account-row-split">
+            <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
+            <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+          </div>
+        </div>
+        <div class="figma-table-cell account-assets-usage-cell">
+          <div class="account-row-meta account-row-split">
+            <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
+            <span>请求数: ${requestCount}</span>
+          </div>
+          <div class="account-row-meta account-row-split">
+            <span>近1小时: ${activity?.recentRequestCount1h ?? 0}</span>
+            <span>近24小时: ${activity?.recentRequestCount24h ?? 0}</span>
+          </div>
+          <div class="account-row-source">
+            <span>来源分布</span>
+            <span class="client-tag-list">${clientTagBadges}</span>
+          </div>
+          <div class="account-row-source">
+            <span>近 5 分钟</span>
+            <span class="client-tag-list">${recentClientTagBadges}</span>
+          </div>
+          <div class="account-row-quota">
+            <div class="account-row-split">
+              <span>${quotaScope}</span>
+              <strong>${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</strong>
+            </div>
+            <div class="acc-quota-bar">
+              <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
+            </div>
+          </div>
+          <div class="account-row-meta account-row-split">
             <span>重置: ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
             <span>${escapeHtml(quotaUpdatedAt)}</span>
           </div>
+          ${refreshErrorMessage ? `<div class="account-row-refresh-error">${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</div>` : ""}
         </div>
-        ${refreshErrorMessage ? `<div style="font-size: 14px; color: var(--warning); background: var(--warning-bg); border-radius: 8px; padding: 8px 10px;">${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</div>` : ""}
-        <div class="acc-actions">
-          <button
-            class="icon-btn"
-            data-icon-only="true"
-            data-action="activate"
-            data-tone="${account.isActive ? "active" : "activate"}"
-            data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-            data-session-id="${escapeHtml(account.representative.id)}"
-            title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-            aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
-            type="button"
-          >
-            ${renderActionIcon(account.isActive ? "active" : "activate")}
-          </button>
-          <button
-            class="icon-btn"
-            data-icon-only="true"
-            data-action="toggle-pin-session"
-            data-tone="${isPinned ? "pin-active" : "pin"}"
-            data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
-            data-session-id="${escapeHtml(account.representative.id)}"
-            title="${isPinned ? "取消置顶" : "置顶账号"}"
-            aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
-            type="button"
-          >
-            ${renderActionIcon(isPinned ? "unpin" : "pin")}
-          </button>
-          <button
-            class="icon-btn"
-            data-icon-only="true"
-            data-action="refresh-session-usage"
-            data-tone="refresh"
-            data-tooltip="刷新额度"
-            data-session-id="${escapeHtml(account.representative.id)}"
-            title="刷新额度"
-            aria-label="刷新额度"
-            type="button"
-          >
-            ${renderActionIcon("refresh")}
-          </button>
-          <button
-            class="icon-btn"
-            data-icon-only="true"
-            data-action="delete-codex-account"
-            data-tone="delete"
-            data-tooltip="删除本地副本"
-            data-session-id="${escapeHtml(account.representative.id)}"
-            title="删除本地副本"
-            aria-label="删除本地副本"
-            style="margin-left: auto;"
-            type="button"
-          >
-            ${renderActionIcon("delete")}
-          </button>
+        <div class="figma-table-cell account-assets-actions-cell">
+          <div class="acc-actions">
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="activate"
+              data-tone="${account.isActive ? "active" : "activate"}"
+              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              type="button"
+            >
+              ${renderActionIcon(account.isActive ? "active" : "activate")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="toggle-pin-session"
+              data-tone="${isPinned ? "pin-active" : "pin"}"
+              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${isPinned ? "取消置顶" : "置顶账号"}"
+              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
+              type="button"
+            >
+              ${renderActionIcon(isPinned ? "unpin" : "pin")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="refresh-session-usage"
+              data-tone="refresh"
+              data-tooltip="刷新额度"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="刷新额度"
+              aria-label="刷新额度"
+              type="button"
+            >
+              ${renderActionIcon("refresh")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="delete-codex-account"
+              data-tone="delete"
+              data-tooltip="删除本地副本"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="删除本地副本"
+              aria-label="删除本地副本"
+              type="button"
+            >
+              ${renderActionIcon("delete")}
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -3180,7 +3221,14 @@ function renderCodexAccounts(): void {
 
   container.innerHTML = `
     ${buildAccountBulkToolbarMarkup(accounts)}
-    <div class="grid-layout accounts-grid" data-accounts-grid></div>
+    <div class="figma-table account-assets-table" data-accounts-grid role="table" aria-label="账号资产列表">
+      <div class="figma-table-head account-assets-table-head" role="row">
+        <span>账号</span>
+        <span>刷新所有权 / 来源</span>
+        <span>调用与额度</span>
+        <span>操作</span>
+      </div>
+    </div>
   `;
   const grid = container.querySelector<HTMLElement>("[data-accounts-grid]");
   if (!grid) {
@@ -3230,43 +3278,54 @@ function renderProviderRegistry(): void {
     return;
   }
 
-  container.innerHTML = "";
-  for (const provider of providers.data) {
-    const isDefault = provider.models.some(
-      (model) => model.alias === state.health?.defaultModel,
-    );
-    const card = document.createElement("div");
-    card.className = `provider-item${isDefault ? " active" : ""}`;
-    const modelRows = provider.models
-      .map(
-        (model) => `
-        <div class="model-line">
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <strong style="font-weight: 600; color: var(--text-primary);">${escapeHtml(model.alias)}</strong>
-            <span style="color: var(--text-tertiary); font-size: 13px;">${escapeHtml(model.providerModelId)}</span>
+  const rows = providers.data
+    .map((provider) => {
+      const isDefault = provider.models.some(
+        (model) => model.alias === state.health?.defaultModel,
+      );
+      const modelRows = provider.models
+        .map(
+          (model) => `
+        <div class="model-line provider-registry-model-line">
+          <div class="provider-registry-model-name">
+            <strong>${escapeHtml(model.alias)}</strong>
+            <span>${escapeHtml(model.providerModelId)}</span>
           </div>
           <span class="badge ${model.alias === state.health?.defaultModel ? "active" : "neutral"}">${model.alias === state.health?.defaultModel ? "默认" : "可用"}</span>
         </div>
       `,
-      )
-      .join("");
+        )
+        .join("");
 
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-        <div style="display: flex; flex-direction: column; gap: 2px;">
-          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(provider.label)}</strong>
-          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(provider.id)}</span>
+      return `
+      <div class="figma-table-row provider-registry-row${isDefault ? " active" : ""}">
+        <div class="figma-table-cell provider-registry-main-cell">
+          <strong>${escapeHtml(provider.label)}</strong>
+          <span>${escapeHtml(provider.id)}</span>
+          <span class="badge neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
         </div>
-        <span class="badge neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
+        <div class="figma-table-cell provider-registry-config-cell">
+          <span>配置来源: ${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</span>
+          <span>${provider.usesSessions ? `活动会话: ${escapeHtml(provider.activeSessionId ?? "未选择")}` : "无需活动会话"}</span>
+        </div>
+        <div class="figma-table-cell provider-registry-models-cell">
+          <div class="provider-registry-model-list">${modelRows}</div>
+        </div>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-light);">
-        <span>配置来源: ${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</span>
-        <span>${provider.usesSessions ? `活动会话: ${escapeHtml(provider.activeSessionId ?? "未选择")}` : "无需活动会话"}</span>
-      </div>
-      <div class="provider-models">${modelRows}</div>
     `;
-    container.appendChild(card);
-  }
+    })
+    .join("");
+
+  container.innerHTML = `
+    <div class="figma-table provider-registry-table">
+      <div class="figma-table-head provider-registry-table-head">
+        <span>Provider</span>
+        <span>配置</span>
+        <span>暴露模型</span>
+      </div>
+      ${rows}
+    </div>
+  `;
 }
 
 function renderDiagnostics(): void {
@@ -3287,15 +3346,15 @@ function renderDiagnostics(): void {
     serviceContainer.innerHTML = "";
     for (const item of runtimeDiagnostics) {
       const card = document.createElement("div");
-      card.className = "card";
+      card.className = "diagnostic-card detail-drawer-panel service-diagnostic-card";
       const suggestion = item.suggestion
-        ? `<div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;"><strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">建议处理</strong>${escapeHtml(item.suggestion)}</div>`
+        ? `<div class="diagnostic-suggestion"><strong>建议处理</strong>${escapeHtml(item.suggestion)}</div>`
         : "";
       card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.title)}</strong>
-            <span style="font-size: 14px; color: var(--text-secondary);">${escapeHtml(item.message)}</span>
+        <div class="diagnostic-card-header">
+          <div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.message)}</span>
           </div>
           <span class="badge ${diagnosticBadgeClass(item.severity)}">${diagnosticSeverityLabel(item.severity)}</span>
         </div>
@@ -3315,27 +3374,27 @@ function renderDiagnostics(): void {
   container.innerHTML = "";
   for (const item of diagnostics) {
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "diagnostic-card detail-drawer-panel provider-diagnostic-card";
     const missing = item.missingEnvKeys?.length
-      ? `<div style="margin-top: 12px; padding: 10px 12px; background: var(--warning-bg); border-radius: var(--radius-sm); border: 1px solid var(--warning-border); font-size: 13px; color: var(--warning);"><strong style="display: block; margin-bottom: 4px;">缺失配置项</strong>${escapeHtml(item.missingEnvKeys.join(", "))}</div>`
+      ? `<div class="diagnostic-suggestion warning"><strong>缺失配置项</strong>${escapeHtml(item.missingEnvKeys.join(", "))}</div>`
       : "";
     const notes = item.notes?.length
-      ? `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 4px;">${item.notes.map((note) => `<span style="font-size: 13px; color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border-light); padding: 6px 10px; border-radius: var(--radius-sm);">${escapeHtml(note)}</span>`).join("")}</div>`
+      ? `<div class="diagnostic-note-list">${item.notes.map((note) => `<span>${escapeHtml(note)}</span>`).join("")}</div>`
       : "";
 
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-        <div style="display: flex; flex-direction: column; gap: 2px;">
-          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.label)}</strong>
-          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(item.id)}</span>
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>${escapeHtml(item.label)}</strong>
+          <span>${escapeHtml(item.id)}</span>
         </div>
         <span class="badge ${item.status}">${statusTone(item.status)}</span>
       </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
-        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">注册状态</span><strong style="font-weight: 500;">${item.registered ? "已注册" : "未注册"}</strong></div>
-        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">配置来源</span><strong style="font-weight: 500;">${escapeHtml(item.configuredVia)}</strong></div>
-        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">鉴权方式</span><strong style="font-weight: 500;">${escapeHtml(item.authMode)}</strong></div>
-        <div style="display: flex; flex-direction: column;"><span style="color: var(--text-secondary); margin-bottom: 2px;">Base URL</span><strong style="font-weight: 500;">${escapeHtml(item.baseUrl ?? "未设置")}</strong></div>
+      <div class="diagnostic-fact-grid">
+        <div class="diagnostic-fact"><span>注册状态</span><strong>${item.registered ? "已注册" : "未注册"}</strong></div>
+        <div class="diagnostic-fact"><span>配置来源</span><strong>${escapeHtml(item.configuredVia)}</strong></div>
+        <div class="diagnostic-fact"><span>鉴权方式</span><strong>${escapeHtml(item.authMode)}</strong></div>
+        <div class="diagnostic-fact"><span>Base URL</span><strong>${escapeHtml(item.baseUrl ?? "未设置")}</strong></div>
       </div>
       ${missing}
       ${notes}
@@ -3357,7 +3416,7 @@ function renderAppDataStatus(): void {
   }
 
   container.innerHTML = `
-    <div class="routing-rule-guide" style="margin-top: 10px;">
+    <div class="routing-rule-guide app-data-status-card">
       <span>当前本地持久化数据：${escapeHtml(String(status.fileCount))} 个文件，约 ${escapeHtml(formatBytes(status.totalBytes))}。</span>
       <span>应用数据目录：${escapeHtml(status.rootDir)}</span>
       <span>备份目录：${escapeHtml(status.backupDir)}</span>
@@ -3674,17 +3733,17 @@ function renderErrors(): void {
   container.innerHTML = "";
   for (const item of refreshErrors.slice(0, 6)) {
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "diagnostic-card detail-drawer-panel recent-error-card";
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-        <div style="display: flex; flex-direction: column; gap: 2px;">
-          <strong style="font-size: 15px; font-weight: 600;">额度刷新失败</strong>
-          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(item.sessionId)}</span>
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>额度刷新失败</strong>
+          <span>${escapeHtml(item.sessionId)}</span>
         </div>
         <span class="badge incomplete">需处理</span>
       </div>
-      <div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;">
-        <strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">原因</strong>
+      <div class="diagnostic-suggestion">
+        <strong>原因</strong>
         ${escapeHtml(item.message)}
       </div>
     `;
@@ -3693,17 +3752,17 @@ function renderErrors(): void {
 
   for (const item of errors.slice(0, 6)) {
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "diagnostic-card detail-drawer-panel recent-error-card";
     card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-        <div style="display: flex; flex-direction: column; gap: 2px;">
-          <strong style="font-size: 15px; font-weight: 600;">${escapeHtml(item.level.toUpperCase())}</strong>
-          <span style="font-size: 14px; color: var(--text-tertiary);">${escapeHtml(new Date(item.createdAt).toLocaleString("zh-CN"))}</span>
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>${escapeHtml(item.level.toUpperCase())}</strong>
+          <span>${escapeHtml(new Date(item.createdAt).toLocaleString("zh-CN"))}</span>
         </div>
         <span class="badge ${item.level === "error" ? "disabled" : "neutral"}">${item.level === "error" ? "错误" : "日志"}</span>
       </div>
-      <div style="font-size: 14px; color: var(--text-secondary); background: var(--bg-surface); padding: 8px; border-radius: 6px; margin-top: 8px;">
-        <strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">内容</strong>
+      <div class="diagnostic-suggestion">
+        <strong>内容</strong>
         ${escapeHtml(item.message)}
       </div>
     `;
@@ -4644,6 +4703,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
     : `<div class="form-hint" style="margin-bottom: 12px;">当前尚未拿到该号池的运行时观测。通常在网关健康信息刷新后会自动出现。</div>`;
 
   return `
+    <div class="pool-member-table-shell">
     ${runtimeSummary}
     <div class="pool-member-toolbar">
       <div class="toolbar-group">
@@ -4794,6 +4854,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         .join("")}
     </div>`
       }
+    </div>
     </div>
   `;
 }
@@ -4969,8 +5030,8 @@ function renderPoolCards(): void {
       );
       const selected = selectedPoolIds.has(pool.id);
       return `
-        <div class="routing-rule-card pool-config-card ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}" data-selected="${selected ? "true" : "false"}">
-          <div class="routing-rule-top pool-card-top" data-action="toggle-pool-card" data-pool-id="${escapeHtml(pool.id)}">
+        <div class="routing-rule-card pool-config-card detail-drawer-panel ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}" data-selected="${selected ? "true" : "false"}">
+          <div class="card-header pool-card-header routing-rule-top pool-card-top" data-action="toggle-pool-card" data-pool-id="${escapeHtml(pool.id)}">
             <div class="pool-card-title-wrap">
               <label
                 class="pool-card-select"
@@ -4991,7 +5052,7 @@ function renderPoolCards(): void {
                 <span>首版只纳入桌面端导入账号；通过列表顺序确定默认优先级，必要时再结合额度与最近使用情况自动挑号。</span>
               </div>
             </div>
-            <div class="routing-rule-meta">
+            <div class="routing-rule-meta pool-card-actions">
               <span class="badge neutral">${escapeHtml(pool.id)}</span>
               <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${pool.enabled === false ? "未启用" : "已启用"}</span>
               <button
@@ -5010,7 +5071,7 @@ function renderPoolCards(): void {
             </div>
           </div>
           <div class="routing-rule-body">
-          <div class="routing-rule-grid">
+          <div class="routing-rule-grid pool-config-form-grid">
             <div class="form-field">
               <label>号池名称</label>
               <input class="input-field" data-field="pool-name" value="${escapeHtml(pool.name ?? "")}" />

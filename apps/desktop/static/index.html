@@ -22,32 +22,70 @@
 
         <div class="nav-group">
           <button class="nav-item" data-nav-target="overview" data-active="true">
-            <span class="nav-icon">总</span>
-            <span>总览</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+                <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+                <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+                <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+              </svg>
+            </span>
+            <span class="nav-label">总览</span>
           </button>
           <button class="nav-item" data-nav-target="access" data-active="false">
-            <span class="nav-icon">钥</span>
-            <span>访问与密钥</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <path d="M8.5 11.5 5.75 14.25H3.5V12l2.75-2.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="12" cy="8" r="4.5" stroke="currentColor" stroke-width="1.5" />
+                <path d="M13.75 6.25h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="nav-label">访问与密钥</span>
           </button>
           <button class="nav-item" data-nav-target="accounts" data-active="false">
-            <span class="nav-icon">账</span>
-            <span>账号资产</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <circle cx="10" cy="7" r="3.25" stroke="currentColor" stroke-width="1.5" />
+                <path d="M4.25 16.25c.8-2.45 3-4 5.75-4s4.95 1.55 5.75 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="nav-label">账号资产</span>
           </button>
           <button class="nav-item" data-nav-target="pools" data-active="false">
-            <span class="nav-icon">池</span>
-            <span>号池与路由</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <path d="M10 3.75 16 7.25v5.5l-6 3.5-6-3.5v-5.5l6-3.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                <path d="M4.25 7.4 10 10.75l5.75-3.35M10 10.75v5.35" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span class="nav-label">号池与路由</span>
           </button>
           <button class="nav-item" data-nav-target="models" data-active="false">
-            <span class="nav-icon">模</span>
-            <span>模型与 Provider</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <path d="M10 3.75v12.5M10 3.75 6.5 7.25M10 3.75l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M3.75 10h12.5M3.75 10l3.5-3.5M3.75 10l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span class="nav-label">模型与 Provider</span>
           </button>
           <button class="nav-item" data-nav-target="usage" data-active="false">
-            <span class="nav-icon">量</span>
-            <span>用量与告警</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <path d="M3.75 15.5 7.25 12l2.5 2.5 6.5-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M12.75 7.5h3.5V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span class="nav-label">用量与告警</span>
           </button>
           <button class="nav-item" data-nav-target="system" data-active="false">
-            <span class="nav-icon">诊</span>
-            <span>系统与诊断</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg class="nav-icon-svg" viewBox="0 0 20 20" fill="none">
+                <circle cx="10" cy="10" r="2.75" stroke="currentColor" stroke-width="1.5" />
+                <path d="M10 3.25v1.5M10 15.25v1.5M15.25 10h1.5M3.25 10h1.5M13.7 6.3l1.05-1.05M5.25 14.75l1.05-1.05M13.7 13.7l1.05 1.05M5.25 5.25 6.3 6.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="nav-label">系统与诊断</span>
           </button>
         </div>
 
@@ -94,17 +132,17 @@
                 <p>当前网关的核心运行指标与默认路由策略。</p>
               </div>
               <div class="grid-layout grid-4">
-                <div class="card mini-stat"><small>服务状态</small><strong id="service-state">加载中</strong></div>
-                <div class="card mini-stat"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
-                <div class="card mini-stat"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
-                <div class="card mini-stat"><small>当前路由模型</small><strong id="default-model">加载中</strong></div>
-                <div class="card mini-stat"><small>活动授权</small><strong id="runtime-active-session">加载中</strong></div>
-                <div class="card mini-stat"><small>接入鉴权</small><strong id="runtime-inference-auth">加载中</strong></div>
-                <div class="card mini-stat"><small>主接入 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
-                <div class="card mini-stat"><small>路由命中概览</small><strong id="runtime-routing-hit">加载中</strong></div>
-                <div class="card mini-stat"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
-                <div class="card mini-stat"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
-                <div class="card mini-stat" style="grid-column: 1 / -1;">
+                <div class="card mini-stat stat-card"><small>服务状态</small><strong id="service-state">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>当前路由模型</small><strong id="default-model">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>活动授权</small><strong id="runtime-active-session">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>接入鉴权</small><strong id="runtime-inference-auth">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>主接入 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>路由命中概览</small><strong id="runtime-routing-hit">加载中</strong></div>
+                <div class="card mini-stat stat-card"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
+                <div class="card mini-stat stat-card"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
+                <div class="card mini-stat stat-card" style="grid-column: 1 / -1;">
                   <small>默认模型选择依据</small>
                   <strong id="default-selection">加载中</strong>
                 </div>
@@ -391,7 +429,7 @@
                 </div>
               </div>
 
-              <div id="access-member-drawer" class="card access-member-drawer mt-4" data-state="placeholder">
+              <div id="access-member-drawer" class="card access-member-drawer detail-drawer-panel mt-4" data-state="placeholder">
                 <div class="dashboard-panel-head">
                   <div>
                     <strong id="access-member-detail-name">成员详情抽屉</strong>
@@ -414,7 +452,7 @@
                 </div>
               </div>
 
-              <div id="access-create-member-modal" class="card access-create-member-modal mt-4" data-state="form" hidden>
+              <div id="access-create-member-modal" class="card access-create-member-modal action-modal-card mt-4" data-state="form" hidden>
                 <div class="dashboard-panel-head">
                   <div>
                     <strong>新增成员弹窗</strong>
@@ -502,7 +540,7 @@
                 </div>
               </div>
 
-              <div id="account-assets-table-shell" class="account-assets-shell">
+              <div id="account-assets-table-shell" class="account-assets-shell table-container-lite">
                 <div class="account-assets-shell-head">
                   <div>
                     <strong>账号列表</strong>
@@ -513,7 +551,7 @@
                 <div id="codex-accounts" class="grid-layout"></div>
               </div>
 
-              <div id="account-detail-drawer" class="card account-detail-drawer mt-4" data-state="placeholder">
+              <div id="account-detail-drawer" class="card account-detail-drawer detail-drawer-panel mt-4" data-state="placeholder">
                 <div class="dashboard-panel-head">
                   <div>
                     <strong>账号详情抽屉</strong>
@@ -528,128 +566,201 @@
           <!-- View: Models & Providers -->
           <div class="view" data-view="models" hidden>
             <section>
-              <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
+              <div class="section-head page-section-head">
                 <div>
                   <h2>模型与 Provider</h2>
                   <p>在此管理模型别名、Provider 接入参数与暴露模型，不负责按客户端做请求分流。</p>
                 </div>
-                <button id="save-provider-settings" class="btn primary">保存并重启服务</button>
-              </div>
-
-              <div class="settings-group mb-4" data-collapsible-id="provider-codex">
-                <div class="settings-header">
-                  <div>
-                    <h3>会话型 Provider (Codex)</h3>
-                    <p>复用本地授权驱动，无需手动填写密钥。</p>
-                  </div>
-                </div>
-                <div class="settings-body">
-                  <div class="settings-note compact">
-                    <strong>Codex Provider 说明</strong>
-                    <p>这里控制 `codex-default` 背后实际使用的上游模型，以及额外暴露给第三方客户端的模型别名；不会影响你已经导入的账号数据。</p>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-field">
-                      <label>接入方式</label>
-                      <input class="input-field" value="自动发现本地可复用授权" disabled />
-                    </div>
-                    <div class="form-field">
-                      <label>会话来源</label>
-                      <input class="input-field" value="~/.openclaw/agents/*/agent/auth-profiles.json" disabled />
-                    </div>
-                    <div class="form-field">
-                      <label>默认模型别名</label>
-                      <input class="input-field" value="codex-default" disabled />
-                    </div>
-                    <div class="form-field">
-                      <label>Codex 上游模型</label>
-                      <select id="codex-upstream-model" class="input-field"></select>
-                    </div>
-                    <div class="form-field full">
-                      <label>并行暴露模型别名</label>
-                      <div id="codex-exposed-models" class="chip-check-list"></div>
-                      <div class="form-hint">可同时暴露多个 Codex 模型别名给第三方客户端，例如 `codex-5.4`、`codex-5.4-mini`、`codex-5.1-max`、`codex-5.1-mini`。</div>
-                    </div>
-                  </div>
+                <div class="section-actions">
+                  <button id="save-provider-settings" class="btn primary">保存并重启服务</button>
                 </div>
               </div>
 
-              <div class="settings-group mb-4" data-collapsible-id="provider-openai-compatible" data-default-collapsed="true">
-                <div class="settings-header">
-                  <div>
-                    <h3>OpenAI-Compatible</h3>
-                    <p>扩展 Provider，可选接入标准 OpenAI 兼容云端接口。</p>
+              <div class="model-provider-workbench">
+                <div class="card provider-config-panel provider-codex-panel" data-collapsible-id="provider-codex">
+                  <div class="settings-header card-header">
+                    <div>
+                      <span class="card-title">会话型 Provider (Codex)</span>
+                      <p class="card-description">复用本地授权驱动，无需手动填写密钥。</p>
+                    </div>
                   </div>
-                  <label class="switch-label" style="font-size: 14px; margin-top: auto; margin-bottom: 4px;">
-                    <input id="openai-enabled" type="checkbox" />
-                    启用扩展 Provider
-                  </label>
+                  <div class="settings-body">
+                    <div class="settings-note compact">
+                      <strong>Codex Provider 说明</strong>
+                      <p>这里控制 `codex-default` 背后实际使用的上游模型，以及额外暴露给第三方客户端的模型别名；不会影响你已经导入的账号数据。</p>
+                    </div>
+                    <div class="provider-config-form-grid">
+                      <div class="form-field">
+                        <label>接入方式</label>
+                        <input class="input-field" value="自动发现本地可复用授权" disabled />
+                      </div>
+                      <div class="form-field">
+                        <label>会话来源</label>
+                        <input class="input-field" value="~/.openclaw/agents/*/agent/auth-profiles.json" disabled />
+                      </div>
+                      <div class="form-field">
+                        <label>默认模型别名</label>
+                        <input class="input-field" value="codex-default" disabled />
+                      </div>
+                      <div class="form-field">
+                        <label>Codex 上游模型</label>
+                        <select id="codex-upstream-model" class="input-field"></select>
+                      </div>
+                      <div class="form-field full">
+                        <label>并行暴露模型别名</label>
+                        <div id="codex-exposed-models" class="chip-check-list"></div>
+                        <div class="form-hint">可同时暴露多个 Codex 模型别名给第三方客户端，例如 `codex-5.4`、`codex-5.4-mini`、`codex-5.1-max`、`codex-5.1-mini`。</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="settings-body">
-                  <div class="settings-note compact">
-                    <strong>OpenAI-Compatible Provider 说明</strong>
-                    <p>这是额外的标准兼容 Provider，可与 Codex 同时存在；适合接入你自有的云端中转、官方 API 或其他 OpenAI 兼容服务。若当前只围绕 Codex 使用，可保持关闭状态。</p>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-field"><label>显示名称</label><input id="openai-label" class="input-field" placeholder="My Relay" /></div>
-                    <div class="form-field"><label>模型别名</label><input id="openai-alias" class="input-field" placeholder="openai-compatible-default" /></div>
-                    <div class="form-field full"><label>Base URL</label><input id="openai-base-url" class="input-field" placeholder="https://api.example.com/v1" /></div>
-                    <div class="form-field full"><label>API Key</label><input id="openai-api-key" type="password" class="input-field" placeholder="sk-..." /></div>
-                    <div class="form-field"><label>上游模型名</label><input id="openai-model" class="input-field" placeholder="gpt-4" /></div>
-                    <div class="form-field"><label>展示名称</label><input id="openai-display-name" class="input-field" placeholder="OpenAI Default" /></div>
-                  </div>
-                </div>
-              </div>
 
-              <div class="settings-group mb-4" data-collapsible-id="provider-ollama" data-default-collapsed="true">
-                <div class="settings-header">
-                  <div>
-                    <h3>本地模型 (Ollama)</h3>
-                    <p>扩展 Provider，可选接入本机运行的 Ollama 服务。</p>
+                <div class="card provider-config-panel provider-extension-panel" data-collapsible-id="provider-openai-compatible" data-default-collapsed="true">
+                  <div class="settings-header card-header">
+                    <div>
+                      <span class="card-title">OpenAI-Compatible</span>
+                      <p class="card-description">扩展 Provider，可选接入标准 OpenAI 兼容云端接口。</p>
+                    </div>
+                    <label class="switch-label provider-enable-switch">
+                      <input id="openai-enabled" type="checkbox" />
+                      启用扩展 Provider
+                    </label>
                   </div>
-                  <label class="switch-label" style="font-size: 14px; margin-top: auto; margin-bottom: 4px;">
-                    <input id="ollama-enabled" type="checkbox" />
-                    启用扩展 Provider
-                  </label>
+                  <div class="settings-body">
+                    <div class="settings-note compact">
+                      <strong>OpenAI-Compatible Provider 说明</strong>
+                      <p>这是额外的标准兼容 Provider，可与 Codex 同时存在；适合接入你自有的云端中转、官方 API 或其他 OpenAI 兼容服务。若当前只围绕 Codex 使用，可保持关闭状态。</p>
+                    </div>
+                    <div class="provider-config-form-grid">
+                      <div class="form-field"><label>显示名称</label><input id="openai-label" class="input-field" placeholder="My Relay" /></div>
+                      <div class="form-field"><label>模型别名</label><input id="openai-alias" class="input-field" placeholder="openai-compatible-default" /></div>
+                      <div class="form-field full"><label>Base URL</label><input id="openai-base-url" class="input-field" placeholder="https://api.example.com/v1" /></div>
+                      <div class="form-field full"><label>API Key</label><input id="openai-api-key" type="password" class="input-field" placeholder="sk-..." /></div>
+                      <div class="form-field"><label>上游模型名</label><input id="openai-model" class="input-field" placeholder="gpt-4" /></div>
+                      <div class="form-field"><label>展示名称</label><input id="openai-display-name" class="input-field" placeholder="OpenAI Default" /></div>
+                    </div>
+                  </div>
                 </div>
-                <div class="settings-body">
-                  <div class="settings-note compact">
-                    <strong>Ollama Provider 说明</strong>
-                    <p>用于把本机 Ollama 模型一并纳入本地网关管理。配置成功后，第三方客户端就能通过同一个网关入口同时访问 Codex 和 Ollama；若当前只服务 Codex，可保持关闭状态。</p>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-field"><label>显示名称</label><input id="ollama-label" class="input-field" placeholder="Ollama" /></div>
-                    <div class="form-field"><label>模型别名</label><input id="ollama-alias" class="input-field" placeholder="ollama-default" /></div>
-                    <div class="form-field full"><label>Base URL</label><input id="ollama-base-url" class="input-field" placeholder="http://127.0.0.1:11434" /></div>
-                    <div class="form-field"><label>模型名</label><input id="ollama-model" class="input-field" placeholder="qwen2.5-coder:7b" /></div>
-                    <div class="form-field"><label>展示名称</label><input id="ollama-display-name" class="input-field" placeholder="Ollama Default" /></div>
-                  </div>
-                </div>
-              </div>
 
-              <div class="section-head mt-4">
-                <h2>已注册 Provider 清单</h2>
-                <p>当前网关真正加载并可被外部访问的 Provider 列表。</p>
+                <div class="card provider-config-panel provider-extension-panel" data-collapsible-id="provider-ollama" data-default-collapsed="true">
+                  <div class="settings-header card-header">
+                    <div>
+                      <span class="card-title">本地模型 (Ollama)</span>
+                      <p class="card-description">扩展 Provider，可选接入本机运行的 Ollama 服务。</p>
+                    </div>
+                    <label class="switch-label provider-enable-switch">
+                      <input id="ollama-enabled" type="checkbox" />
+                      启用扩展 Provider
+                    </label>
+                  </div>
+                  <div class="settings-body">
+                    <div class="settings-note compact">
+                      <strong>Ollama Provider 说明</strong>
+                      <p>用于把本机 Ollama 模型一并纳入本地网关管理。配置成功后，第三方客户端就能通过同一个网关入口同时访问 Codex 和 Ollama；若当前只服务 Codex，可保持关闭状态。</p>
+                    </div>
+                    <div class="provider-config-form-grid">
+                      <div class="form-field"><label>显示名称</label><input id="ollama-label" class="input-field" placeholder="Ollama" /></div>
+                      <div class="form-field"><label>模型别名</label><input id="ollama-alias" class="input-field" placeholder="ollama-default" /></div>
+                      <div class="form-field full"><label>Base URL</label><input id="ollama-base-url" class="input-field" placeholder="http://127.0.0.1:11434" /></div>
+                      <div class="form-field"><label>模型名</label><input id="ollama-model" class="input-field" placeholder="qwen2.5-coder:7b" /></div>
+                      <div class="form-field"><label>展示名称</label><input id="ollama-display-name" class="input-field" placeholder="Ollama Default" /></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="provider-registry-shell table-container-lite">
+                  <div class="card-header provider-registry-header">
+                    <div>
+                      <span class="card-title">已注册 Provider 清单</span>
+                      <p class="card-description">当前网关真正加载并可被外部访问的 Provider 列表。</p>
+                    </div>
+                  </div>
+                  <div id="provider-registry"></div>
+                </div>
               </div>
-              <div id="provider-registry" class="grid-layout grid-2"></div>
             </section>
           </div>
 
           <!-- View: Usage & Alerts -->
           <div class="view" data-view="usage" hidden>
             <section>
-              <div class="section-head">
-                <h2>用量与告警</h2>
-                <p>集中观察 Token 消耗、客户端来源、账号消耗排行和后续成员级告警。</p>
+              <div class="section-head page-section-head">
+                <div>
+                  <h2>用量与告警</h2>
+                  <p>集中观察 Token 消耗、成员归因、账号/模型/号池排行和后续告警策略。</p>
+                </div>
               </div>
-              <div class="card routing-rule-guide">
-                <strong>二期观测方向</strong>
-                <span>当前页面先复用顶部 Token 用量总览；后续将扩展为成员、账号、模型、号池多维图表，并接入告警策略。</span>
-              </div>
-              <div class="card routing-observe-panel mt-4">
-                <div style="display: grid; gap: 8px;">
-                  <strong style="font-size: 16px;">告警预留</strong>
-                  <span style="font-size: 14px; color: var(--text-secondary);">成员超限、共享号池可用账号过低、外部只读账号鉴权失效和失败率异常会在后续切片中进入本页。</span>
+
+              <div class="usage-alerts-workbench">
+                <div class="usage-chart-panel">
+                  <div class="card-header usage-chart-header">
+                    <div>
+                      <span class="card-title">24 小时用量趋势</span>
+                      <p class="card-description">后续会按本机自用、OpenClaw、Hermes 和共享成员分线展示；当前先复用顶部 Token 用量总览作为真实统计入口。</p>
+                    </div>
+                    <span class="badge neutral">P2 接入图表</span>
+                  </div>
+                  <div class="usage-chart-frame" aria-label="24 小时 Token 趋势占位">
+                    <div class="usage-chart-axis"></div>
+                    <div class="usage-chart-line primary"></div>
+                    <div class="usage-chart-line secondary"></div>
+                    <div class="usage-chart-line tertiary"></div>
+                  </div>
+                </div>
+
+                <div class="usage-dimension-grid">
+                  <div class="usage-insight-card">
+                    <small>成员用量</small>
+                    <strong>consumerId / key</strong>
+                    <span>已具备用量归因底座，后续展示成员 24h 消耗、日限额和余量。</span>
+                  </div>
+                  <div class="usage-insight-card">
+                    <small>账号与号池</small>
+                    <strong>账号 / pool</strong>
+                    <span>后续展示账号消耗排行、shared 号池命中量和可用账号告警。</span>
+                  </div>
+                  <div class="usage-insight-card">
+                    <small>模型分布</small>
+                    <strong>model alias</strong>
+                    <span>后续按 `codex-default`、多 Codex 别名、Ollama 或兼容 Provider 聚合。</span>
+                  </div>
+                  <div class="usage-insight-card">
+                    <small>失败与限流</small>
+                    <strong>401 / 403 / 429</strong>
+                    <span>后续汇总 key 错误、成员超限、上游限流和外部只读账号鉴权失效。</span>
+                  </div>
+                </div>
+
+                <div class="card usage-alert-panel">
+                  <div class="card-header usage-alert-header">
+                    <div>
+                      <span class="card-title">告警策略预留</span>
+                      <p class="card-description">先保留策略位，避免二期后续接额度、QPS、并发和号池授权时再次大改页面。</p>
+                    </div>
+                    <span class="badge incomplete">待接入规则执行</span>
+                  </div>
+                  <div class="usage-alert-rule-list">
+                    <div class="usage-alert-rule">
+                      <strong>成员日限额余量低</strong>
+                      <span>当某成员 Token 余量低于阈值时提示管理员。</span>
+                      <em>预留</em>
+                    </div>
+                    <div class="usage-alert-rule">
+                      <strong>共享号池可用账号过低</strong>
+                      <span>当 shared-lan 号池候选账号不足或大面积冷却时触发。</span>
+                      <em>预留</em>
+                    </div>
+                    <div class="usage-alert-rule">
+                      <strong>外部只读账号鉴权失效</strong>
+                      <span>只提示重新导入或外部源同步，不主动刷新 refresh token。</span>
+                      <em>预留</em>
+                    </div>
+                    <div class="usage-alert-rule">
+                      <strong>失败率异常</strong>
+                      <span>按成员、key、模型或客户端观察 401 / 403 / 429 激增。</span>
+                      <em>预留</em>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -756,56 +867,47 @@
           <!-- View: Pools -->
           <div class="view" data-view="pools" hidden>
             <section>
-              <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
+              <div class="section-head page-section-head">
                 <div>
                   <h2>号池与路由</h2>
                   <p>把多个桌面端 Codex 账号编成动态号池，并与策略路由一起控制共享请求命中哪里。</p>
                 </div>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <div class="section-actions">
                   <button id="add-pool" class="btn secondary">新增号池</button>
                   <button id="save-pool-settings" class="btn primary">保存号池配置</button>
                 </div>
               </div>
 
-              <div class="settings-group mb-4">
-                <div class="settings-header">
-                  <div>
-                    <h3>号池调度开关</h3>
-                    <p>关闭后，所有“号池调度”目标模式都会退化为普通路由，不会再自动切号。</p>
+              <div class="pool-route-workbench">
+                <div class="card pool-control-panel">
+                  <div class="card-header pool-control-header">
+                    <div>
+                      <strong class="card-title">号池调度开关</strong>
+                      <div class="card-description">关闭后，所有“号池调度”目标模式都会退化为普通路由，不会再自动切号。</div>
+                    </div>
+                    <label class="switch-label">
+                      <input id="pool-enabled" type="checkbox" /> 启用动态号池
+                    </label>
                   </div>
-                  <label class="switch-label">
-                    <input id="pool-enabled" type="checkbox" /> 启用动态号池
-                  </label>
-                </div>
-                <div class="settings-body">
-                  <div class="settings-note">
+                  <div class="settings-note compact pool-control-note">
                     <strong>号池与策略路由的关系</strong>
-                    <ul>
-                      <li>策略路由只负责“把哪类请求导向哪个目标”；号池调度页负责“目标号池内部如何选账号、何时跳过、何时切下一个”。</li>
-                      <li>如果某条路由规则目标模式选择“号池调度”，并填写了某个池 ID，那么命中的请求会在该池内动态选择真实账号。</li>
-                      <li>如果你仍想手动切号，请继续使用“沿用当前活动账号”模式；这条链路不会被动态号池破坏。</li>
-                      <li>第一版动态号池只纳入桌面端已导入账号，不直接把原始本地可复用授权当作正式池成员。</li>
-                    </ul>
+                    <p>策略路由负责“把哪类请求导向哪个目标”；号池调度负责“目标号池内部如何选账号、何时跳过、何时切下一个”。如果你仍想手动切号，请继续使用“沿用当前活动账号”模式。</p>
                   </div>
                 </div>
-              </div>
 
-              <div class="settings-group mb-4">
-                <div class="settings-header">
-                  <div>
-                    <h3>调度规则说明</h3>
-                    <p>先在这里定义池成员和自动切号策略；策略路由配置仍在本轮保留为兼容视图，后续切片会并入本页 Tab。</p>
+                <div class="pool-list-shell table-container-lite">
+                  <div class="card-header pool-list-header">
+                    <div>
+                      <strong class="card-title">动态号池</strong>
+                      <div class="card-description">定义池成员和自动切号策略；兼容策略路由配置会在后续切片并入本页 Tab。</div>
+                    </div>
+                    <button class="btn secondary" data-nav-target="routing" data-active="false" type="button">打开兼容策略路由配置</button>
                   </div>
-                </div>
-                <div class="settings-body">
                   <div class="settings-note compact">
                     <strong>推荐使用方式</strong>
                     <p>例如给 OpenClaw 配置一条 `clientTag=openclaw + model=codex-default -> 号池 A` 的策略路由，然后在号池 A 中放入多个桌面端 Codex 账号。网关会在每次请求开始前自动挑选一个满足阈值的账号；若本次请求命中的账号出现额度耗尽、鉴权失效或短期限流，会按池内策略尝试下一个候选账号。</p>
                   </div>
-                  <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
-                    <button class="btn secondary" data-nav-target="routing" data-active="false" type="button">打开兼容策略路由配置</button>
-                  </div>
-                  <div id="pool-list" class="grid-layout grid-1"></div>
+                  <div id="pool-list" class="pool-config-list"></div>
                 </div>
               </div>
             </section>
@@ -814,25 +916,30 @@
           <!-- View: System & Diagnostics -->
           <div class="view" data-view="system" hidden>
             <section>
-              <div class="section-head">
-                <h2>系统配置</h2>
-                <p>桌面端基础运行行为设置。</p>
+              <div class="section-head page-section-head">
+                <div>
+                  <h2>系统与诊断</h2>
+                  <p>集中管理桌面端运行行为、共享安全边界、本地数据迁移和服务诊断。</p>
+                </div>
               </div>
 
-              <div id="startup-checklist" class="startup-check-grid mb-4"></div>
-              
-              <div class="settings-group mb-4">
-                <div class="settings-body">
-                  <div class="settings-note">
-                    <strong>系统配置说明</strong>
-                    <ul>
-                      <li>第三方客户端接入鉴权只影响访问本地网关的应用，不影响你已经导入到桌面端的 Codex 账号本身。</li>
-                      <li>开启 API Key 后，所有接入到 `http://127.0.0.1:端口/v1` 的第三方客户端都需要携带同一个网关密钥。</li>
-                      <li>自动刷新只会更新本地状态、额度和统计，不会修改账号授权内容。</li>
-                    </ul>
+              <div class="system-diagnostics-workbench">
+                <div id="startup-checklist" class="startup-check-grid system-startup-grid"></div>
+
+                <div class="card system-config-panel">
+                  <div class="card-header system-config-header">
+                    <div>
+                      <span class="card-title">系统配置</span>
+                      <p class="card-description">配置推理面鉴权、局域网共享、桌面运行参数和本地数据迁移。不会修改 Cockpit / OpenClaw 原始账号配置。</p>
+                    </div>
+                    <button id="save-system-settings" class="btn primary">保存系统配置</button>
                   </div>
-                  <div class="form-row">
-                    <div class="form-field full" style="border-bottom: 1px solid var(--border-light); padding-bottom: 16px;">
+                  <div class="settings-note compact">
+                    <strong>系统配置说明</strong>
+                    <p>第三方客户端接入鉴权只影响访问本地网关的应用；自动刷新只更新本地状态、额度和统计，不会修改账号授权内容。</p>
+                  </div>
+                  <div class="system-config-form-grid">
+                    <div class="form-field full system-config-section">
                       <label>第三方客户端接入鉴权</label>
                       <div class="form-hint">控制 `/v1/models` 与 `/v1/chat/completions` 的访问策略。推荐本机联调用“无鉴权”，多应用共享时使用 API Key 鉴权。</div>
                     </div>
@@ -882,25 +989,25 @@
                     <div class="form-field full">
                       <div id="gateway-auth-status" class="form-hint">当前未启用推理接口鉴权，适合本机单用户场景。</div>
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                    <div class="form-field full system-config-section">
                       <label>按客户端密钥解析来源标签</label>
                       <div class="form-hint">开启后，网关可根据客户端专属 API Key 自动写入来源标签（如 hermes / openclaw），无需依赖上游显式携带 `x-client-tag`。</div>
-                      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                      <div class="system-toggle-row">
                         <input id="gateway-auth-resolve-client-tag-by-api-key" type="checkbox" style="width: 18px; height: 18px;" />
                         <span style="font-size: 14px; color: var(--text-secondary);">启用“按 API Key 识别客户端标签”</span>
                       </div>
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                    <div class="form-field full system-config-section">
                       <label>局域网共享</label>
                       <div class="form-hint">开启后，托管网关会在重启后监听局域网地址，团队成员可使用本机局域网 IP + 端口访问 `/v1` 推理接口。</div>
-                      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                      <div class="system-toggle-row">
                         <input id="gateway-lan-access-enabled" type="checkbox" style="width: 18px; height: 18px;" />
                         <span style="font-size: 14px; color: var(--text-secondary);">启用局域网共享</span>
                       </div>
                       <div id="gateway-lan-access-status" class="form-hint">LAN 共享必须启用 API Key 鉴权，并配置默认 API Key 或客户端密钥映射。</div>
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
-                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="form-field full system-config-section">
+                      <div class="system-section-head">
                         <div>
                           <label>客户端密钥映射</label>
                           <div class="form-hint">为不同客户端配置独立密钥与默认标签。建议每个客户端使用不同 key，便于路由和统计隔离。</div>
@@ -912,14 +1019,14 @@
                     <div class="form-field full" style="display: flex; justify-content: flex-end;">
                       <button id="save-security-settings" class="btn primary">保存鉴权配置</button>
                     </div>
-                    <div class="form-field full" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                    <div class="form-field full system-config-row">
                       <div>
                         <label>开机自启动</label>
                         <div class="form-hint">登录 macOS 后自动启动控制台</div>
                       </div>
                       <input id="launch-at-login" type="checkbox" style="width: 18px; height: 18px;" />
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                    <div class="form-field full system-config-section">
                       <label>网关端口</label>
                       <input
                         id="gateway-port"
@@ -933,7 +1040,7 @@
                       <div id="gateway-port-hint" class="form-hint">当前网关入口：http://127.0.0.1:8787/v1</div>
                       <div class="form-hint">如提示端口被占用，可改为其他端口并保存，托管网关会自动重启。</div>
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                    <div class="form-field full system-config-section">
                       <label>自动刷新时间间隔</label>
                       <select id="auto-refresh-interval" class="input-field" style="max-width: 300px;">
                         <option value="60">1 分钟</option>
@@ -943,7 +1050,7 @@
                       </select>
                       <div id="auto-refresh-hint" class="form-hint">当前将每 2 分钟自动刷新一次账号额度与状态。</div>
                     </div>
-                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                    <div class="form-field full system-config-section">
                       <label>数据迁移与恢复</label>
                       <div class="form-hint">导出当前应用数据为单文件备份，或在重装后导入恢复配置、账号、统计与本地持久化数据。导入前系统会自动在本机创建一份安全备份。</div>
                       <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px;">
@@ -955,29 +1062,29 @@
                       <div class="form-hint">当前备份对象包括 `config.json`、`codex-auth-profiles.json`、`gateway.db`、日志文件以及本地持久化运行数据；导入会覆盖当前本机数据。</div>
                     </div>
                   </div>
-                  <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-                    <button id="save-system-settings" class="btn primary">保存系统配置</button>
-                  </div>
                 </div>
-              </div>
 
-              <div class="section-head mt-4">
-                <h2>运行诊断与日志</h2>
-                <p>查看各 Provider 的初始化状态与最近抛出的系统错误。</p>
-              </div>
-              
-              <div class="grid-layout grid-2">
-                <div>
-                  <h3 style="font-size: 15px; margin-bottom: 12px;">服务分层诊断</h3>
-                  <div id="service-diagnostics" class="grid-layout grid-1"></div>
-                </div>
-                <div>
-                  <h3 style="font-size: 15px; margin-bottom: 12px;">Provider 诊断</h3>
-                  <div id="provider-diagnostics" class="grid-layout grid-1"></div>
-                </div>
-                <div>
-                  <h3 style="font-size: 15px; margin-bottom: 12px;">最近错误日志</h3>
-                  <div id="recent-errors" class="grid-layout grid-1"></div>
+                <div class="diagnostics-shell table-container-lite">
+                  <div class="card-header diagnostics-shell-header">
+                    <div>
+                      <span class="card-title">运行诊断与日志</span>
+                      <p class="card-description">查看服务分层、Provider 初始化状态和最近错误，优先辅助定位共享网关接入问题。</p>
+                    </div>
+                  </div>
+                  <div class="diagnostics-grid">
+                    <div class="diagnostics-column">
+                      <h3>服务分层诊断</h3>
+                      <div id="service-diagnostics" class="diagnostics-card-list"></div>
+                    </div>
+                    <div class="diagnostics-column">
+                      <h3>Provider 诊断</h3>
+                      <div id="provider-diagnostics" class="diagnostics-card-list"></div>
+                    </div>
+                    <div class="diagnostics-column diagnostics-column-wide">
+                      <h3>最近错误日志</h3>
+                      <div id="recent-errors" class="diagnostics-card-list"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -988,12 +1095,12 @@
 
     <!-- Modals -->
     <div id="account-modal" class="modal-overlay" hidden>
-      <div class="modal-content">
+      <div class="modal-content figma-modal">
         <div class="modal-header">
           <h3>添加 Codex 账号</h3>
           <button id="close-account-modal" class="btn ghost mini">关闭</button>
         </div>
-        <div class="modal-tabs">
+        <div class="modal-tabs figma-tabs">
           <button class="modal-tab" data-account-tab="import" data-active="true">扫描本地授权</button>
           <button class="modal-tab" data-account-tab="oauth" data-active="false">OAuth 授权</button>
           <button class="modal-tab" data-account-tab="token" data-active="false">JSON 导入</button>
@@ -1032,7 +1139,7 @@
     </div>
 
     <div id="confirm-modal" class="modal-overlay" hidden>
-      <div class="modal-content confirm-modal">
+      <div class="modal-content figma-modal confirm-modal">
         <div class="modal-header">
           <h3 id="confirm-modal-title">确认操作</h3>
           <button id="confirm-modal-cancel-top" class="btn ghost mini" type="button">取消</button>
@@ -1048,7 +1155,7 @@
     </div>
 
     <div id="pool-events-modal" class="modal-overlay" hidden>
-      <div class="modal-content pool-events-modal">
+      <div class="modal-content figma-modal pool-events-modal">
         <div class="modal-header">
           <h3 id="pool-events-modal-title">最近调度事件</h3>
           <button id="close-pool-events-modal" class="btn ghost mini" type="button">关闭</button>
@@ -1058,7 +1165,7 @@
     </div>
 
     <div id="usage-details-modal" class="modal-overlay" hidden>
-      <div class="modal-content pool-events-modal">
+      <div class="modal-content figma-modal pool-events-modal">
         <div class="modal-header">
           <h3 id="usage-details-modal-title">Token 用量明细</h3>
           <button id="close-usage-details-modal" class="btn ghost mini" type="button">关闭</button>
