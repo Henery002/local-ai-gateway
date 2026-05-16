@@ -765,6 +765,61 @@ describe("gateway app", () => {
     }
   });
 
+  it("normalizes pool visibility when saving pool settings", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const response = await app.inject({
+        method: "PUT",
+        url: "/admin/config/pools",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          enabled: true,
+          pools: [
+            {
+              id: "pool-shared",
+              name: "Shared LAN",
+              enabled: true,
+              visibility: "shared-lan",
+              members: [{ selector: "acct_fake", priority: 10 }],
+            },
+            {
+              id: "pool-legacy",
+              name: "Legacy",
+              enabled: true,
+              visibility: "invalid",
+              members: [{ selector: "acct_fake", priority: 20 }],
+            },
+          ],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.pools).toEqual([
+        expect.objectContaining({
+          id: "pool-shared",
+          visibility: "shared-lan",
+        }),
+        expect.objectContaining({
+          id: "pool-legacy",
+          visibility: "private",
+        }),
+      ]);
+      expect(runtime.configStore.getPoolSettings().pools?.[1]?.visibility).toBe(
+        "private",
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("returns non-stream chat completions and forwards context/options", async () => {
     const { rootDir, runtime, database, adapter } = createTestRuntime();
     cleanupDirs.push(rootDir);

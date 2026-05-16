@@ -125,6 +125,11 @@ export type GatewayPoolSelectionStrategy =
   | "least-recently-used"
   | "hybrid";
 
+export type GatewayPoolVisibility =
+  | "private"
+  | "shared-lan"
+  | "public-ready";
+
 export type GatewayPoolFailureClass =
   | "auth_invalid"
   | "quota_exhausted"
@@ -145,6 +150,7 @@ export interface GatewaySessionPoolDefinition {
   name: string;
   enabled?: boolean;
   description?: string;
+  visibility?: GatewayPoolVisibility;
   members?: GatewaySessionPoolMember[];
   selectionStrategy?: GatewayPoolSelectionStrategy;
   minRemainingPercentage?: number;

@@ -19,6 +19,7 @@ import {
   GatewayInferenceAuthSettings,
   GatewayPoolFailureClass,
   GatewayProviderSettings,
+  GatewayPoolVisibility,
   GatewayRoutingPreviewInput,
   GatewayRoutingSettings,
   GatewaySessionPoolSettings,
@@ -264,6 +265,25 @@ function normalizeAccessKeyStatus(value: unknown): GatewayAccessKey["status"] {
     return value;
   }
   return "enabled";
+}
+
+function normalizePoolVisibility(value: unknown): GatewayPoolVisibility {
+  if (value === "shared-lan" || value === "public-ready") {
+    return value;
+  }
+  return "private";
+}
+
+function normalizePoolSettingsForSave(
+  input: GatewaySessionPoolSettings,
+): GatewaySessionPoolSettings {
+  return {
+    ...input,
+    pools: (input.pools ?? []).map((pool) => ({
+      ...pool,
+      visibility: normalizePoolVisibility(pool.visibility),
+    })),
+  };
 }
 
 function normalizeAccessControlSettingsForSave(
@@ -1663,10 +1683,11 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   app.put("/admin/config/pools", async (request) => {
     requireAdminAuth(runtime, request);
     const body = (request.body ?? {}) as GatewaySessionPoolSettings;
-    const saved = runtime.configStore.setPoolSettings(body);
+    const normalized = normalizePoolSettingsForSave(body);
+    const saved = runtime.configStore.setPoolSettings(normalized);
     runtime.logger.info("pool_settings_saved", {
-      enabled: Boolean(body.enabled),
-      poolCount: body.pools?.length ?? 0,
+      enabled: Boolean(normalized.enabled),
+      poolCount: normalized.pools?.length ?? 0,
     });
     return {
       ok: true,

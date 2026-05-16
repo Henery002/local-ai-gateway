@@ -568,6 +568,7 @@ type PoolDefinition = {
   name: string;
   enabled?: boolean;
   description?: string;
+  visibility?: "private" | "shared-lan" | "public-ready";
   members?: Array<{
     selector: string;
     label?: string;
