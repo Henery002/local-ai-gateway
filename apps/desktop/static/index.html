@@ -25,32 +25,36 @@
             <span class="nav-icon">总</span>
             <span>总览</span>
           </button>
+          <button class="nav-item" data-nav-target="access" data-active="false">
+            <span class="nav-icon">钥</span>
+            <span>访问与密钥</span>
+          </button>
           <button class="nav-item" data-nav-target="accounts" data-active="false">
             <span class="nav-icon">账</span>
             <span>账号资产</span>
           </button>
-          <button class="nav-item" data-nav-target="providers" data-active="false">
-            <span class="nav-icon">配</span>
-            <span>Provider 配置</span>
-          </button>
-          <button class="nav-item" data-nav-target="routing" data-active="false">
-            <span class="nav-icon">路</span>
-            <span>策略路由</span>
-          </button>
           <button class="nav-item" data-nav-target="pools" data-active="false">
             <span class="nav-icon">池</span>
-            <span>号池调度</span>
+            <span>号池与路由</span>
           </button>
-          <button class="nav-item" data-nav-target="diagnostics" data-active="false">
+          <button class="nav-item" data-nav-target="models" data-active="false">
+            <span class="nav-icon">模</span>
+            <span>模型与 Provider</span>
+          </button>
+          <button class="nav-item" data-nav-target="usage" data-active="false">
+            <span class="nav-icon">量</span>
+            <span>用量与告警</span>
+          </button>
+          <button class="nav-item" data-nav-target="system" data-active="false">
             <span class="nav-icon">诊</span>
-            <span>诊断与系统</span>
+            <span>系统与诊断</span>
           </button>
         </div>
 
         <div class="sidebar-foot">
           <div class="sidebar-foot-card">
-            <strong>本地控制面</strong>
-            第三方客户端统一通过本地网关入口地址接入
+            <strong>本机自用优先</strong>
+            共享访问默认关闭，管理面仅本机可用
           </div>
         </div>
       </aside>
@@ -103,6 +107,85 @@
                 <div class="card mini-stat" style="grid-column: 1 / -1;">
                   <small>默认模型选择依据</small>
                   <strong id="default-selection">加载中</strong>
+                </div>
+              </div>
+
+              <div class="dashboard-mode-grid mt-4">
+                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="local" data-status="active">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>本机自用</strong>
+                      <span id="dashboard-local-status">加载中</span>
+                    </div>
+                    <span class="badge active">默认入口</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>Base URL</span>
+                    <strong id="dashboard-local-url">加载中</strong>
+                    <span>当前窗口 Token</span>
+                    <strong id="dashboard-local-tokens">0</strong>
+                  </div>
+                </div>
+                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="lan" data-status="disabled">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>局域网共享</strong>
+                      <span id="dashboard-lan-status">默认关闭</span>
+                    </div>
+                    <span class="badge neutral">二期开发</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>LAN Base URL</span>
+                    <strong id="dashboard-lan-url">未开启</strong>
+                    <span>共享成员 Token</span>
+                    <strong id="dashboard-lan-tokens">0</strong>
+                  </div>
+                </div>
+                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="public" data-status="disabled">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>外网共享</strong>
+                      <span id="dashboard-public-status">三期预留</span>
+                    </div>
+                    <span class="badge neutral">禁用</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>公网入口</span>
+                    <strong>未启用</strong>
+                    <span>治理状态</span>
+                    <strong>待 server edition</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dashboard-grid mt-4">
+                <div class="card routing-observe-panel dashboard-chart-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>Token 消耗趋势</strong>
+                      <span>轻量图表容器，后续接入 24 小时小时级曲线。</span>
+                    </div>
+                    <span class="badge neutral" id="dashboard-token-window">当前窗口</span>
+                  </div>
+                  <div id="dashboard-token-chart" class="dashboard-token-chart" aria-label="Token 消耗趋势"></div>
+                </div>
+                <div class="card routing-observe-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>共享摘要</strong>
+                      <span>用于区分本机自用与后续 LAN 成员消耗。</span>
+                    </div>
+                  </div>
+                  <div id="dashboard-shared-summary" class="dashboard-summary-list"></div>
+                </div>
+                <div class="card routing-observe-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>告警摘要</strong>
+                      <span>展示当前最需要关注的服务、账号和共享风险。</span>
+                    </div>
+                  </div>
+                  <div id="dashboard-alert-summary" class="dashboard-summary-list"></div>
                 </div>
               </div>
 
@@ -229,13 +312,175 @@
             </section>
           </div>
 
+          <!-- View: Access & Keys -->
+          <div class="view" data-view="access" hidden>
+            <section>
+              <div class="section-head">
+                <h2>访问与密钥</h2>
+                <p>管理本机自用接入、局域网共享入口、客户端密钥和后续成员级策略。</p>
+              </div>
+              <div class="access-surface-grid">
+                <div class="card mode-card access-surface-card" data-access-surface="local" data-status="active">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>本机自用</strong>
+                      <span id="access-local-status">当前稳定入口</span>
+                    </div>
+                    <span class="badge active">已支持</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>Base URL</span>
+                    <strong id="access-local-url">加载中</strong>
+                    <span>鉴权</span>
+                    <strong id="access-local-auth">加载中</strong>
+                  </div>
+                </div>
+                <div class="card mode-card access-surface-card" data-access-surface="lan" data-status="disabled">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>局域网共享</strong>
+                      <span id="access-lan-status">二期开发入口</span>
+                    </div>
+                    <span class="badge neutral">待接入</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>LAN Base URL</span>
+                    <strong id="access-lan-url">未开启</strong>
+                    <span>成员 key</span>
+                    <strong id="access-lan-keys">0</strong>
+                  </div>
+                </div>
+                <div class="card mode-card access-surface-card" data-access-surface="public" data-status="disabled">
+                  <div class="mode-card-head">
+                    <div>
+                      <strong>外网共享</strong>
+                      <span>三期预留入口</span>
+                    </div>
+                    <span class="badge neutral">禁用</span>
+                  </div>
+                  <div class="dashboard-mode-facts">
+                    <span>公网入口</span>
+                    <strong>未启用</strong>
+                    <span>策略状态</span>
+                    <strong>待 server edition</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="access-workbench mt-4">
+                <div class="card routing-observe-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>访问成员</strong>
+                      <span>创建 LAN 成员、生成独立 API key，并兼容展示旧客户端密钥映射。</span>
+                    </div>
+                    <button class="btn primary" id="access-create-member-button" type="button">新增成员</button>
+                  </div>
+                  <div id="access-consumer-list" class="access-consumer-list"></div>
+                </div>
+
+                <div class="card routing-observe-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>策略预览</strong>
+                      <span>成员级额度、模型权限和号池授权将在后续切片接入。</span>
+                    </div>
+                    <span class="badge neutral">预留</span>
+                  </div>
+                  <div id="access-policy-preview" class="access-policy-preview"></div>
+                </div>
+              </div>
+
+              <div id="access-member-drawer" class="card access-member-drawer mt-4" data-state="placeholder">
+                <div class="dashboard-panel-head">
+                  <div>
+                    <strong id="access-member-detail-name">成员详情抽屉</strong>
+                    <span id="access-member-detail-client-tag">点击左侧成员后展示 key、额度、模型权限、号池授权与最近错误。</span>
+                  </div>
+                  <span class="badge neutral">未选择成员</span>
+                </div>
+                <div id="access-member-detail-keys" class="access-key-list mt-3">
+                  <div class="empty-card">当前未选择访问成员。</div>
+                </div>
+                <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
+                  <strong>轮换后一次性 API Key</strong>
+                  <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+                  <div class="secret-field-stack">
+                    <div class="secret-inline-row">
+                      <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
+                      <button class="btn secondary mini" id="copy-access-rotated-key" type="button">复制新 Key</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="access-create-member-modal" class="card access-create-member-modal mt-4" data-state="form" hidden>
+                <div class="dashboard-panel-head">
+                  <div>
+                    <strong>新增成员弹窗</strong>
+                    <span>创建 LAN 成员并一次性展示 API key 明文；保存后本地只保留 hash。</span>
+                  </div>
+                  <button class="btn ghost mini" id="close-access-member-modal" type="button">关闭</button>
+                </div>
+                <div class="form-row mt-3">
+                  <div class="form-field">
+                    <label>成员名称</label>
+                    <input id="access-member-name" class="input-field" placeholder="例如 Alice" />
+                  </div>
+                  <div class="form-field">
+                    <label>来源标签</label>
+                    <input id="access-member-client-tag" class="input-field" placeholder="例如 alice" />
+                    <div class="form-hint">用于路由和用量统计，建议使用小写英文、数字或短横线。</div>
+                  </div>
+                  <div class="form-field full">
+                    <label>备注</label>
+                    <input id="access-member-note" class="input-field" placeholder="例如 Alice 的 MacBook / 局域网测试用户" />
+                  </div>
+                  <div class="form-field full" style="display: flex; justify-content: flex-end;">
+                    <button class="btn primary" id="create-access-member-submit" type="button">创建成员并生成 Key</button>
+                  </div>
+                </div>
+                <div id="access-member-key-result" class="settings-note compact mt-3" hidden>
+                  <strong>一次性 API Key</strong>
+                  <p>此明文只在本次创建后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+                  <div class="secret-field-stack">
+                    <div class="secret-inline-row">
+                      <input id="access-member-one-time-key" class="input-field" type="password" readonly />
+                      <button class="btn secondary mini" id="copy-access-member-key" type="button">复制 Key</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card routing-rule-guide mt-4">
+                <strong>当前兼容能力</strong>
+                <span>现有“第三方客户端接入鉴权”和客户端密钥映射能力暂保留在“系统与诊断”中；后续切片会迁移到本页，并升级为 AccessConsumer / AccessKey / AccessPolicy。</span>
+              </div>
+            </section>
+          </div>
+
           <!-- View: Accounts -->
           <div class="view" data-view="accounts" hidden>
             <section>
               <div id="accounts-top-header">
                 <div class="section-head">
-                  <h2>账号资产管理</h2>
-                  <p>管理桌面端本地维护的 Codex 账号，并支持导入本机可复用授权。</p>
+                  <h2>账号资产</h2>
+                  <p>管理 `local-ai-gateway` 本地账号副本，区分本项目托管账号与外部只读导入账号。</p>
+                </div>
+              </div>
+
+              <div id="accounts-source-ownership-alert" class="account-ownership-alert">
+                <div class="account-source-card" data-account-source="managed">
+                  <strong>本项目托管</strong>
+                  <span>由本项目 OAuth 创建，可由本项目刷新。</span>
+                </div>
+                <div class="account-source-card" data-account-source="external-readonly">
+                  <strong>外部只读</strong>
+                  <span>Cockpit / OpenClaw / JSON 导入账号不会由本项目主动刷新 refresh token。</span>
+                </div>
+                <div class="account-source-card" data-account-source="local-copy">
+                  <strong>删除本地副本</strong>
+                  <span>只删除 `local-ai-gateway` 本地账号副本，并同步清理号池引用。</span>
                 </div>
               </div>
               
@@ -257,17 +502,36 @@
                 </div>
               </div>
 
-              <div id="codex-accounts" class="grid-layout"></div>
+              <div id="account-assets-table-shell" class="account-assets-shell">
+                <div class="account-assets-shell-head">
+                  <div>
+                    <strong>账号列表</strong>
+                    <span>来源、刷新所有权、额度、活动调用与号池引用。</span>
+                  </div>
+                  <span class="badge neutral">本地副本视图</span>
+                </div>
+                <div id="codex-accounts" class="grid-layout"></div>
+              </div>
+
+              <div id="account-detail-drawer" class="card account-detail-drawer mt-4" data-state="placeholder">
+                <div class="dashboard-panel-head">
+                  <div>
+                    <strong>账号详情抽屉</strong>
+                    <span>后续用于展示额度历史、最近请求、关联号池、刷新日志和删除本地副本确认。</span>
+                  </div>
+                  <span class="badge neutral">未选择账号</span>
+                </div>
+              </div>
             </section>
           </div>
 
-          <!-- View: Providers -->
-          <div class="view" data-view="providers" hidden>
+          <!-- View: Models & Providers -->
+          <div class="view" data-view="models" hidden>
             <section>
               <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
                 <div>
-                  <h2>Provider 配置</h2>
-                  <p>在此管理各类 Provider 本身的接入参数与暴露模型，不负责按客户端做请求分流。</p>
+                  <h2>模型与 Provider</h2>
+                  <p>在此管理模型别名、Provider 接入参数与暴露模型，不负责按客户端做请求分流。</p>
                 </div>
                 <button id="save-provider-settings" class="btn primary">保存并重启服务</button>
               </div>
@@ -368,6 +632,26 @@
                 <p>当前网关真正加载并可被外部访问的 Provider 列表。</p>
               </div>
               <div id="provider-registry" class="grid-layout grid-2"></div>
+            </section>
+          </div>
+
+          <!-- View: Usage & Alerts -->
+          <div class="view" data-view="usage" hidden>
+            <section>
+              <div class="section-head">
+                <h2>用量与告警</h2>
+                <p>集中观察 Token 消耗、客户端来源、账号消耗排行和后续成员级告警。</p>
+              </div>
+              <div class="card routing-rule-guide">
+                <strong>二期观测方向</strong>
+                <span>当前页面先复用顶部 Token 用量总览；后续将扩展为成员、账号、模型、号池多维图表，并接入告警策略。</span>
+              </div>
+              <div class="card routing-observe-panel mt-4">
+                <div style="display: grid; gap: 8px;">
+                  <strong style="font-size: 16px;">告警预留</strong>
+                  <span style="font-size: 14px; color: var(--text-secondary);">成员超限、共享号池可用账号过低、外部只读账号鉴权失效和失败率异常会在后续切片中进入本页。</span>
+                </div>
+              </div>
             </section>
           </div>
 
@@ -474,8 +758,8 @@
             <section>
               <div class="section-head" style="display: flex; justify-content: space-between; align-items: flex-end;">
                 <div>
-                  <h2>号池调度</h2>
-                  <p>把多个桌面端 Codex 账号编成一个动态号池，供命中的路由规则按额度阈值、冷却和有限重试自动挑号。</p>
+                  <h2>号池与路由</h2>
+                  <p>把多个桌面端 Codex 账号编成动态号池，并与策略路由一起控制共享请求命中哪里。</p>
                 </div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                   <button id="add-pool" class="btn secondary">新增号池</button>
@@ -510,7 +794,7 @@
                 <div class="settings-header">
                   <div>
                     <h3>调度规则说明</h3>
-                    <p>先在这里定义池成员和自动切号策略，再到左侧“策略路由”页把某类请求绑定到目标号池。</p>
+                    <p>先在这里定义池成员和自动切号策略；策略路由配置仍在本轮保留为兼容视图，后续切片会并入本页 Tab。</p>
                   </div>
                 </div>
                 <div class="settings-body">
@@ -518,14 +802,17 @@
                     <strong>推荐使用方式</strong>
                     <p>例如给 OpenClaw 配置一条 `clientTag=openclaw + model=codex-default -> 号池 A` 的策略路由，然后在号池 A 中放入多个桌面端 Codex 账号。网关会在每次请求开始前自动挑选一个满足阈值的账号；若本次请求命中的账号出现额度耗尽、鉴权失效或短期限流，会按池内策略尝试下一个候选账号。</p>
                   </div>
+                  <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                    <button class="btn secondary" data-nav-target="routing" data-active="false" type="button">打开兼容策略路由配置</button>
+                  </div>
                   <div id="pool-list" class="grid-layout grid-1"></div>
                 </div>
               </div>
             </section>
           </div>
 
-          <!-- View: Diagnostics -->
-          <div class="view" data-view="diagnostics" hidden>
+          <!-- View: System & Diagnostics -->
+          <div class="view" data-view="system" hidden>
             <section>
               <div class="section-head">
                 <h2>系统配置</h2>
@@ -602,6 +889,15 @@
                         <input id="gateway-auth-resolve-client-tag-by-api-key" type="checkbox" style="width: 18px; height: 18px;" />
                         <span style="font-size: 14px; color: var(--text-secondary);">启用“按 API Key 识别客户端标签”</span>
                       </div>
+                    </div>
+                    <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
+                      <label>局域网共享</label>
+                      <div class="form-hint">开启后，托管网关会在重启后监听局域网地址，团队成员可使用本机局域网 IP + 端口访问 `/v1` 推理接口。</div>
+                      <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+                        <input id="gateway-lan-access-enabled" type="checkbox" style="width: 18px; height: 18px;" />
+                        <span style="font-size: 14px; color: var(--text-secondary);">启用局域网共享</span>
+                      </div>
+                      <div id="gateway-lan-access-status" class="form-hint">LAN 共享必须启用 API Key 鉴权，并配置默认 API Key 或客户端密钥映射。</div>
                     </div>
                     <div class="form-field full" style="border-top: 1px solid var(--border-light); padding-top: 16px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">

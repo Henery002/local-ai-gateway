@@ -536,6 +536,26 @@ export class GatewayRuntime {
       enabledMappingCount: normalizedMappings.filter((item) => item.enabled)
         .length,
       clientMappings: normalizedMappings,
+      lanAccess: {
+        enabled: Boolean(settings.lanAccess?.enabled),
+      },
+      accessControl: {
+        consumers: settings.accessControl?.consumers ?? [],
+        keys: (settings.accessControl?.keys ?? []).map((item) => ({
+          id: item.id,
+          consumerId: item.consumerId,
+          name: item.name,
+          keyPrefix: item.keyPrefix,
+          keySuffix: item.keySuffix,
+          status: item.status,
+          expiresAt: item.expiresAt,
+          lastUsedAt: item.lastUsedAt,
+          createdAt: item.createdAt,
+          rotatedAt: item.rotatedAt,
+          hasKey: Boolean(item.keyHash),
+        })),
+        policies: settings.accessControl?.policies ?? [],
+      },
     };
   }
 

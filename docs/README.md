@@ -9,6 +9,8 @@
 - [概念地图](./architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
 - [动态号池设计方案](./architecture/%E5%8A%A8%E6%80%81%E5%8F%B7%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88.md)
 - 共享中转站专题：
+  - [二期 / 三期共享网关开发进度清单](./architecture/shared-gateway/%E4%BA%8C%E6%9C%9F%E4%B8%89%E6%9C%9F%E5%85%B1%E4%BA%AB%E7%BD%91%E5%85%B3%E5%BC%80%E5%8F%91%E8%BF%9B%E5%BA%A6%E6%B8%85%E5%8D%95.md)
+  - [二期 / 三期共享网关重构技术方案](./architecture/shared-gateway/%E4%BA%8C%E6%9C%9F%E4%B8%89%E6%9C%9F%E5%85%B1%E4%BA%AB%E7%BD%91%E5%85%B3%E9%87%8D%E6%9E%84%E6%8A%80%E6%9C%AF%E6%96%B9%E6%A1%88.md)
   - [公网共享中转站技术可行性分析](./architecture/shared-gateway/%E5%85%AC%E7%BD%91%E5%85%B1%E4%BA%AB%E4%B8%AD%E8%BD%AC%E7%AB%99%E6%8A%80%E6%9C%AF%E5%8F%AF%E8%A1%8C%E6%80%A7%E5%88%86%E6%9E%90.md)
   - [局域网小范围共享中转站技术实施方案](./architecture/shared-gateway/%E5%B1%80%E5%9F%9F%E7%BD%91%E5%B0%8F%E8%8C%83%E5%9B%B4%E5%85%B1%E4%BA%AB%E4%B8%AD%E8%BD%AC%E7%AB%99%E6%8A%80%E6%9C%AF%E5%AE%9E%E6%96%BD%E6%96%B9%E6%A1%88.md)
   - [API 中转站生态与风险评析](./architecture/shared-gateway/API%E4%B8%AD%E8%BD%AC%E7%AB%99%E7%94%9F%E6%80%81%E4%B8%8E%E9%A3%8E%E9%99%A9%E8%AF%84%E6%9E%90.md)

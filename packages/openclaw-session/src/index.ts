@@ -793,6 +793,9 @@ export class OpenClawSessionSource {
           sourceKind: record.sourceKind,
           sourceLabel: record.sourceLabel,
           sourcePath: record.sourcePath,
+          credentialRefreshMode:
+            profile.credentialRefreshMode ??
+            (record.sourceKind === "local-import" ? "external-readonly" : undefined),
         };
       })
       .sort((left, right) => left.id.localeCompare(right.id));

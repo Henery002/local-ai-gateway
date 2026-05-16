@@ -191,6 +191,22 @@ type UsageClientSummary = {
   usage: UsageCounters;
 };
 
+type UsageConsumerSummary = {
+  consumerId: string;
+  accessKeyId?: string;
+  clientTag?: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
+type UsageAccessKeySummary = {
+  accessKeyId: string;
+  consumerId?: string;
+  clientTag?: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
 type UsageModelSummary = {
   modelAlias: string;
   updatedAt?: number;
@@ -206,6 +222,8 @@ type UsageWindowSummary = {
   importedEventCount: number;
   accounts: UsageAccountSummary[];
   clients: UsageClientSummary[];
+  consumers: UsageConsumerSummary[];
+  accessKeys: UsageAccessKeySummary[];
   models: UsageModelSummary[];
 };
 
@@ -255,6 +273,9 @@ type DashboardHealth = {
     resolveClientTagByApiKey?: boolean;
     mappingCount?: number;
     enabledMappingCount?: number;
+    lanAccess?: {
+      enabled: boolean;
+    };
   };
   usageObservability?: UsageObservability;
   routingObservability?: {
@@ -430,6 +451,7 @@ type DashboardSessions = {
     sourceKind?: "openclaw" | "local-import";
     sourceLabel?: string;
     sourcePath: string;
+    credentialRefreshMode?: "managed" | "external-readonly";
   }>;
 };
 
@@ -612,6 +634,10 @@ type SecuritySettingsInput = {
   apiKey?: string;
   resolveClientTagByApiKey?: boolean;
   clientMappings?: SecurityClientMappingInput[];
+  lanAccess?: {
+    enabled?: boolean;
+  };
+  accessControl?: SecurityAccessControlInput;
 };
 
 type SecurityClientMappingInput = {
@@ -631,6 +657,55 @@ type SecurityClientMapping = {
   draftApiKey?: string;
 };
 
+type SecurityAccessConsumer = {
+  id: string;
+  name: string;
+  type: "local-owner" | "lan-member" | "public-user" | "system-client";
+  status: "enabled" | "paused" | "expired";
+  clientTag: string;
+  note?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SecurityAccessKey = {
+  id: string;
+  consumerId: string;
+  name: string;
+  keyPrefix: string;
+  keySuffix: string;
+  status: "enabled" | "paused" | "expired" | "rotated";
+  expiresAt?: string;
+  lastUsedAt?: string;
+  createdAt: string;
+  rotatedAt?: string;
+  hasKey: boolean;
+};
+
+type SecurityAccessKeyInput = SecurityAccessKey & {
+  apiKey?: string;
+};
+
+type SecurityAccessPolicy = {
+  consumerId: string;
+  allowedModelAliases?: string[];
+  allowedPoolIds?: string[];
+  expiresAt?: string;
+};
+
+type SecurityAccessControl = {
+  consumers: SecurityAccessConsumer[];
+  keys: SecurityAccessKey[];
+  policies: SecurityAccessPolicy[];
+};
+
+type SecurityAccessControlInput = {
+  consumers: SecurityAccessConsumer[];
+  keys: SecurityAccessKeyInput[];
+  policies: SecurityAccessPolicy[];
+};
+
 type SecuritySettings = {
   mode: "none" | "api-key";
   enabled: boolean;
@@ -639,6 +714,10 @@ type SecuritySettings = {
   mappingCount: number;
   enabledMappingCount: number;
   clientMappings: SecurityClientMapping[];
+  lanAccess: {
+    enabled: boolean;
+  };
+  accessControl: SecurityAccessControl;
 };
 
 type SecuritySettingsResponse = {
@@ -701,11 +780,13 @@ type AppDataStatusResponse = {
 
 type DashboardView =
   | "overview"
+  | "access"
   | "accounts"
-  | "providers"
   | "routing"
   | "pools"
-  | "diagnostics";
+  | "models"
+  | "usage"
+  | "system";
 type IntegrationTemplateKey = "openclaw" | "hermes" | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
 const state: {
@@ -737,6 +818,7 @@ const state: {
   routingObserveWindow: RoutingObserveWindow;
   activePoolEventsModalId?: string;
   usageDetailsModalOpen?: boolean;
+  selectedAccessConsumerId?: string;
 } = {
   activeView: "overview",
   accountSearch: "",
@@ -1046,13 +1128,21 @@ function loadPersistedView(): DashboardView {
     const saved = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
     if (
       saved === "overview" ||
+      saved === "access" ||
       saved === "accounts" ||
-      saved === "providers" ||
       saved === "routing" ||
       saved === "pools" ||
-      saved === "diagnostics"
+      saved === "models" ||
+      saved === "usage" ||
+      saved === "system"
     ) {
       return saved;
+    }
+    if (saved === "providers") {
+      return "models";
+    }
+    if (saved === "diagnostics") {
+      return "system";
     }
   } catch {
     // ignore
@@ -1391,7 +1481,7 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
     return;
   }
 
-  if (state.activeView === "providers") {
+  if (state.activeView === "models") {
     renderProviderRegistry();
     return;
   }
@@ -1405,9 +1495,22 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
   }
 
   if (state.activeView === "pools") {
+    renderRoutingObservability();
+    if (!liveOnly) {
+      renderRoutingRules();
+    }
     if (!liveOnly) {
       renderPoolCards();
     }
+    return;
+  }
+
+  if (state.activeView === "usage") {
+    return;
+  }
+
+  if (state.activeView === "access") {
+    renderAccessAndKeys();
     return;
   }
 
@@ -1419,7 +1522,7 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
 }
 
 function applyActiveViewFormState(): void {
-  if (state.activeView === "providers") {
+  if (state.activeView === "models") {
     applySettingsToForm();
     return;
   }
@@ -1431,11 +1534,13 @@ function applyActiveViewFormState(): void {
   }
 
   if (state.activeView === "pools") {
+    applyRoutingSettingsToForm();
+    resetRoutingPreviewResult();
     applyPoolSettingsToForm();
     return;
   }
 
-  if (state.activeView === "diagnostics") {
+  if (state.activeView === "system") {
     applySecuritySettingsToForm();
     applySystemSettingsToForm();
   }
@@ -1754,8 +1859,604 @@ function renderOverview(): void {
     "default-selection",
     health.defaultSelection?.reason ?? "使用默认规则",
   );
+  renderDashboardPhaseTwoOverview();
   renderAccountActivityOverview();
   renderRoutingObservability();
+}
+
+function renderDashboardPhaseTwoOverview(): void {
+  const health = state.health;
+  const summary = getActiveUsageWindowSummary();
+  const usage = summary?.totals;
+  const baseUrl = health?.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
+  const authEnabled = Boolean(
+    state.securitySettings?.enabled ?? health?.inferenceAuth?.enabled,
+  );
+  const hasApiKey = Boolean(
+    state.securitySettings?.hasApiKey ?? health?.inferenceAuth?.hasApiKey,
+  );
+  const lanEnabled = Boolean(
+    state.securitySettings?.lanAccess?.enabled ??
+      health?.inferenceAuth?.lanAccess?.enabled,
+  );
+  const localStatus = health?.ok
+    ? authEnabled
+      ? hasApiKey
+        ? "运行中，API Key 鉴权"
+        : "运行中，鉴权缺少密钥"
+      : "运行中，无鉴权"
+    : "等待服务状态";
+
+  setText("dashboard-local-status", localStatus);
+  setText("dashboard-local-url", baseUrl);
+  setText(
+    "dashboard-local-tokens",
+    usage ? `${formatCompactCount(usage.totalTokens)} Token` : "暂无统计",
+  );
+  setText(
+    "dashboard-lan-status",
+    lanEnabled ? "已开启，强制 API Key" : "默认关闭，等待显式开启",
+  );
+  setText(
+    "dashboard-lan-url",
+    lanEnabled ? "本机局域网 IP + 端口 /v1" : "未开启",
+  );
+  setText("dashboard-lan-tokens", "0 Token");
+  setText("dashboard-public-status", "三期预留，当前禁用");
+  setText(
+    "dashboard-token-window",
+    summary ? usageWindowLabel(state.usageObserveWindow) : "暂无统计",
+  );
+
+  renderDashboardTokenChart(summary);
+  renderDashboardSharedSummary(summary);
+  renderDashboardAlertSummary();
+}
+
+function renderAccessAndKeys(): void {
+  const health = state.health;
+  const security = state.securitySettings ?? health?.inferenceAuth;
+  const baseUrl = health?.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
+  const authEnabled = Boolean(security?.enabled);
+  const hasApiKey = Boolean(security?.hasApiKey);
+  const lanEnabled = Boolean(security?.lanAccess?.enabled);
+  const mappings = state.securitySettings?.clientMappings ?? [];
+  const accessControl = state.securitySettings?.accessControl;
+  const accessKeyCount =
+    accessControl?.keys.filter((item) => item.status === "enabled").length ?? 0;
+
+  setText(
+    "access-local-status",
+    health?.ok ? "本机推理面可用" : "等待服务状态",
+  );
+  setText("access-local-url", baseUrl);
+  setText(
+    "access-local-auth",
+    authEnabled
+      ? hasApiKey
+        ? "API Key 鉴权"
+        : "鉴权缺少密钥"
+      : "无鉴权",
+  );
+  setText(
+    "access-lan-status",
+    lanEnabled ? "已开启，需重启后监听局域网" : "默认关闭",
+  );
+  setText(
+    "access-lan-url",
+    lanEnabled ? "本机局域网 IP + 端口 /v1" : "未开启",
+  );
+  setText(
+    "access-lan-keys",
+    accessKeyCount > 0
+      ? `${formatCompactCount(accessKeyCount)} 个访问者 key`
+      : `${formatCompactCount(
+          state.securitySettings?.enabledMappingCount ??
+            health?.inferenceAuth?.enabledMappingCount ??
+            0,
+        )} 个兼容 key`,
+  );
+
+  renderAccessConsumerList(mappings, accessControl);
+  renderAccessPolicyPreview();
+  renderAccessMemberDrawer(accessControl);
+}
+
+function renderAccessConsumerList(
+  mappings: SecurityClientMapping[],
+  accessControl?: SecurityAccessControl,
+): void {
+  const node = document.getElementById("access-consumer-list");
+  if (!node) {
+    return;
+  }
+
+  const consumers = accessControl?.consumers ?? [];
+  if (consumers.length > 0) {
+    if (
+      state.selectedAccessConsumerId &&
+      !consumers.some((item) => item.id === state.selectedAccessConsumerId)
+    ) {
+      state.selectedAccessConsumerId = undefined;
+    }
+    const keysByConsumer = new Map<string, SecurityAccessKey[]>();
+    for (const key of accessControl?.keys ?? []) {
+      keysByConsumer.set(key.consumerId, [
+        ...(keysByConsumer.get(key.consumerId) ?? []),
+        key,
+      ]);
+    }
+    node.innerHTML = consumers
+      .map((consumer) => {
+        const keys = keysByConsumer.get(consumer.id) ?? [];
+        const enabledKeys = keys.filter((key) => key.status === "enabled").length;
+        const policy = accessControl?.policies.find(
+          (item) => item.consumerId === consumer.id,
+        );
+        const selected = consumer.id === state.selectedAccessConsumerId;
+        return `
+          <div class="access-consumer-row" data-selected="${selected ? "true" : "false"}">
+            <div>
+              <strong>${escapeHtml(consumer.name || consumer.clientTag || "未命名访问者")}</strong>
+              <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")}</span>
+            </div>
+            <div>
+              <small>Key 状态</small>
+              <strong>${formatCompactCount(enabledKeys)} / ${formatCompactCount(keys.length)} 可用</strong>
+            </div>
+            <div>
+              <small>模型权限</small>
+              <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 个模型` : "未限制"}</strong>
+            </div>
+            <div class="access-consumer-actions">
+              <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
+              <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">${selected ? "已选择" : "查看"}</button>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+    return;
+  }
+
+  if (mappings.length === 0) {
+    node.innerHTML = `
+      <div class="empty-card">当前暂无访问者或客户端密钥映射。后续可在这里创建 LAN 成员并分发独立 API key。</div>
+    `;
+    return;
+  }
+
+  node.innerHTML = mappings
+    .map(
+      (mapping) => `
+        <div class="access-consumer-row">
+          <div>
+            <strong>${escapeHtml(mapping.name || mapping.clientTag || "未命名客户端")}</strong>
+            <span>${escapeHtml(mapping.clientTag || "未设置 clientTag")}</span>
+          </div>
+          <div>
+            <small>Key 状态</small>
+            <strong>${mapping.hasApiKey ? "已保存" : "缺少密钥"}</strong>
+          </div>
+          <div>
+            <small>Header 覆盖</small>
+            <strong>${mapping.allowHeaderOverride ? "允许" : "禁止"}</strong>
+          </div>
+          <span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function formatAccessStatusLabel(
+  status: SecurityAccessConsumer["status"] | SecurityAccessKey["status"],
+): string {
+  if (status === "enabled") {
+    return "启用";
+  }
+  if (status === "paused") {
+    return "暂停";
+  }
+  if (status === "expired") {
+    return "过期";
+  }
+  if (status === "rotated") {
+    return "已轮换";
+  }
+  return status;
+}
+
+function isPastIsoDate(value?: string): boolean {
+  if (!value) {
+    return false;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function formatAccessIsoDate(value?: string, fallback = "未设置"): string {
+  if (!value) {
+    return fallback;
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return fallback;
+  }
+  return new Date(timestamp).toLocaleString("zh-CN");
+}
+
+function formatAccessDateTimeLocalValue(value?: string): string {
+  if (!value) {
+    return "";
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return "";
+  }
+  const date = new Date(timestamp);
+  const localTimestamp = timestamp - date.getTimezoneOffset() * 60_000;
+  return new Date(localTimestamp).toISOString().slice(0, 16);
+}
+
+function parseAccessDateTimeLocalValue(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const date = new Date(trimmed);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("到期时间格式无效，请重新选择。");
+  }
+  return date.toISOString();
+}
+
+function accessKeyBadgeClass(key: SecurityAccessKey): string {
+  if (key.status === "enabled" && !isPastIsoDate(key.expiresAt)) {
+    return "active";
+  }
+  if (key.status === "paused" || key.status === "rotated") {
+    return "neutral";
+  }
+  return "warning";
+}
+
+function renderAccessMemberDrawer(
+  accessControl?: SecurityAccessControl,
+): void {
+  const node = document.getElementById("access-member-drawer");
+  if (!node) {
+    return;
+  }
+
+  const consumers = accessControl?.consumers ?? [];
+  const selectedConsumer = consumers.find(
+    (item) => item.id === state.selectedAccessConsumerId,
+  );
+
+  if (!selectedConsumer) {
+    node.dataset.state = "placeholder";
+    node.innerHTML = `
+      <div class="dashboard-panel-head">
+        <div>
+          <strong id="access-member-detail-name">成员详情抽屉</strong>
+          <span id="access-member-detail-client-tag">${consumers.length > 0 ? "请选择一个访问成员查看 Key 状态。" : "创建 LAN 成员后，这里会展示 Key、额度、模型权限和号池授权。"}</span>
+        </div>
+        <span class="badge neutral">未选择成员</span>
+      </div>
+      <div id="access-member-detail-keys" class="access-key-list mt-3">
+        <div class="empty-card">${consumers.length > 0 ? "点击成员行右侧“查看”进入详情。" : "当前暂无访问成员。"}</div>
+      </div>
+      <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
+        <strong>轮换后一次性 API Key</strong>
+        <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+        <div class="secret-field-stack">
+          <div class="secret-inline-row">
+            <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
+            <button class="btn secondary mini" id="copy-access-rotated-key" type="button">复制新 Key</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const keys = (accessControl?.keys ?? []).filter(
+    (key) => key.consumerId === selectedConsumer.id,
+  );
+  const policy = accessControl?.policies.find(
+    (item) => item.consumerId === selectedConsumer.id,
+  );
+  const keyRows =
+    keys.length > 0
+      ? keys
+          .map((key) => {
+            const expiredByTime = isPastIsoDate(key.expiresAt);
+            const statusLabel = expiredByTime
+              ? "过期"
+              : formatAccessStatusLabel(key.status);
+            const toggleLabel = key.status === "paused" ? "启用 Key" : "暂停 Key";
+            return `
+              <div class="access-key-card">
+                <div class="access-key-card-head">
+                  <div>
+                    <strong>${escapeHtml(key.name || key.id)}</strong>
+                    <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
+                  </div>
+                  <span class="badge ${accessKeyBadgeClass(key)}">${escapeHtml(statusLabel)}</span>
+                </div>
+                <div class="access-key-meta">
+                  <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
+                  <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
+                  <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>
+                  <span>轮换：${escapeHtml(formatAccessIsoDate(key.rotatedAt, "尚未轮换"))}</span>
+                </div>
+                <div class="access-key-actions">
+                  <input
+                    class="input-field"
+                    type="datetime-local"
+                    data-access-key-expiry="${escapeHtml(key.id)}"
+                    value="${escapeHtml(formatAccessDateTimeLocalValue(key.expiresAt))}"
+                    aria-label="Key 到期时间"
+                  />
+                  <button class="btn secondary mini" type="button" data-access-key-save-expiry="${escapeHtml(key.id)}">保存到期</button>
+                  <button class="btn ghost mini" type="button" data-access-key-toggle="${escapeHtml(key.id)}">${toggleLabel}</button>
+                  <button class="btn danger-ghost mini" type="button" data-access-key-rotate="${escapeHtml(key.id)}">轮换 Key</button>
+                </div>
+              </div>
+            `;
+          })
+          .join("")
+      : `<div class="empty-card">当前成员暂无 Key。可后续补充多 Key 创建能力。</div>`;
+
+  node.dataset.state = "selected";
+  node.innerHTML = `
+    <div class="dashboard-panel-head">
+      <div>
+        <strong id="access-member-detail-name">${escapeHtml(selectedConsumer.name || selectedConsumer.clientTag || "未命名成员")}</strong>
+        <span id="access-member-detail-client-tag">${escapeHtml(selectedConsumer.clientTag || "未设置 clientTag")}</span>
+      </div>
+      <span class="badge ${selectedConsumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(selectedConsumer.status)}</span>
+    </div>
+    <div class="access-member-summary mt-3">
+      <div>
+        <small>成员类型</small>
+        <strong>${escapeHtml(selectedConsumer.type)}</strong>
+      </div>
+      <div>
+        <small>Key 数量</small>
+        <strong>${formatCompactCount(keys.length)}</strong>
+      </div>
+      <div>
+        <small>模型权限</small>
+        <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 个模型` : "未限制"}</strong>
+      </div>
+      <div>
+        <small>号池授权</small>
+        <strong>${policy?.allowedPoolIds?.length ? `${policy.allowedPoolIds.length} 个号池` : "未限制"}</strong>
+      </div>
+    </div>
+    <div class="access-member-note">${escapeHtml(selectedConsumer.note || "暂无备注。")}</div>
+    <div id="access-member-detail-keys" class="access-key-list mt-3">
+      ${keyRows}
+    </div>
+    <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
+      <strong>轮换后一次性 API Key</strong>
+      <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+      <div class="secret-field-stack">
+        <div class="secret-inline-row">
+          <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
+          <button class="btn secondary mini" id="copy-access-rotated-key" type="button">复制新 Key</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAccessPolicyPreview(): void {
+  const node = document.getElementById("access-policy-preview");
+  if (!node) {
+    return;
+  }
+
+  const authEnabled = Boolean(
+    state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled,
+  );
+  const mappingCount =
+    state.securitySettings?.enabledMappingCount ??
+    state.health?.inferenceAuth?.enabledMappingCount ??
+    0;
+
+  node.innerHTML = [
+    {
+      title: "推理面鉴权",
+      detail: authEnabled
+        ? "当前兼容使用 Gateway API Key / 客户端专属 key。"
+        : "当前未启用鉴权，仅建议本机自用场景使用。",
+      value: authEnabled ? "api-key" : "none",
+    },
+    {
+      title: "成员级额度",
+      detail: "AccessPolicy 尚未落地，LAN 成员限额后续接入。",
+      value: "预留",
+    },
+    {
+      title: "模型与号池授权",
+      detail: "后续会把 allowedModelAliases / allowedPoolIds 映射到本页。",
+      value: "预留",
+    },
+    {
+      title: "兼容客户端 key",
+      detail: "来自现有 clientMappings，可继续用于来源归因。",
+      value: `${formatCompactCount(mappingCount)} 个`,
+    },
+  ]
+    .map(
+      (item) => `
+        <div class="access-policy-item">
+          <div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.detail)}</span>
+          </div>
+          <small>${escapeHtml(item.value)}</small>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderDashboardTokenChart(
+  summary: UsageWindowSummary | undefined,
+): void {
+  const node = document.getElementById("dashboard-token-chart");
+  if (!node) {
+    return;
+  }
+
+  if (!summary || summary.totals.totalTokens <= 0) {
+    node.innerHTML = `
+      <div class="empty-card" style="width: 100%;">当前窗口暂无 Token 趋势数据。</div>
+    `;
+    return;
+  }
+
+  const values = [
+    summary.totals.inputTokens,
+    summary.totals.outputTokens,
+    summary.totals.cachedTokens,
+    summary.totals.reasoningTokens,
+    ...summary.clients.slice(0, 4).map((client) => client.usage.totalTokens),
+  ].filter((value) => value > 0);
+  const normalizedValues = values.length > 0 ? values : [summary.totals.totalTokens];
+  const maxValue = Math.max(...normalizedValues, 1);
+
+  node.innerHTML = normalizedValues
+    .slice(0, 8)
+    .map((value, index) => {
+      const height = Math.max(12, Math.round((value / maxValue) * 140));
+      return `<div class="dashboard-token-bar" data-muted="${index > 3 ? "true" : "false"}" style="height: ${height}px;" title="${escapeHtml(formatCompactCount(value))} Token"></div>`;
+    })
+    .join("");
+}
+
+function renderDashboardSharedSummary(
+  summary: UsageWindowSummary | undefined,
+): void {
+  const node = document.getElementById("dashboard-shared-summary");
+  if (!node) {
+    return;
+  }
+
+  const totalTokens = summary?.totals.totalTokens ?? 0;
+  const topClient = summary?.clients[0];
+  const mappingCount =
+    state.securitySettings?.enabledMappingCount ??
+    state.health?.inferenceAuth?.enabledMappingCount ??
+    0;
+
+  node.innerHTML = [
+    {
+      title: "本机自用消耗",
+      detail: "当前仍以本机自用路径归因",
+      value: `${formatCompactCount(totalTokens)} Token`,
+    },
+    {
+      title: "共享成员消耗",
+      detail: "LAN 成员模型尚未落地",
+      value: "0 Token",
+    },
+    {
+      title: "已启用客户端 key",
+      detail: "兼容现有 clientMappings",
+      value: `${formatCompactCount(mappingCount)} 个`,
+    },
+    {
+      title: "主要来源",
+      detail: topClient
+        ? normalizeUsageClientTagLabel(topClient.clientTag)
+        : "暂无真实请求",
+      value: topClient
+        ? `${formatCompactCount(topClient.usage.totalTokens)} Token`
+        : "暂无",
+    },
+  ]
+    .map(
+      (item) => `
+        <div class="dashboard-summary-item">
+          <div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.detail)}</span>
+          </div>
+          <small>${escapeHtml(item.value)}</small>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderDashboardAlertSummary(): void {
+  const node = document.getElementById("dashboard-alert-summary");
+  if (!node) {
+    return;
+  }
+
+  const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
+  const recentErrors = state.health?.recentErrors ?? [];
+  const authNeedsKey =
+    (state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled) &&
+    !(state.securitySettings?.hasApiKey ?? state.health?.inferenceAuth?.hasApiKey);
+  const alerts = [
+    ...(primaryDiagnostic
+      ? [
+          {
+            title: primaryDiagnostic.title,
+            detail: primaryDiagnostic.message,
+            value: primaryDiagnostic.severity,
+          },
+        ]
+      : []),
+    ...(authNeedsKey
+      ? [
+          {
+            title: "鉴权缺少密钥",
+            detail: "API Key 模式已开启，但尚未保存可用密钥。",
+            value: "warning",
+          },
+        ]
+      : []),
+    ...recentErrors.slice(0, 2).map((error) => ({
+      title: error.level,
+      detail: error.message,
+      value: formatDate(Date.parse(error.createdAt)),
+    })),
+  ];
+
+  if (alerts.length === 0) {
+    node.innerHTML = `
+      <div class="dashboard-summary-item">
+        <div>
+          <strong>暂无活动告警</strong>
+          <span>共享能力仍默认关闭，外网共享处于三期预留态。</span>
+        </div>
+        <small>normal</small>
+      </div>
+    `;
+    return;
+  }
+
+  node.innerHTML = alerts
+    .map(
+      (alert) => `
+        <div class="dashboard-summary-item">
+          <div>
+            <strong>${escapeHtml(alert.title)}</strong>
+            <span>${escapeHtml(alert.detail)}</span>
+          </div>
+          <small>${escapeHtml(alert.value)}</small>
+        </div>
+      `,
+    )
+    .join("");
 }
 
 function renderUsageOverview(): void {
@@ -1764,8 +2465,10 @@ function renderUsageOverview(): void {
     return;
   }
 
-  container.hidden = state.activeView !== "overview";
-  if (state.activeView !== "overview") {
+  const shouldShowUsageOverview =
+    state.activeView === "overview" || state.activeView === "usage";
+  container.hidden = !shouldShowUsageOverview;
+  if (!shouldShowUsageOverview) {
     return;
   }
 
@@ -2247,6 +2950,19 @@ function renderCodexAccounts(): void {
       Date.now() - activity.lastRequestAt <= 90_000;
     const isPinned = isPinnedAccountSession(account.representative.id);
     const selected = selectedAccountKeys.has(account.key);
+    const refreshMode =
+      account.representative.credentialRefreshMode ??
+      (account.representative.sourceKind === "local-import"
+        ? "external-readonly"
+        : undefined);
+    const sourceBadge =
+      account.representative.sourceKind === "local-import"
+        ? account.representative.sourceLabel ?? "本地账号副本"
+        : account.representative.sourceLabel ?? "OpenClaw 授权源";
+    const ownershipBadge =
+      refreshMode === "managed"
+        ? "本项目可刷新"
+        : "外部只读";
     const quotaUpdatedAt = account.representative.quota?.updatedAt
       ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
       : "尚未同步";
@@ -2274,6 +2990,8 @@ function renderCodexAccounts(): void {
             </div>
           </div>
           <div class="acc-status-group">
+            <span class="badge neutral">${escapeHtml(sourceBadge)}</span>
+            <span class="badge ${refreshMode === "managed" ? "active" : "warning"}">${escapeHtml(ownershipBadge)}</span>
             ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
             ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
             ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
@@ -2284,6 +3002,10 @@ function renderCodexAccounts(): void {
         <div class="acc-meta">
           <span>套餐: ${escapeHtml(account.representative.planType ?? "待同步")}</span>
           <span>到期: ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+        </div>
+        <div class="acc-meta">
+          <span>来源路径: ${escapeHtml(account.representative.sourcePath)}</span>
+          <span>${refreshMode === "managed" ? "凭据刷新: 本项目托管" : "凭据刷新: 外部只读，不主动刷新 refresh token"}</span>
         </div>
         <div class="acc-meta">
           <span>${isLive ? "活跃调用" : "最近调用"}: ${escapeHtml(recentCallLabel)}</span>
@@ -2360,10 +3082,10 @@ function renderCodexAccounts(): void {
             data-icon-only="true"
             data-action="delete-codex-account"
             data-tone="delete"
-            data-tooltip="删除账号"
+            data-tooltip="删除本地副本"
             data-session-id="${escapeHtml(account.representative.id)}"
-            title="删除账号"
-            aria-label="删除账号"
+            title="删除本地副本"
+            aria-label="删除本地副本"
             style="margin-left: auto;"
             type="button"
           >
@@ -4986,8 +5708,15 @@ function applySecuritySettingsToForm(): void {
   const resolveByApiKeyNode = document.getElementById(
     "gateway-auth-resolve-client-tag-by-api-key",
   ) as HTMLInputElement | null;
+  const lanAccessNode = document.getElementById(
+    "gateway-lan-access-enabled",
+  ) as HTMLInputElement | null;
+  const lanAccessStatusNode = document.getElementById(
+    "gateway-lan-access-status",
+  ) as HTMLElement | null;
 
   const mode = settings?.mode === "api-key" ? "api-key" : "none";
+  const lanEnabled = Boolean(settings?.lanAccess?.enabled);
   if (modeNode) {
     modeNode.value = mode;
   }
@@ -5008,6 +5737,18 @@ function applySecuritySettingsToForm(): void {
   }
   if (resolveByApiKeyNode) {
     resolveByApiKeyNode.checked = Boolean(settings?.resolveClientTagByApiKey);
+  }
+  if (lanAccessNode) {
+    lanAccessNode.checked = lanEnabled;
+  }
+  if (lanAccessStatusNode) {
+    if (lanEnabled) {
+      lanAccessStatusNode.textContent =
+        "局域网共享已开启。保存变更后会重启网关，使推理面监听局域网地址；管理面仍只允许本机访问。";
+    } else {
+      lanAccessStatusNode.textContent =
+        "LAN 共享必须启用 API Key 鉴权，并配置默认 API Key 或客户端密钥映射。";
+    }
   }
   renderSecurityClientMappings(settings?.clientMappings ?? []);
   syncSecretFieldActionState();
@@ -5282,6 +6023,12 @@ async function saveSecuritySettings(): Promise<void> {
         "gateway-auth-resolve-client-tag-by-api-key",
       ) as HTMLInputElement | null
     )?.checked ?? false;
+  const lanAccessEnabled =
+    (
+      document.getElementById(
+        "gateway-lan-access-enabled",
+      ) as HTMLInputElement | null
+    )?.checked ?? false;
 
   const mappingRows = Array.from(
     document.querySelectorAll<HTMLElement>("[data-security-mapping-row]"),
@@ -5337,10 +6084,20 @@ async function saveSecuritySettings(): Promise<void> {
     apiKey,
     resolveClientTagByApiKey,
     clientMappings,
+    accessControl: state.securitySettings?.accessControl,
+    lanAccess: {
+      enabled: lanAccessEnabled,
+    },
   };
+  const previousLanEnabled = Boolean(state.securitySettings?.lanAccess?.enabled);
   const response = await api.saveSecuritySettings(payload);
   state.securitySettings = response.data;
   applySecuritySettingsToForm();
+  if (previousLanEnabled !== Boolean(response.data.lanAccess?.enabled)) {
+    setBanner("局域网共享配置已保存，正在重启网关使监听地址生效...", "info");
+    await api.restartGateway();
+    await refresh();
+  }
 }
 
 async function exportAppData(): Promise<void> {
@@ -5976,6 +6733,14 @@ function appendSecurityClientMappingDraft(): void {
     mappingCount: 0,
     enabledMappingCount: 0,
     clientMappings: [],
+    lanAccess: {
+      enabled: false,
+    },
+    accessControl: {
+      consumers: [],
+      keys: [],
+      policies: [],
+    },
   };
   syncSecurityMappingDraftsFromDom();
   const nextIndex = current.clientMappings.length + 1;
@@ -6013,6 +6778,294 @@ function generateApiKey(prefix: string): string {
     body += alphabet[bytes[i] % alphabet.length];
   }
   return `lagw_${normalizedPrefix}_${body}`;
+}
+
+function normalizeAccessSlug(value: string, fallback: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || fallback;
+}
+
+function createAccessEntityId(prefix: string, seed: string): string {
+  return `${prefix}-${normalizeAccessSlug(seed, "member")}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function cloneAccessControlForSave(
+  accessControl: SecurityAccessControl,
+): SecurityAccessControlInput {
+  return {
+    consumers: accessControl.consumers.map((consumer) => ({ ...consumer })),
+    keys: accessControl.keys.map((key) => ({ ...key })),
+    policies: accessControl.policies.map((policy) => ({
+      ...policy,
+      allowedModelAliases: [...(policy.allowedModelAliases ?? [])],
+      allowedPoolIds: [...(policy.allowedPoolIds ?? [])],
+    })),
+  };
+}
+
+function getSecurityClientMappingInputs(
+  settings: SecuritySettings,
+): SecurityClientMappingInput[] {
+  syncSecurityMappingDraftsFromDom();
+  return settings.clientMappings.map((mapping) => ({
+    name: mapping.name,
+    clientTag: mapping.clientTag,
+    apiKey: mapping.draftApiKey ?? "",
+    enabled: mapping.enabled,
+    allowHeaderOverride: mapping.allowHeaderOverride,
+  }));
+}
+
+async function saveAccessControlSettings(
+  accessControl: SecurityAccessControlInput,
+): Promise<SecuritySettings> {
+  const api = getGatewayApi();
+  const current = getSecuritySettingsWithDefaults();
+  const response = await api.saveSecuritySettings({
+    mode: "api-key",
+    resolveClientTagByApiKey: true,
+    clientMappings: getSecurityClientMappingInputs(current),
+    lanAccess: current.lanAccess,
+    accessControl,
+  });
+  state.securitySettings = response.data;
+  if (
+    state.selectedAccessConsumerId &&
+    !response.data.accessControl.consumers.some(
+      (item) => item.id === state.selectedAccessConsumerId,
+    )
+  ) {
+    state.selectedAccessConsumerId = undefined;
+  }
+  renderAccessAndKeys();
+  renderSecurityClientMappings(state.securitySettings.clientMappings);
+  return response.data;
+}
+
+function getAccessKeyExpiryInput(keyId: string): HTMLInputElement | undefined {
+  return Array.from(
+    document.querySelectorAll<HTMLInputElement>("[data-access-key-expiry]"),
+  ).find((input) => input.dataset.accessKeyExpiry === keyId);
+}
+
+function showRotatedAccessKey(apiKey: string): void {
+  const result = document.getElementById("access-rotated-key-result");
+  const input = document.getElementById(
+    "access-rotated-one-time-key",
+  ) as HTMLInputElement | null;
+  if (input) {
+    input.value = apiKey;
+  }
+  if (result) {
+    result.hidden = false;
+  }
+}
+
+function openAccessMemberModal(): void {
+  const modal = document.getElementById("access-create-member-modal");
+  if (!modal) {
+    return;
+  }
+  modal.hidden = false;
+  const keyResult = document.getElementById("access-member-key-result");
+  if (keyResult) {
+    keyResult.hidden = true;
+  }
+  const keyNode = document.getElementById(
+    "access-member-one-time-key",
+  ) as HTMLInputElement | null;
+  if (keyNode) {
+    keyNode.value = "";
+  }
+  (document.getElementById("access-member-name") as HTMLInputElement | null)?.focus();
+}
+
+function closeAccessMemberModal(): void {
+  const modal = document.getElementById("access-create-member-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function getSecuritySettingsWithDefaults(): SecuritySettings {
+  return state.securitySettings ?? {
+    mode: "none",
+    enabled: false,
+    hasApiKey: false,
+    resolveClientTagByApiKey: false,
+    mappingCount: 0,
+    enabledMappingCount: 0,
+    clientMappings: [],
+    lanAccess: {
+      enabled: false,
+    },
+    accessControl: {
+      consumers: [],
+      keys: [],
+      policies: [],
+    },
+  };
+}
+
+async function createAccessMember(): Promise<void> {
+  const api = getGatewayApi();
+  const name =
+    (document.getElementById("access-member-name") as HTMLInputElement | null)
+      ?.value.trim() ?? "";
+  const rawClientTag =
+    (document.getElementById("access-member-client-tag") as HTMLInputElement | null)
+      ?.value.trim() ?? "";
+  const note =
+    (document.getElementById("access-member-note") as HTMLInputElement | null)
+      ?.value.trim() || undefined;
+  if (!name) {
+    setBanner("请先填写成员名称。", "error");
+    return;
+  }
+  const clientTag = normalizeAccessSlug(rawClientTag || name, "member");
+  const current = getSecuritySettingsWithDefaults();
+  const consumerId = createAccessEntityId("consumer", clientTag);
+  const keyId = createAccessEntityId("key", clientTag);
+  const now = new Date().toISOString();
+  const apiKey = generateApiKey(clientTag);
+  const nextAccessControl: SecurityAccessControlInput = {
+    consumers: [
+      ...current.accessControl.consumers,
+      {
+        id: consumerId,
+        name,
+        type: "lan-member",
+        status: "enabled",
+        clientTag,
+        note,
+        tags: ["lan"],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    keys: [
+      ...current.accessControl.keys,
+      {
+        id: keyId,
+        consumerId,
+        name: `${name} 默认 Key`,
+        keyPrefix: apiKey.slice(0, 8),
+        keySuffix: apiKey.slice(-4),
+        status: "enabled",
+        createdAt: now,
+        hasKey: true,
+        apiKey,
+      },
+    ],
+    policies: [
+      ...current.accessControl.policies,
+      {
+        consumerId,
+        allowedModelAliases: [],
+        allowedPoolIds: [],
+      },
+    ],
+  };
+
+  const response = await api.saveSecuritySettings({
+    mode: "api-key",
+    resolveClientTagByApiKey: true,
+    clientMappings: getSecurityClientMappingInputs(current),
+    lanAccess: current.lanAccess,
+    accessControl: nextAccessControl,
+  });
+  state.securitySettings = response.data;
+  state.selectedAccessConsumerId = consumerId;
+  renderAccessAndKeys();
+  renderSecurityClientMappings(state.securitySettings.clientMappings);
+  const keyNode = document.getElementById(
+    "access-member-one-time-key",
+  ) as HTMLInputElement | null;
+  const keyResult = document.getElementById("access-member-key-result");
+  if (keyNode) {
+    keyNode.value = apiKey;
+  }
+  if (keyResult) {
+    keyResult.hidden = false;
+  }
+  setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
+}
+
+async function toggleAccessKeyStatus(keyId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const key = nextAccessControl.keys.find((item) => item.id === keyId);
+  if (!key) {
+    setBanner("未找到目标访问 Key。", "error");
+    return;
+  }
+  key.status = key.status === "paused" ? "enabled" : "paused";
+  await saveAccessControlSettings(nextAccessControl);
+  setBanner(
+    key.status === "enabled" ? "访问 Key 已启用。" : "访问 Key 已暂停。",
+    "success",
+  );
+}
+
+async function saveAccessKeyExpiry(keyId: string): Promise<void> {
+  const input = getAccessKeyExpiryInput(keyId);
+  if (!input) {
+    setBanner("未找到目标 Key 的到期时间输入框。", "error");
+    return;
+  }
+  const expiresAt = parseAccessDateTimeLocalValue(input.value);
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const key = nextAccessControl.keys.find((item) => item.id === keyId);
+  if (!key) {
+    setBanner("未找到目标访问 Key。", "error");
+    return;
+  }
+  key.expiresAt = expiresAt;
+  if (expiresAt && Date.parse(expiresAt) > Date.now() && key.status === "expired") {
+    key.status = "enabled";
+  }
+  await saveAccessControlSettings(nextAccessControl);
+  setBanner(expiresAt ? "访问 Key 到期时间已保存。" : "访问 Key 到期时间已清空。", "success");
+}
+
+async function rotateAccessKey(keyId: string): Promise<void> {
+  const confirmed = await requestConfirmation({
+    title: "确认轮换 Key",
+    message:
+      "轮换后旧 API Key 会立即失效，需要把新 Key 重新分发给对应成员。是否继续？",
+    confirmLabel: "轮换 Key",
+    tone: "danger",
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const key = nextAccessControl.keys.find((item) => item.id === keyId);
+  if (!key) {
+    setBanner("未找到目标访问 Key。", "error");
+    return;
+  }
+  const consumer = nextAccessControl.consumers.find(
+    (item) => item.id === key.consumerId,
+  );
+  const apiKey = generateApiKey(consumer?.clientTag || consumer?.name || "member");
+  key.apiKey = apiKey;
+  key.keyPrefix = apiKey.slice(0, 8);
+  key.keySuffix = apiKey.slice(-4);
+  key.status = "enabled";
+  key.rotatedAt = new Date().toISOString();
+
+  await saveAccessControlSettings(nextAccessControl);
+  showRotatedAccessKey(apiKey);
+  setBanner("访问 Key 已轮换。请立即复制一次性 API Key。", "success");
 }
 
 function removeSecurityClientMappingDraft(index: number): void {
@@ -6081,6 +7134,55 @@ function bindActions(): void {
         await copySnippetWithFeedback();
       } catch (error) {
         setBanner(`复制失败：${String(error)}`, "error");
+      }
+    });
+
+  document
+    .getElementById("access-create-member-button")
+    ?.addEventListener("click", () => {
+      openAccessMemberModal();
+    });
+
+  document
+    .getElementById("close-access-member-modal")
+    ?.addEventListener("click", () => {
+      closeAccessMemberModal();
+    });
+
+  document
+    .getElementById("create-access-member-submit")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "create-access-member-submit",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "创建中");
+        await createAccessMember();
+      } catch (error) {
+        setBanner(`创建访问成员失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
+
+  document
+    .getElementById("copy-access-member-key")
+    ?.addEventListener("click", async () => {
+      const value =
+        (
+          document.getElementById(
+            "access-member-one-time-key",
+          ) as HTMLInputElement | null
+        )?.value.trim() ?? "";
+      if (!value) {
+        setBanner("当前没有可复制的一次性 API Key。", "info");
+        return;
+      }
+      try {
+        await copyTextWithFallback(value);
+        setBanner("一次性 API Key 已复制。", "success");
+      } catch (error) {
+        setBanner(`复制一次性 API Key 失败：${String(error)}`, "error");
       }
     });
 
@@ -6230,6 +7332,88 @@ function bindActions(): void {
   document.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement | null;
     if (!target) {
+      return;
+    }
+
+    const memberSelectTrigger = target.closest<HTMLElement>(
+      "[data-access-member-select]",
+    );
+    if (memberSelectTrigger) {
+      state.selectedAccessConsumerId =
+        memberSelectTrigger.dataset.accessMemberSelect;
+      renderAccessConsumerList(
+        state.securitySettings?.clientMappings ?? [],
+        state.securitySettings?.accessControl,
+      );
+      renderAccessMemberDrawer(state.securitySettings?.accessControl);
+      return;
+    }
+
+    const keyToggleTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-key-toggle]",
+    );
+    if (keyToggleTrigger?.dataset.accessKeyToggle) {
+      try {
+        setButtonLoading(keyToggleTrigger, true, "保存中");
+        await toggleAccessKeyStatus(keyToggleTrigger.dataset.accessKeyToggle);
+      } catch (error) {
+        setBanner(`更新访问 Key 状态失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(keyToggleTrigger, false);
+      }
+      return;
+    }
+
+    const keyExpiryTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-key-save-expiry]",
+    );
+    if (keyExpiryTrigger?.dataset.accessKeySaveExpiry) {
+      try {
+        setButtonLoading(keyExpiryTrigger, true, "保存中");
+        await saveAccessKeyExpiry(keyExpiryTrigger.dataset.accessKeySaveExpiry);
+      } catch (error) {
+        setBanner(`保存访问 Key 到期时间失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(keyExpiryTrigger, false);
+      }
+      return;
+    }
+
+    const keyRotateTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-key-rotate]",
+    );
+    if (keyRotateTrigger?.dataset.accessKeyRotate) {
+      try {
+        setButtonLoading(keyRotateTrigger, true, "轮换中");
+        await rotateAccessKey(keyRotateTrigger.dataset.accessKeyRotate);
+      } catch (error) {
+        setBanner(`轮换访问 Key 失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(keyRotateTrigger, false);
+      }
+      return;
+    }
+
+    const rotatedCopyTrigger = target.closest<HTMLButtonElement>(
+      "#copy-access-rotated-key",
+    );
+    if (rotatedCopyTrigger) {
+      const value =
+        (
+          document.getElementById(
+            "access-rotated-one-time-key",
+          ) as HTMLInputElement | null
+        )?.value.trim() ?? "";
+      if (!value) {
+        setBanner("当前没有可复制的轮换 API Key。", "info");
+        return;
+      }
+      try {
+        await copyTextWithFallback(value);
+        setBanner("轮换 API Key 已复制。", "success");
+      } catch (error) {
+        setBanner(`复制轮换 API Key 失败：${String(error)}`, "error");
+      }
       return;
     }
 
@@ -7399,6 +8583,14 @@ async function refresh(): Promise<void> {
       mappingCount: 0,
       enabledMappingCount: 0,
       clientMappings: [],
+      lanAccess: {
+        enabled: false,
+      },
+      accessControl: {
+        consumers: [],
+        keys: [],
+        policies: [],
+      },
     };
   }
 
@@ -7428,6 +8620,7 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   const shouldFetchUsage =
     state.activeView === "overview" ||
     state.activeView === "accounts" ||
+    state.activeView === "usage" ||
     Boolean(state.usageDetailsModalOpen);
   const shouldFetchSessions =
     state.activeView === "overview" ||

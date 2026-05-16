@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 
@@ -11,6 +12,10 @@ import {
 } from "@local-ai-gateway/openai-compat";
 import {
   GatewayError,
+  GatewayAccessControlSettings,
+  GatewayAccessConsumer,
+  GatewayAccessKey,
+  GatewayAccessPolicy,
   GatewayInferenceAuthSettings,
   GatewayPoolFailureClass,
   GatewayProviderSettings,
@@ -50,11 +55,68 @@ function requireAdminAuth(
   runtime: GatewayRuntime,
   request: FastifyRequest,
 ): void {
+  requireLoopbackRequest(request);
+
   const authHeader = request.headers.authorization;
   const expected = `Bearer ${runtime.configStore.getAdminToken()}`;
 
   if (authHeader !== expected) {
     throw new GatewayError(401, "unauthorized", "Admin token is missing or invalid.");
+  }
+}
+
+function isLoopbackAddress(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized === "localhost" || normalized === "::1") {
+    return true;
+  }
+  if (normalized.startsWith("::ffff:")) {
+    return isLoopbackAddress(normalized.slice("::ffff:".length));
+  }
+  return /^127(?:\.\d{1,3}){3}$/.test(normalized);
+}
+
+function requireLoopbackRequest(request: FastifyRequest): void {
+  if (isLoopbackAddress(request.ip)) {
+    return;
+  }
+  throw new GatewayError(
+    403,
+    "admin_loopback_required",
+    "Admin endpoints are only available from the local machine.",
+  );
+}
+
+function requireInferenceNetworkAccess(
+  runtime: GatewayRuntime,
+  request: FastifyRequest,
+): void {
+  if (isLoopbackAddress(request.ip)) {
+    return;
+  }
+
+  const settings = runtime.configStore.getInferenceAuthSettings();
+  if (!settings.lanAccess?.enabled) {
+    throw new GatewayError(
+      403,
+      "lan_access_disabled",
+      "LAN inference access is disabled.",
+    );
+  }
+
+  const hasDefaultKey = Boolean(settings.apiKey?.trim());
+  const hasMappingKey = normalizeInferenceClientMappings(settings).some(
+    (item) => item.enabled,
+  );
+  if (settings.mode !== "api-key" || (!hasDefaultKey && !hasMappingKey)) {
+    throw new GatewayError(
+      503,
+      "lan_api_key_required",
+      "LAN inference access requires API key auth.",
+    );
   }
 }
 
@@ -124,6 +186,255 @@ type NormalizedClientMapping = {
   allowHeaderOverride: boolean;
 };
 
+type AccessKeyInput = Partial<GatewayAccessKey> & {
+  apiKey?: string;
+};
+
+type AccessControlInput = Partial<GatewayAccessControlSettings> & {
+  keys?: AccessKeyInput[];
+};
+
+type AccessCredentialContext = {
+  consumerId: string;
+  consumerName: string;
+  accessKeyId: string;
+  clientTag: string;
+  policy?: GatewayAccessPolicy;
+};
+
+function hashAccessApiKey(apiKey: string): string {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+
+function normalizeAccessId(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function isPastIsoDate(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+}
+
+function normalizeAccessConsumerType(
+  value: unknown,
+): GatewayAccessConsumer["type"] {
+  if (
+    value === "local-owner" ||
+    value === "lan-member" ||
+    value === "public-user" ||
+    value === "system-client"
+  ) {
+    return value;
+  }
+  return "lan-member";
+}
+
+function normalizeAccessStatus(
+  value: unknown,
+): GatewayAccessConsumer["status"] {
+  if (value === "paused" || value === "expired") {
+    return value;
+  }
+  return "enabled";
+}
+
+function normalizeAccessKeyStatus(value: unknown): GatewayAccessKey["status"] {
+  if (
+    value === "paused" ||
+    value === "expired" ||
+    value === "rotated"
+  ) {
+    return value;
+  }
+  return "enabled";
+}
+
+function normalizeAccessControlSettingsForSave(
+  input: AccessControlInput | undefined,
+  previous: GatewayAccessControlSettings | undefined,
+): GatewayAccessControlSettings | undefined {
+  if (!input) {
+    return previous;
+  }
+
+  const now = new Date().toISOString();
+  const previousConsumersById = new Map(
+    (previous?.consumers ?? []).map((item) => [item.id, item]),
+  );
+  const previousKeysById = new Map(
+    (previous?.keys ?? []).map((item) => [item.id, item]),
+  );
+  const consumers: GatewayAccessConsumer[] = [];
+  for (const item of input.consumers ?? []) {
+    const id = normalizeAccessId(item.id);
+    const name = String(item.name ?? "").trim();
+    const clientTag = normalizeAccessId(item.clientTag);
+    if (!id || !name || !clientTag) {
+      continue;
+    }
+    const previousConsumer = previousConsumersById.get(id);
+    consumers.push({
+      id,
+      name,
+      type: normalizeAccessConsumerType(item.type),
+      status: normalizeAccessStatus(item.status),
+      clientTag,
+      note: item.note?.trim() || undefined,
+      tags: normalizeTags(item.tags),
+      createdAt: item.createdAt ?? previousConsumer?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+
+  const consumerIds = new Set(consumers.map((item) => item.id));
+  const keys: GatewayAccessKey[] = [];
+  for (const item of input.keys ?? []) {
+    const id = normalizeAccessId(item.id);
+    const consumerId = normalizeAccessId(item.consumerId);
+    const name = String(item.name ?? "").trim();
+    if (!id || !consumerId || !name || !consumerIds.has(consumerId)) {
+      continue;
+    }
+    const previousKey = previousKeysById.get(id);
+    const apiKey = String(item.apiKey ?? "").trim();
+    const keyHash = apiKey
+      ? hashAccessApiKey(apiKey)
+      : item.keyHash ?? previousKey?.keyHash ?? "";
+    if (!keyHash) {
+      continue;
+    }
+    keys.push({
+      id,
+      consumerId,
+      name,
+      keyHash,
+      keyPrefix: apiKey
+        ? apiKey.slice(0, 8)
+        : item.keyPrefix ?? previousKey?.keyPrefix ?? "",
+      keySuffix: apiKey
+        ? apiKey.slice(-4)
+        : item.keySuffix ?? previousKey?.keySuffix ?? "",
+      status: normalizeAccessKeyStatus(item.status),
+      expiresAt: item.expiresAt || undefined,
+      lastUsedAt: item.lastUsedAt ?? previousKey?.lastUsedAt,
+      lastUsedFromHash: item.lastUsedFromHash ?? previousKey?.lastUsedFromHash,
+      createdAt: item.createdAt ?? previousKey?.createdAt ?? now,
+      rotatedAt: item.rotatedAt ?? previousKey?.rotatedAt,
+    });
+  }
+
+  const policies: GatewayAccessPolicy[] = [];
+  for (const item of input.policies ?? []) {
+    const consumerId = normalizeAccessId(item.consumerId);
+    if (!consumerIds.has(consumerId)) {
+      continue;
+    }
+    policies.push({
+      consumerId,
+      allowedModelAliases: Array.isArray(item.allowedModelAliases)
+        ? item.allowedModelAliases
+            .map((value) => String(value ?? "").trim())
+            .filter((value) => value.length > 0)
+        : undefined,
+      allowedPoolIds: Array.isArray(item.allowedPoolIds)
+        ? item.allowedPoolIds
+            .map((value) => String(value ?? "").trim())
+            .filter((value) => value.length > 0)
+        : undefined,
+      quota: item.quota,
+      limits: item.limits,
+      modelSwitching: item.modelSwitching,
+      expiresAt: item.expiresAt || undefined,
+    });
+  }
+
+  return {
+    consumers,
+    keys,
+    policies,
+  };
+}
+
+function resolveAccessCredential(
+  settings: GatewayInferenceAuthSettings,
+  incomingKey: string | undefined,
+): AccessCredentialContext | undefined {
+  if (!incomingKey) {
+    return undefined;
+  }
+
+  const accessControl = settings.accessControl;
+  const keyHash = hashAccessApiKey(incomingKey);
+  const accessKey = accessControl?.keys?.find((item) => item.keyHash === keyHash);
+  if (!accessKey) {
+    return undefined;
+  }
+
+  if (accessKey.status === "paused" || accessKey.status === "rotated") {
+    throw new GatewayError(403, "access_key_paused", "Access key is paused.");
+  }
+  if (accessKey.status === "expired" || isPastIsoDate(accessKey.expiresAt)) {
+    throw new GatewayError(403, "access_key_expired", "Access key is expired.");
+  }
+
+  const consumer = accessControl?.consumers?.find(
+    (item) => item.id === accessKey.consumerId,
+  );
+  if (!consumer) {
+    throw new GatewayError(403, "access_consumer_not_found", "Access consumer is missing.");
+  }
+  if (consumer.status === "paused") {
+    throw new GatewayError(403, "access_consumer_paused", "Access consumer is paused.");
+  }
+  if (consumer.status === "expired") {
+    throw new GatewayError(403, "access_consumer_expired", "Access consumer is expired.");
+  }
+
+  return {
+    consumerId: consumer.id,
+    consumerName: consumer.name,
+    accessKeyId: accessKey.id,
+    clientTag: consumer.clientTag,
+    policy: accessControl?.policies?.find(
+      (item) => item.consumerId === consumer.id,
+    ),
+  };
+}
+
+function assertAccessPolicyAllowsModel(
+  accessContext: AccessCredentialContext | undefined,
+  requestedModelAlias: string,
+): void {
+  const allowed = accessContext?.policy?.allowedModelAliases;
+  if (!allowed?.length) {
+    return;
+  }
+  if (!allowed.includes(requestedModelAlias)) {
+    throw new GatewayError(
+      403,
+      "access_policy_model_denied",
+      "Requested model is not allowed for this access consumer.",
+    );
+  }
+}
+
 function normalizeInferenceClientMappings(
   settings: GatewayInferenceAuthSettings,
 ): NormalizedClientMapping[] {
@@ -159,10 +470,12 @@ function resolveAuthAndClientTag(
   clientTag?: string;
   authMatchedByMapping: boolean;
   matchedMappingName?: string;
+  accessContext?: AccessCredentialContext;
 } {
   const settings = runtime.configStore.getInferenceAuthSettings();
   const mode = settings.mode === "api-key" ? "api-key" : "none";
   const incomingKey = readClientApiKey(request);
+  const accessContext = resolveAccessCredential(settings, incomingKey);
   const mappings = normalizeInferenceClientMappings(settings);
   const matchedMapping =
     incomingKey && incomingKey.length > 0
@@ -171,9 +484,10 @@ function resolveAuthAndClientTag(
 
   if (mode === "api-key") {
     const expectedKey = settings.apiKey?.trim();
+    const hasAccessKey = Boolean(accessContext);
     const hasMappedKey = Boolean(matchedMapping);
     const hasDefaultKey = Boolean(expectedKey);
-    if (!hasMappedKey && !hasDefaultKey) {
+    if (!hasAccessKey && !hasMappedKey && !hasDefaultKey) {
       throw new GatewayError(
         503,
         "gateway_api_key_not_configured",
@@ -187,7 +501,7 @@ function resolveAuthAndClientTag(
         "Missing API key for gateway inference endpoint.",
       );
     }
-    if (!hasMappedKey && incomingKey !== expectedKey) {
+    if (!hasAccessKey && !hasMappedKey && incomingKey !== expectedKey) {
       throw new GatewayError(
         403,
         "gateway_api_key_invalid",
@@ -197,6 +511,14 @@ function resolveAuthAndClientTag(
   }
 
   const headerClientTag = resolveHeaderClientTag(request);
+  if (accessContext) {
+    return {
+      clientTag: accessContext.clientTag,
+      authMatchedByMapping: false,
+      matchedMappingName: accessContext.consumerName,
+      accessContext,
+    };
+  }
   const resolveByApiKey = Boolean(settings.resolveClientTagByApiKey);
   if (resolveByApiKey && matchedMapping) {
     if (matchedMapping.allowHeaderOverride && headerClientTag) {
@@ -452,11 +774,13 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   app.get("/healthz", async () => runtime.getHealth());
 
   app.get("/v1/models", async (request) => {
+    requireInferenceNetworkAccess(runtime, request);
     resolveAuthAndClientTag(runtime, request);
     return buildModelsResponse(runtime.modelRegistry.list());
   });
 
   app.post("/v1/chat/completions", async (request, reply) => {
+    requireInferenceNetworkAccess(runtime, request);
     const authContext = resolveAuthAndClientTag(runtime, request);
     const startedAt = Date.now();
     const currentSessionId = runtime.getActiveSessionId();
@@ -474,6 +798,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       );
     }
     const parsed = parseChatCompletionsRequest(request.body);
+    assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
     const routingPreview = runtime.previewRouting({
       clientTag,
       requestedModelAlias: parsed.model,
@@ -756,6 +1081,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         accountId: input.accountId,
         email: input.email,
         clientTag,
+        consumerId: authContext.accessContext?.consumerId,
+        accessKeyId: authContext.accessContext?.accessKeyId,
         providerId: resolved.adapter.id,
         modelAlias: resolvedModelAlias,
         upstreamModelId: resolved.model.providerModelId,
@@ -1187,6 +1514,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const previous = runtime.configStore.getInferenceAuthSettings();
     const nextApiKey = body.apiKey?.trim() || previous.apiKey?.trim() || "";
     const resolveClientTagByApiKey = Boolean(body.resolveClientTagByApiKey);
+    const lanAccessEnabled =
+      body.lanAccess?.enabled ?? previous.lanAccess?.enabled ?? false;
 
     const previousMappings = normalizeInferenceClientMappings(previous);
     const previousApiKeyByIdentity = new Map<string, string>();
@@ -1232,12 +1561,36 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const normalizedMappings = normalizeInferenceClientMappings({
       clientMappings: mergedMappings,
     });
+    const normalizedAccessControl = normalizeAccessControlSettingsForSave(
+      (body as GatewayInferenceAuthSettings & { accessControl?: AccessControlInput })
+        .accessControl,
+      previous.accessControl,
+    );
+    const hasAccessKey =
+      normalizedAccessControl?.keys?.some((item) => item.status === "enabled") ??
+      false;
 
-    if (mode === "api-key" && !nextApiKey && normalizedMappings.length === 0) {
+    if (
+      mode === "api-key" &&
+      !nextApiKey &&
+      normalizedMappings.length === 0 &&
+      !hasAccessKey
+    ) {
       throw new GatewayError(
         400,
         "invalid_request",
-        "启用 API Key 鉴权时必须提供默认 API Key，或至少配置一个客户端密钥映射。",
+        "启用 API Key 鉴权时必须提供默认 API Key，或至少配置一个客户端密钥映射 / 访问者密钥。",
+      );
+    }
+    if (
+      lanAccessEnabled &&
+      (mode !== "api-key" ||
+        (!nextApiKey && normalizedMappings.length === 0 && !hasAccessKey))
+    ) {
+      throw new GatewayError(
+        400,
+        "lan_api_key_required",
+        "启用局域网共享前必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问者密钥。",
       );
     }
 
@@ -1246,6 +1599,10 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       apiKey: nextApiKey || undefined,
       resolveClientTagByApiKey,
       clientMappings: normalizedMappings,
+      lanAccess: {
+        enabled: lanAccessEnabled,
+      },
+      accessControl: normalizedAccessControl,
     });
     runtime.logger.info("inference_auth_settings_saved", {
       mode,

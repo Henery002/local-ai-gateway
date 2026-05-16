@@ -440,7 +440,6 @@ class GatewayProcessManager {
       };
       this.hostedGateway = await startGatewayServer({
         env: process.env,
-        host: DEFAULT_HOST,
         port,
       });
       this.child = undefined;

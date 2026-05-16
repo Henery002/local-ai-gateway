@@ -9,8 +9,10 @@ import {
   GatewayPoolSelectionEvent,
   GatewayRoutingHitEvent,
   GatewayUsageAccountSummary,
+  GatewayUsageAccessKeySummary,
   GatewayUsageClientFilter,
   GatewayUsageClientSummary,
+  GatewayUsageConsumerSummary,
   GatewayUsageCounters,
   GatewayUsageEvent,
   GatewayUsageModelSummary,
@@ -134,6 +136,8 @@ export class GatewayDatabase {
         account_id TEXT,
         email TEXT,
         client_tag TEXT,
+        consumer_id TEXT,
+        access_key_id TEXT,
         provider_id TEXT NOT NULL,
         model_alias TEXT NOT NULL,
         upstream_model_id TEXT,
@@ -175,6 +179,18 @@ export class GatewayDatabase {
       "source_event_key",
       "source_event_key TEXT",
     );
+    ensureColumnIfMissing(
+      this.db,
+      "inference_usage_events",
+      "consumer_id",
+      "consumer_id TEXT",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "inference_usage_events",
+      "access_key_id",
+      "access_key_id TEXT",
+    );
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inference_usage_events_timestamp
       ON inference_usage_events (timestamp);
@@ -182,6 +198,14 @@ export class GatewayDatabase {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inference_usage_events_client_tag
       ON inference_usage_events (client_tag, timestamp);
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_inference_usage_events_consumer_id
+      ON inference_usage_events (consumer_id, timestamp);
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_inference_usage_events_access_key_id
+      ON inference_usage_events (access_key_id, timestamp);
     `);
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inference_usage_events_account_id
@@ -245,6 +269,8 @@ export class GatewayDatabase {
             account_id,
             email,
             client_tag,
+            consumer_id,
+            access_key_id,
             provider_id,
             model_alias,
             upstream_model_id,
@@ -261,7 +287,7 @@ export class GatewayDatabase {
             source_kind,
             source_event_key
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -270,6 +296,8 @@ export class GatewayDatabase {
         event.accountId ?? null,
         event.email ?? null,
         event.clientTag ?? null,
+        event.consumerId ?? null,
+        event.accessKeyId ?? null,
         event.providerId,
         event.modelAlias,
         event.upstreamModelId ?? null,
@@ -1111,6 +1139,86 @@ export class GatewayDatabase {
       updated_at: number | null;
     }>;
 
+    const consumers = this.db
+      .prepare(
+        `
+          SELECT
+            consumer_id,
+            access_key_id,
+            COALESCE(NULLIF(client_tag, ''), 'unknown') AS normalized_client_tag,
+            COUNT(1) AS request_count,
+            SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+            SUM(latency_ms) AS total_latency_ms,
+            SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens,
+            SUM(total_tokens) AS total_tokens,
+            SUM(cached_tokens) AS cached_tokens,
+            SUM(reasoning_tokens) AS reasoning_tokens,
+            MAX(timestamp) AS updated_at
+          FROM inference_usage_events
+          ${filter.sql}${filter.sql ? " AND " : " WHERE "}consumer_id IS NOT NULL AND consumer_id != ''
+          GROUP BY consumer_id, access_key_id, normalized_client_tag
+          ORDER BY total_tokens DESC, request_count DESC, updated_at DESC
+          LIMIT ?
+        `,
+      )
+      .all(...filter.params, clientLimit) as Array<{
+      consumer_id: string;
+      access_key_id: string | null;
+      normalized_client_tag: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+      updated_at: number | null;
+    }>;
+
+    const accessKeys = this.db
+      .prepare(
+        `
+          SELECT
+            access_key_id,
+            consumer_id,
+            COALESCE(NULLIF(client_tag, ''), 'unknown') AS normalized_client_tag,
+            COUNT(1) AS request_count,
+            SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+            SUM(latency_ms) AS total_latency_ms,
+            SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens,
+            SUM(total_tokens) AS total_tokens,
+            SUM(cached_tokens) AS cached_tokens,
+            SUM(reasoning_tokens) AS reasoning_tokens,
+            MAX(timestamp) AS updated_at
+          FROM inference_usage_events
+          ${filter.sql}${filter.sql ? " AND " : " WHERE "}access_key_id IS NOT NULL AND access_key_id != ''
+          GROUP BY access_key_id, consumer_id, normalized_client_tag
+          ORDER BY total_tokens DESC, request_count DESC, updated_at DESC
+          LIMIT ?
+        `,
+      )
+      .all(...filter.params, clientLimit) as Array<{
+      access_key_id: string;
+      consumer_id: string | null;
+      normalized_client_tag: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+      updated_at: number | null;
+    }>;
+
     const models = this.db
       .prepare(
         `
@@ -1156,6 +1264,8 @@ export class GatewayDatabase {
       importedEventCount: normalizeUsageCounterValue(metaRow?.imported_event_count),
       accounts: accounts.map((row) => this.mapUsageAccountSummary(row)),
       clients: clients.map((row) => this.mapUsageClientSummary(row)),
+      consumers: consumers.map((row) => this.mapUsageConsumerSummary(row)),
+      accessKeys: accessKeys.map((row) => this.mapUsageAccessKeySummary(row)),
       models: models.map((row) => this.mapUsageModelSummary(row)),
     };
   }
@@ -1432,6 +1542,76 @@ export class GatewayDatabase {
     updated_at: number | null;
   }): GatewayUsageClientSummary {
     return {
+      clientTag: row.normalized_client_tag,
+      updatedAt:
+        typeof row.updated_at === "number" ? row.updated_at : undefined,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsageConsumerSummary(row: {
+    consumer_id: string;
+    access_key_id: string | null;
+    normalized_client_tag: string;
+    request_count: number | null;
+    success_count: number | null;
+    failure_count: number | null;
+    total_latency_ms: number | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    cached_tokens: number | null;
+    reasoning_tokens: number | null;
+    updated_at: number | null;
+  }): GatewayUsageConsumerSummary {
+    return {
+      consumerId: row.consumer_id,
+      accessKeyId: row.access_key_id ?? undefined,
+      clientTag: row.normalized_client_tag,
+      updatedAt:
+        typeof row.updated_at === "number" ? row.updated_at : undefined,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsageAccessKeySummary(row: {
+    access_key_id: string;
+    consumer_id: string | null;
+    normalized_client_tag: string;
+    request_count: number | null;
+    success_count: number | null;
+    failure_count: number | null;
+    total_latency_ms: number | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    cached_tokens: number | null;
+    reasoning_tokens: number | null;
+    updated_at: number | null;
+  }): GatewayUsageAccessKeySummary {
+    return {
+      accessKeyId: row.access_key_id,
+      consumerId: row.consumer_id ?? undefined,
       clientTag: row.normalized_client_tag,
       updatedAt:
         typeof row.updated_at === "number" ? row.updated_at : undefined,

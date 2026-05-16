@@ -261,11 +261,106 @@ export interface GatewayInferenceAuthClientMapping {
   allowHeaderOverride?: boolean;
 }
 
+export type GatewayAccessConsumerType =
+  | "local-owner"
+  | "lan-member"
+  | "public-user"
+  | "system-client";
+
+export type GatewayAccessStatus =
+  | "enabled"
+  | "paused"
+  | "expired"
+  | "rotated";
+
+export interface GatewayAccessConsumer {
+  id: string;
+  name: string;
+  type: GatewayAccessConsumerType;
+  status: Exclude<GatewayAccessStatus, "rotated">;
+  clientTag: string;
+  note?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GatewayAccessKey {
+  id: string;
+  consumerId: string;
+  name: string;
+  keyHash: string;
+  keyPrefix: string;
+  keySuffix: string;
+  status: GatewayAccessStatus;
+  expiresAt?: string;
+  lastUsedAt?: string;
+  lastUsedFromHash?: string;
+  createdAt: string;
+  rotatedAt?: string;
+}
+
+export interface GatewayAccessPolicy {
+  consumerId: string;
+  allowedModelAliases?: string[];
+  allowedPoolIds?: string[];
+  quota?: {
+    dailyTokenLimit?: number;
+    monthlyTokenLimit?: number;
+    totalTokenLimit?: number;
+    resetTimezone?: string;
+  };
+  limits?: {
+    requestsPerMinute?: number;
+    maxConcurrentRequests?: number;
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+    speedMultiplier?: number;
+  };
+  modelSwitching?: {
+    enabled: boolean;
+    defaultModelAlias?: string;
+  };
+  expiresAt?: string;
+}
+
+export interface GatewayAccessControlSettings {
+  consumers?: GatewayAccessConsumer[];
+  keys?: GatewayAccessKey[];
+  policies?: GatewayAccessPolicy[];
+}
+
+export interface GatewayAccessKeyPublic {
+  id: string;
+  consumerId: string;
+  name: string;
+  keyPrefix: string;
+  keySuffix: string;
+  status: GatewayAccessStatus;
+  expiresAt?: string;
+  lastUsedAt?: string;
+  createdAt: string;
+  rotatedAt?: string;
+  hasKey: boolean;
+}
+
+export interface GatewayAccessControlPublicSettings {
+  consumers: GatewayAccessConsumer[];
+  keys: GatewayAccessKeyPublic[];
+  policies: GatewayAccessPolicy[];
+}
+
+export interface GatewayLanAccessSettings {
+  enabled?: boolean;
+}
+
 export interface GatewayInferenceAuthSettings {
   mode?: GatewayInferenceAuthMode;
   apiKey?: string;
   resolveClientTagByApiKey?: boolean;
   clientMappings?: GatewayInferenceAuthClientMapping[];
+  lanAccess?: GatewayLanAccessSettings;
+  accessControl?: GatewayAccessControlSettings;
 }
 
 export interface GatewayInferenceAuthPublicClientMapping {
@@ -284,6 +379,10 @@ export interface GatewayInferenceAuthPublicSettings {
   mappingCount: number;
   enabledMappingCount: number;
   clientMappings: GatewayInferenceAuthPublicClientMapping[];
+  lanAccess: {
+    enabled: boolean;
+  };
+  accessControl: GatewayAccessControlPublicSettings;
 }
 
 export interface GatewayRoutingPreviewInput {
@@ -375,6 +474,8 @@ export interface GatewayUsageEvent {
   accountId?: string;
   email?: string;
   clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
   providerId: string;
   modelAlias: string;
   upstreamModelId?: string;
@@ -405,6 +506,22 @@ export interface GatewayUsageClientSummary {
   updatedAt?: number;
 }
 
+export interface GatewayUsageConsumerSummary {
+  consumerId: string;
+  accessKeyId?: string;
+  clientTag?: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
+export interface GatewayUsageAccessKeySummary {
+  accessKeyId: string;
+  consumerId?: string;
+  clientTag?: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
 export interface GatewayUsageModelSummary {
   modelAlias: string;
   usage: GatewayUsageCounters;
@@ -420,6 +537,8 @@ export interface GatewayUsageWindowSummary {
   importedEventCount: number;
   accounts: GatewayUsageAccountSummary[];
   clients: GatewayUsageClientSummary[];
+  consumers: GatewayUsageConsumerSummary[];
+  accessKeys: GatewayUsageAccessKeySummary[];
   models: GatewayUsageModelSummary[];
 }
 
@@ -440,6 +559,7 @@ export interface DesktopSystemSettings {
 
 export type SessionStatus = "available" | "expired" | "invalid";
 export type SessionSourceKind = "openclaw" | "local-import";
+export type CredentialRefreshMode = "managed" | "external-readonly";
 
 export interface SessionQuotaSnapshot {
   scope?: "hourly" | "weekly";
@@ -465,6 +585,7 @@ export interface SessionSummary {
   sourceKind?: SessionSourceKind;
   sourceLabel?: string;
   sourcePath: string;
+  credentialRefreshMode?: CredentialRefreshMode;
   activity?: SessionActivitySnapshot;
 }
 

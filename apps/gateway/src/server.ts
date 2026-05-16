@@ -12,6 +12,7 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   type GatewayPaths,
+  type GatewayInferenceAuthSettings,
   type SessionSource,
 } from "@local-ai-gateway/shared";
 
@@ -54,6 +55,31 @@ export function resolveGatewayPort(env: NodeJS.ProcessEnv = process.env): number
   return parsed;
 }
 
+export function resolveGatewayHostFromInferenceAuthSettings(
+  settings: GatewayInferenceAuthSettings,
+): string {
+  const lanEnabled = Boolean(settings.lanAccess?.enabled);
+  const mode = settings.mode === "api-key" ? "api-key" : "none";
+  const hasDefaultKey = Boolean(settings.apiKey?.trim());
+  const hasMappingKey = (settings.clientMappings ?? []).some((item) => {
+    const apiKey = String(item?.apiKey ?? "").trim();
+    return item?.enabled !== false && apiKey.length > 0;
+  });
+  const hasAccessKey = (settings.accessControl?.keys ?? []).some(
+    (item) => item.status === "enabled" && item.keyHash.trim().length > 0,
+  );
+
+  if (
+    lanEnabled &&
+    mode === "api-key" &&
+    (hasDefaultKey || hasMappingKey || hasAccessKey)
+  ) {
+    return "0.0.0.0";
+  }
+
+  return DEFAULT_HOST;
+}
+
 export async function startGatewayServer(
   options: StartGatewayServerOptions = {},
 ): Promise<StartedGatewayServer> {
@@ -66,7 +92,11 @@ export async function startGatewayServer(
     env,
     configStore.getProviderSettings(),
   );
-  const host = options.host ?? DEFAULT_HOST;
+  const host =
+    options.host ??
+    resolveGatewayHostFromInferenceAuthSettings(
+      configStore.getInferenceAuthSettings(),
+    );
   const port = options.port ?? resolveGatewayPort(env);
   const modelRegistry = new ModelRegistry(bootstrapped.models);
   const runtime = new GatewayRuntime(

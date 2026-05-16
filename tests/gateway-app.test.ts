@@ -2432,6 +2432,362 @@ describe("gateway app", () => {
     }
   });
 
+  it("keeps admin endpoints loopback-only even with a valid token", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        remoteAddress: "192.168.1.42",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe("admin_loopback_required");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("blocks non-loopback inference requests unless LAN access is enabled", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        remoteAddress: "192.168.1.42",
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe("lan_access_disabled");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("requires api key auth before enabling LAN access", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const response = await app.inject({
+        method: "PUT",
+        url: "/admin/config/security",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        body: {
+          mode: "none",
+          lanAccess: {
+            enabled: true,
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.type).toBe("lan_api_key_required");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("allows non-loopback inference requests when LAN access and api key auth are enabled", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      apiKey: "gateway-secret",
+      lanAccess: {
+        enabled: true,
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        remoteAddress: "192.168.1.42",
+        headers: {
+          authorization: "Bearer gateway-secret",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data[0]?.id).toBe("fake-default");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("stores access keys as hashes and exposes only redacted key metadata", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const response = await app.inject({
+        method: "PUT",
+        url: "/admin/config/security",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        body: {
+          mode: "api-key",
+          resolveClientTagByApiKey: true,
+          accessControl: {
+            consumers: [
+              {
+                id: "consumer-alice",
+                name: "Alice",
+                type: "lan-member",
+                status: "enabled",
+                clientTag: "alice",
+                tags: ["team"],
+              },
+            ],
+            keys: [
+              {
+                id: "key-alice",
+                consumerId: "consumer-alice",
+                name: "Alice MacBook",
+                apiKey: "lag_alice_secret_123456",
+                status: "enabled",
+              },
+            ],
+            policies: [
+              {
+                consumerId: "consumer-alice",
+                allowedModelAliases: ["fake-default"],
+              },
+            ],
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.stringify(response.json())).not.toContain("lag_alice_secret_123456");
+      expect(response.json().data.accessControl.keys[0]).toMatchObject({
+        id: "key-alice",
+        consumerId: "consumer-alice",
+        keyPrefix: "lag_alic",
+        keySuffix: "3456",
+        hasKey: true,
+      });
+
+      const stored = runtime.configStore.getInferenceAuthSettings();
+      expect(JSON.stringify(stored)).not.toContain("lag_alice_secret_123456");
+      expect(stored.accessControl?.keys?.[0]?.keyHash).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("authenticates access keys by hash and resolves consumer client tag", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      resolveClientTagByApiKey: true,
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(runtime.getUsageObservability().history.totals.requestCount).toBe(1);
+      expect(
+        runtime.getUsageObservability().history.clients.find(
+          (item) => item.clientTag === "alice",
+        )?.usage.requestCount,
+      ).toBe(1);
+      const usage = runtime.getUsageObservability().history as unknown as {
+        consumers?: Array<{
+          consumerId: string;
+          accessKeyId?: string;
+          usage: { requestCount: number };
+        }>;
+        accessKeys?: Array<{
+          accessKeyId: string;
+          consumerId?: string;
+          usage: { requestCount: number };
+        }>;
+      };
+      expect(
+        usage.consumers?.find((item) => item.consumerId === "consumer-alice")
+          ?.usage.requestCount,
+      ).toBe(1);
+      expect(
+        usage.accessKeys?.find((item) => item.accessKeyId === "key-alice")
+          ?.usage.requestCount,
+      ).toBe(1);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects paused, expired, and policy-disallowed access keys", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-paused",
+            consumerId: "consumer-alice",
+            name: "Paused",
+            keyHash: "5fd2b4bd4c823941012eabcfabc1d22bdcce5a4009cc3248511da960695341ed",
+            keyPrefix: "lag_paus",
+            keySuffix: "0000",
+            status: "paused",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+          {
+            id: "key-expired",
+            consumerId: "consumer-alice",
+            name: "Expired",
+            keyHash: "463ba3c71bcb5c6c4c17ff3dde5618911e8fbdafd7a9648bb7d3cff27de5b5e3",
+            keyPrefix: "lag_expi",
+            keySuffix: "0000",
+            status: "enabled",
+            expiresAt: "2020-01-01T00:00:00.000Z",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+          {
+            id: "key-model",
+            consumerId: "consumer-alice",
+            name: "Model Limited",
+            keyHash: "9e599ef3b9c96e680f56c2d74ce64f1084043432c0a61a57c9f41c2a69e2ff5b",
+            keyPrefix: "lag_mode",
+            keySuffix: "0000",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-routed"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const paused = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer lag_paused_secret_0000",
+        },
+      });
+      expect(paused.statusCode).toBe(403);
+      expect(paused.json().error.type).toBe("access_key_paused");
+
+      const expired = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer lag_expired_secret_0000",
+        },
+      });
+      expect(expired.statusCode).toBe(403);
+      expect(expired.json().error.type).toBe("access_key_expired");
+
+      const disallowed = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_model_secret_0000",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+      expect(disallowed.statusCode).toBe(403);
+      expect(disallowed.json().error.type).toBe("access_policy_model_denied");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("accepts mapped client api keys and resolves client tag from mapping", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
