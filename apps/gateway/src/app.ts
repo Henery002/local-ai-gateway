@@ -576,6 +576,35 @@ function assertAccessPolicyWithinRequestLimits(
   }
 }
 
+function assertAccessPolicyAllowsPool(
+  accessContext: AccessCredentialContext | undefined,
+  poolId: string | undefined,
+): void {
+  const normalizedPoolId = poolId?.trim();
+  if (!normalizedPoolId) {
+    return;
+  }
+
+  const allowedPoolIds = accessContext?.policy?.allowedPoolIds;
+  if (!allowedPoolIds?.length) {
+    return;
+  }
+  if (allowedPoolIds.includes(normalizedPoolId)) {
+    return;
+  }
+
+  throw new GatewayError(
+    403,
+    "access_policy_pool_denied",
+    "Requested pool is not allowed for this access consumer.",
+    {
+      consumerId: accessContext?.consumerId,
+      accessKeyId: accessContext?.accessKeyId,
+      poolId: normalizedPoolId,
+    },
+  );
+}
+
 function normalizeInferenceClientMappings(
   settings: GatewayInferenceAuthSettings,
 ): NormalizedClientMapping[] {
@@ -960,6 +989,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         : undefined;
     const dispatchMode = runtime.getEffectiveDispatchMode(matchedRule?.target);
     const targetPoolId = matchedRule?.target?.poolId?.trim();
+    assertAccessPolicyAllowsPool(authContext.accessContext, targetPoolId);
     const poolAttemptLimit = resolvePoolAttemptLimit(
       runtime.getPoolSettings(),
       targetPoolId,
