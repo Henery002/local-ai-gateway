@@ -5024,6 +5024,16 @@ function renderPoolCards(): void {
     buildPoolBulkToolbarMarkup(pools),
     ...pools
     .map((pool, index) => {
+      const poolVisibility =
+        pool.visibility === "shared-lan" || pool.visibility === "public-ready"
+          ? pool.visibility
+          : "private";
+      const poolVisibilityLabel =
+        poolVisibility === "shared-lan"
+          ? "局域网共享"
+          : poolVisibility === "public-ready"
+            ? "外网预留"
+            : "私有";
       const panelState = getPoolPanelState(pool.id);
       const candidates = buildPoolMemberCandidates();
       const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
@@ -5055,6 +5065,7 @@ function renderPoolCards(): void {
             </div>
             <div class="routing-rule-meta pool-card-actions">
               <span class="badge neutral">${escapeHtml(pool.id)}</span>
+              <span class="badge neutral">${poolVisibilityLabel}</span>
               <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${pool.enabled === false ? "未启用" : "已启用"}</span>
               <button
                 type="button"
@@ -5084,6 +5095,14 @@ function renderPoolCards(): void {
                 <option value="quota-desc" ${pool.selectionStrategy === "quota-desc" ? "selected" : ""}>按剩余额度优先</option>
                 <option value="least-recently-used" ${pool.selectionStrategy === "least-recently-used" ? "selected" : ""}>按最近最少使用</option>
                 <option value="priority" ${pool.selectionStrategy === "priority" ? "selected" : ""}>按成员顺序优先</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>可见性</label>
+              <select class="input-field" data-field="pool-visibility">
+                <option value="private" ${poolVisibility === "private" ? "selected" : ""}>私有（管理员自用）</option>
+                <option value="shared-lan" ${poolVisibility === "shared-lan" ? "selected" : ""}>局域网共享</option>
+                <option value="public-ready" ${poolVisibility === "public-ready" ? "selected" : ""}>外网预留（暂不开放）</option>
               </select>
             </div>
             <div class="form-field" style="grid-column: 1 / -1;">
@@ -5169,6 +5188,9 @@ function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
   const selectionStrategy = row.querySelector<HTMLSelectElement>(
     '[data-field="pool-strategy"]',
   )?.value as PoolDefinition["selectionStrategy"] | undefined;
+  const visibility = row.querySelector<HTMLSelectElement>(
+    '[data-field="pool-visibility"]',
+  )?.value as PoolDefinition["visibility"] | undefined;
   const minRemainingPercentage = Number(
     row.querySelector<HTMLInputElement>('[data-field="pool-min-percentage"]')
       ?.value ?? "15",
@@ -5222,6 +5244,10 @@ function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
       row.querySelector<HTMLInputElement>('[data-field="pool-enabled"]')
         ?.checked ?? true,
     selectionStrategy,
+    visibility:
+      visibility === "shared-lan" || visibility === "public-ready"
+        ? visibility
+        : "private",
     minRemainingPercentage: Number.isFinite(minRemainingPercentage)
       ? Math.max(0, Math.min(100, Math.round(minRemainingPercentage)))
       : 15,
@@ -7539,6 +7565,7 @@ function bindActions(): void {
           id: createPoolId(),
           name: `号池-${pools.length + 1}`,
           enabled: true,
+          visibility: "private",
           selectionStrategy: "hybrid",
           minRemainingPercentage: 15,
           cooldownSeconds: 300,

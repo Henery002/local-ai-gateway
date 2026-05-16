@@ -285,6 +285,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("pool-config-form-grid");
     expect(rendererSource).toContain("pool-member-table-shell");
     expect(rendererSource).toContain("pool-card-actions");
+    expect(rendererSource).toContain('data-field="pool-visibility"');
+    expect(rendererSource).toContain('visibility: "private"');
     expect(styles).toContain(".pool-route-workbench {");
     expect(styles).toContain(".pool-control-panel {");
     expect(styles).toContain(".pool-list-shell {");

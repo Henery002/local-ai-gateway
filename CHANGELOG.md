@@ -14,8 +14,9 @@
 ### 新增
 
 - P1-C 号池可见性进入配置模型：`GatewaySessionPoolDefinition` 新增 `visibility` 字段，支持 `private / shared-lan / public-ready`，管理接口保存号池时会把非法或缺失值归一为 `private`。
-- 桌面端本地 `PoolDefinition` 类型同步补充 `visibility` 字段，为后续号池授权 UI 和 shared/private 可见性展示预留类型基础。
+- 桌面端本地 `PoolDefinition` 类型同步补充 `visibility` 字段，并在号池卡片新增可见性下拉与标题 badge；新建号池默认 `private`，保存单卡或全量号池配置时会随卡片写回可见性。
 - 新增 gateway 回归测试，覆盖号池 visibility 保存与非法值归一化。
+- 新增桌面构建回归测试，覆盖号池可见性 UI 入口与新建默认 `private`，明确这只是配置面口子，不代表 LAN 或公网共享已自动开放。
 - 启动 P1-C 号池授权执行层第一段：访问成员配置 `allowedPoolIds` 后，策略路由命中的动态号池必须在授权列表内，否则推理面返回 `403 access_policy_pool_denied`，并在进入上游调用前停止请求。
 - 新增 gateway 回归测试，覆盖访问成员被路由到未授权动态号池时的拒绝行为。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
