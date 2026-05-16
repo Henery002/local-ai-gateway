@@ -2780,6 +2780,175 @@ describe("gateway app", () => {
     }
   });
 
+  it("rejects access consumers that exceeded their requests-per-minute limit", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            limits: {
+              requestsPerMinute: 1,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.type).toBe("access_policy_rate_limit_exceeded");
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        limit: 1,
+        usedRequests: 1,
+      });
+      expect(response.headers["retry-after"]).toBe("60");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects access consumers that reached their concurrent request limit", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            limits: {
+              maxConcurrentRequests: 1,
+            },
+          },
+        ],
+      },
+    });
+    const inFlightId = runtime.beginInferenceActivity({
+      clientTag: "alice",
+      requestedModelAlias: "fake-default",
+      sessionId: "main:fake:default",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.type).toBe("access_policy_concurrency_exceeded");
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        limit: 1,
+        inFlightRequests: 1,
+      });
+    } finally {
+      runtime.finishInferenceActivity(inFlightId);
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects paused, expired, and policy-disallowed access keys", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);

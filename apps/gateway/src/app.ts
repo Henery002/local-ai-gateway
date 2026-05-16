@@ -435,7 +435,7 @@ function assertAccessPolicyAllowsModel(
   }
 }
 
-function normalizeTokenLimit(value: unknown): number | undefined {
+function normalizePolicyLimit(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
   }
@@ -482,7 +482,7 @@ function assertAccessPolicyWithinDailyQuota(
   runtime: GatewayRuntime,
   accessContext: AccessCredentialContext | undefined,
 ): void {
-  const limit = normalizeTokenLimit(
+  const limit = normalizePolicyLimit(
     accessContext?.policy?.quota?.dailyTokenLimit,
   );
   if (typeof limit !== "number" || !accessContext) {
@@ -517,6 +517,63 @@ function assertAccessPolicyWithinDailyQuota(
       retryAfterSeconds: Math.max(1, Math.ceil((window.resetAt - now) / 1000)),
     },
   );
+}
+
+function assertAccessPolicyWithinRequestLimits(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  if (!accessContext) {
+    return;
+  }
+
+  const now = Date.now();
+  const requestsPerMinute = normalizePolicyLimit(
+    accessContext.policy?.limits?.requestsPerMinute,
+  );
+  if (typeof requestsPerMinute === "number") {
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: now - 60_000,
+    });
+    if (usage.requestCount >= requestsPerMinute) {
+      throw new GatewayError(
+        429,
+        "access_policy_rate_limit_exceeded",
+        "Access consumer request rate limit has been exceeded.",
+        {
+          consumerId: accessContext.consumerId,
+          accessKeyId: accessContext.accessKeyId,
+          limit: requestsPerMinute,
+          usedRequests: usage.requestCount,
+          windowSeconds: 60,
+          retryAfterSeconds: 60,
+        },
+      );
+    }
+  }
+
+  const maxConcurrentRequests = normalizePolicyLimit(
+    accessContext.policy?.limits?.maxConcurrentRequests,
+  );
+  if (typeof maxConcurrentRequests === "number") {
+    const inFlightRequests = runtime.countInFlightRequestsForAccessConsumer(
+      accessContext.consumerId,
+    );
+    if (inFlightRequests >= maxConcurrentRequests) {
+      throw new GatewayError(
+        429,
+        "access_policy_concurrency_exceeded",
+        "Access consumer concurrent request limit has been exceeded.",
+        {
+          consumerId: accessContext.consumerId,
+          accessKeyId: accessContext.accessKeyId,
+          limit: maxConcurrentRequests,
+          inFlightRequests,
+        },
+      );
+    }
+  }
 }
 
 function normalizeInferenceClientMappings(
@@ -884,6 +941,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const parsed = parseChatCompletionsRequest(request.body);
     assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
     assertAccessPolicyWithinDailyQuota(runtime, authContext.accessContext);
+    assertAccessPolicyWithinRequestLimits(runtime, authContext.accessContext);
     const routingPreview = runtime.previewRouting({
       clientTag,
       requestedModelAlias: parsed.model,
@@ -978,6 +1036,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     }
     const inferenceRequestId = runtime.beginInferenceActivity({
       clientTag,
+      consumerId: authContext.accessContext?.consumerId,
+      accessKeyId: authContext.accessContext?.accessKeyId,
       requestedModelAlias: resolvedModelAlias,
       sessionId: resolvedSessionId,
       poolId: targetPoolId,

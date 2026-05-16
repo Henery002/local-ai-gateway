@@ -78,6 +78,8 @@ type InferenceRequestRuntimeState = {
   requestId: string;
   startedAt: number;
   clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
   requestedModelAlias?: string;
   sessionId?: string;
   poolId?: string;
@@ -339,6 +341,8 @@ export class GatewayRuntime {
 
   beginInferenceActivity(input: {
     clientTag?: string;
+    consumerId?: string;
+    accessKeyId?: string;
     requestedModelAlias?: string;
     sessionId?: string;
     poolId?: string;
@@ -349,6 +353,8 @@ export class GatewayRuntime {
       requestId,
       startedAt: Date.now(),
       clientTag: input.clientTag,
+      consumerId: input.consumerId,
+      accessKeyId: input.accessKeyId,
       requestedModelAlias: input.requestedModelAlias,
       sessionId: input.sessionId,
       poolId: input.poolId,
@@ -378,6 +384,12 @@ export class GatewayRuntime {
     if (this.inFlightRequests.delete(requestId)) {
       this.lastInferenceFinishedAt = Date.now();
     }
+  }
+
+  countInFlightRequestsForAccessConsumer(consumerId: string): number {
+    return Array.from(this.inFlightRequests.values()).filter(
+      (item) => item.consumerId === consumerId,
+    ).length;
   }
 
   checkClientCircuit(clientTag?: string): {
