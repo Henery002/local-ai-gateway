@@ -18,7 +18,9 @@
 - 新增 gateway 回归测试，覆盖号池 visibility 保存与非法值归一化。
 - 新增桌面构建回归测试，覆盖号池可见性 UI 入口与新建默认 `private`，明确这只是配置面口子，不代表 LAN 或公网共享已自动开放。
 - 启动 P1-C 号池授权执行层第一段：访问成员配置 `allowedPoolIds` 后，策略路由命中的动态号池必须在授权列表内，否则推理面返回 `403 access_policy_pool_denied`，并在进入上游调用前停止请求。
+- 访问成员详情新增“允许号池”配置第一段：可在桌面端勾选当前号池并保存到该成员 `allowedPoolIds`，用于配合后端动态号池授权拒绝能力。
 - 新增 gateway 回归测试，覆盖访问成员被路由到未授权动态号池时的拒绝行为。
+- 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
 - 访问成员配置 `limits.maxConcurrentRequests` 后，网关会按成员维度统计进行中的推理请求，达到并发上限时返回 `429 access_policy_concurrency_exceeded`；运行态 in-flight 记录同步补充 `consumerId / accessKeyId`。
 - 新增 gateway 回归测试，覆盖成员 QPS 与并发上限两条 AccessPolicy 执行路径。

@@ -630,6 +630,27 @@ type PoolMemberPanelState = {
   cardCollapsed: boolean;
 };
 
+function normalizePoolVisibility(
+  visibility?: PoolDefinition["visibility"],
+): NonNullable<PoolDefinition["visibility"]> {
+  return visibility === "shared-lan" || visibility === "public-ready"
+    ? visibility
+    : "private";
+}
+
+function formatPoolVisibilityLabel(
+  visibility?: PoolDefinition["visibility"],
+): string {
+  const normalized = normalizePoolVisibility(visibility);
+  if (normalized === "shared-lan") {
+    return "局域网共享";
+  }
+  if (normalized === "public-ready") {
+    return "外网预留";
+  }
+  return "私有";
+}
+
 type SecuritySettingsInput = {
   mode?: "none" | "api-key";
   apiKey?: string;
@@ -2194,6 +2215,30 @@ function renderAccessMemberDrawer(
   const policy = accessControl?.policies.find(
     (item) => item.consumerId === selectedConsumer.id,
   );
+  const pools = state.poolSettings?.pools ?? [];
+  const allowedPoolIds = new Set(policy?.allowedPoolIds ?? []);
+  const poolPolicyRows =
+    pools.length > 0
+      ? pools
+          .map((pool) => {
+            const visibility = normalizePoolVisibility(pool.visibility);
+            const checked = allowedPoolIds.has(pool.id);
+            return `
+              <label class="access-policy-pool-option">
+                <input
+                  type="checkbox"
+                  data-access-policy-pool="${escapeHtml(pool.id)}"
+                  ${checked ? "checked" : ""}
+                />
+                <span>
+                  <strong>${escapeHtml(pool.name || pool.id)}</strong>
+                  <small>${escapeHtml(formatPoolVisibilityLabel(visibility))} · ${escapeHtml(pool.id)}</small>
+                </span>
+              </label>
+            `;
+          })
+          .join("")
+      : `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
   const keyRows =
     keys.length > 0
       ? keys
@@ -2264,6 +2309,22 @@ function renderAccessMemberDrawer(
       </div>
     </div>
     <div class="access-member-note">${escapeHtml(selectedConsumer.note || "暂无备注。")}</div>
+    <div class="access-policy-panel mt-3">
+      <div class="access-policy-panel-head">
+        <div>
+          <strong>允许号池</strong>
+          <span>只把必要的 shared 号池授权给 LAN 成员；私有号池默认保留给管理员自用。</span>
+        </div>
+        <button
+          class="btn secondary mini"
+          type="button"
+          data-access-policy-save-pools="${escapeHtml(selectedConsumer.id)}"
+        >保存号池授权</button>
+      </div>
+      <div class="access-policy-pool-list">
+        ${poolPolicyRows}
+      </div>
+    </div>
     <div id="access-member-detail-keys" class="access-key-list mt-3">
       ${keyRows}
     </div>
@@ -5024,16 +5085,8 @@ function renderPoolCards(): void {
     buildPoolBulkToolbarMarkup(pools),
     ...pools
     .map((pool, index) => {
-      const poolVisibility =
-        pool.visibility === "shared-lan" || pool.visibility === "public-ready"
-          ? pool.visibility
-          : "private";
-      const poolVisibilityLabel =
-        poolVisibility === "shared-lan"
-          ? "局域网共享"
-          : poolVisibility === "public-ready"
-            ? "外网预留"
-            : "私有";
+      const poolVisibility = normalizePoolVisibility(pool.visibility);
+      const poolVisibilityLabel = formatPoolVisibilityLabel(poolVisibility);
       const panelState = getPoolPanelState(pool.id);
       const candidates = buildPoolMemberCandidates();
       const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
@@ -7122,6 +7175,39 @@ async function saveAccessKeyExpiry(keyId: string): Promise<void> {
   setBanner(expiresAt ? "访问 Key 到期时间已保存。" : "访问 Key 到期时间已清空。", "success");
 }
 
+async function saveAccessPolicyPools(consumerId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const consumer = nextAccessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!consumer) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+  const selectedPoolIds = Array.from(
+    document.querySelectorAll<HTMLInputElement>(
+      "[data-access-policy-pool]:checked",
+    ),
+  )
+    .map((input) => input.dataset.accessPolicyPool?.trim())
+    .filter((poolId): poolId is string => Boolean(poolId));
+  const existingPolicy = nextAccessControl.policies.find(
+    (item) => item.consumerId === consumerId,
+  );
+  if (existingPolicy) {
+    existingPolicy.allowedPoolIds = selectedPoolIds;
+  } else {
+    nextAccessControl.policies.push({
+      consumerId,
+      allowedModelAliases: [],
+      allowedPoolIds: selectedPoolIds,
+    });
+  }
+  await saveAccessControlSettings(nextAccessControl);
+  setBanner("访问成员号池授权已保存。", "success");
+}
+
 async function rotateAccessKey(keyId: string): Promise<void> {
   const confirmed = await requestConfirmation({
     title: "确认轮换 Key",
@@ -7463,6 +7549,23 @@ function bindActions(): void {
         setBanner(`保存访问 Key 到期时间失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(keyExpiryTrigger, false);
+      }
+      return;
+    }
+
+    const poolPolicyTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-policy-save-pools]",
+    );
+    if (poolPolicyTrigger?.dataset.accessPolicySavePools) {
+      try {
+        setButtonLoading(poolPolicyTrigger, true, "保存中");
+        await saveAccessPolicyPools(
+          poolPolicyTrigger.dataset.accessPolicySavePools,
+        );
+      } catch (error) {
+        setBanner(`保存访问成员号池授权失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(poolPolicyTrigger, false);
       }
       return;
     }

@@ -1218,6 +1218,50 @@ button, input, select {
   margin-top: 12px;
 }
 
+.access-policy-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.access-policy-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.access-policy-panel-head div,
+.access-policy-pool-option span {
+  display: grid;
+  gap: 4px;
+}
+
+.access-policy-panel-head span,
+.access-policy-pool-option small {
+  color: var(--text-secondary);
+  font-size: 13px !important;
+}
+
+.access-policy-pool-list {
+  display: grid;
+  gap: 8px;
+}
+
+.access-policy-pool-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
 .access-key-list {
   display: grid;
   gap: 12px;

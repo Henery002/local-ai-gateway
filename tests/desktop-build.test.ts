@@ -234,8 +234,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("data-access-key-rotate");
     expect(rendererSource).toContain("data-access-key-expiry");
     expect(rendererSource).toContain("data-access-key-save-expiry");
+    expect(rendererSource).toContain("data-access-policy-pool");
+    expect(rendererSource).toContain("data-access-policy-save-pools");
     expect(rendererSource).toContain("rotateAccessKey");
     expect(rendererSource).toContain("saveAccessKeyExpiry");
+    expect(rendererSource).toContain("saveAccessPolicyPools");
   });
 
   it("renders the phase two account assets ownership skeleton", () => {
