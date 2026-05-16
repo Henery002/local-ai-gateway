@@ -5,6 +5,27 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("desktop build output", () => {
+  it("uses a light Figma-style desktop shell by default", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
+
+    expect(indexHtml).toContain("class=\"app-shell figma-shell\"");
+    expect(indexHtml).toContain("class=\"console-header page-header\"");
+    expect(indexHtml).toContain("class=\"view-stack page-body\"");
+    expect(indexHtml).toContain("class=\"sidebar compact-sidebar\"");
+    expect(styles).toContain("color-scheme: light");
+    expect(styles).toContain("--color-bg-app: #f6f7fb");
+    expect(styles).toContain("--color-bg-sidebar: #ffffff");
+    expect(styles).toContain("--color-bg-card: #ffffff");
+    expect(styles).not.toContain("color-scheme: dark");
+  });
+
   it("uses the phase two shared-gateway navigation structure", () => {
     const indexHtml = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/index.html"),

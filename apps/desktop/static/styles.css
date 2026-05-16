@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   /* Figma phase-two design token baseline */
   --color-neutral-50: #fafafa;
   --color-neutral-100: #f4f4f5;
@@ -19,67 +19,85 @@
   --color-brand-600: #2563eb;
   --color-brand-700: #1d4ed8;
 
-  --color-success-50: #0f2f1a;
+  --color-success-50: #f0fdf4;
   --color-success-500: #22c55e;
-  --color-warning-50: #33240a;
+  --color-success-600: #16a34a;
+  --color-warning-50: #fffbeb;
   --color-warning-500: #f59e0b;
-  --color-error-50: #3a1111;
+  --color-warning-600: #d97706;
+  --color-error-50: #fef2f2;
   --color-error-500: #ef4444;
-  --color-info-50: #10233f;
+  --color-error-600: #dc2626;
+  --color-info-50: #eff6ff;
   --color-info-500: #3b82f6;
 
+  --color-bg-app: #f6f7fb;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-page: #f8fafc;
+  --color-bg-card: #ffffff;
+  --color-bg-elevated: #f4f7fb;
+  --color-bg-input: #ffffff;
+  --color-bg-hover: #f1f5f9;
+  --color-bg-active: #e8f1ff;
+  --color-border-default: #d9e0ea;
+  --color-border-subtle: #e8edf4;
+  --color-border-strong: #c4ccd8;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-tertiary: #6b7280;
+
   /* Existing app variable compatibility aliases */
-  --bg-window: var(--color-neutral-950);
-  --bg-main: var(--color-neutral-800);
-  --bg-sidebar: var(--color-neutral-900);
-  --bg-sidebar-hover: rgba(255, 255, 255, 0.06);
-  --bg-sidebar-active: rgba(59, 130, 246, 0.16);
-  --bg-surface: var(--color-neutral-900);
-  --bg-surface-hover: var(--color-neutral-700);
+  --bg-window: var(--color-bg-app);
+  --bg-main: var(--color-bg-card);
+  --bg-sidebar: var(--color-bg-sidebar);
+  --bg-sidebar-hover: var(--color-bg-hover);
+  --bg-sidebar-active: var(--color-bg-active);
+  --bg-surface: var(--color-bg-elevated);
+  --bg-surface-hover: #eef4fb;
   
-  --text-primary: var(--color-neutral-50);
-  --text-secondary: var(--color-neutral-400);
-  --text-tertiary: var(--color-neutral-500);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
   
-  --border-light: var(--color-neutral-700);
-  --border-strong: var(--color-neutral-600);
+  --border-light: var(--color-border-subtle);
+  --border-strong: var(--color-border-default);
   
   --primary-btn-bg: var(--color-brand-600);
-  --primary-btn-hover: var(--color-brand-500);
+  --primary-btn-hover: var(--color-brand-700);
   --primary-btn-text: #ffffff;
   
-  --accent-color: var(--color-brand-400);
-  --accent-soft: rgba(59, 130, 246, 0.16);
+  --accent-color: var(--color-brand-600);
+  --accent-soft: rgba(37, 99, 235, 0.1);
   
   --success: var(--color-success-500);
-  --success-bg: rgba(34, 197, 94, 0.12);
-  --success-border: rgba(34, 197, 94, 0.35);
+  --success-bg: var(--color-success-50);
+  --success-border: rgba(22, 163, 74, 0.28);
   
-  --warning: var(--color-warning-500);
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --warning-border: rgba(245, 158, 11, 0.35);
+  --warning: var(--color-warning-600);
+  --warning-bg: var(--color-warning-50);
+  --warning-border: rgba(217, 119, 6, 0.28);
   
-  --danger: var(--color-error-500);
-  --danger-bg: rgba(239, 68, 68, 0.12);
-  --danger-border: rgba(239, 68, 68, 0.35);
+  --danger: var(--color-error-600);
+  --danger-bg: var(--color-error-50);
+  --danger-border: rgba(220, 38, 38, 0.25);
   
   --info: var(--color-info-500);
-  --info-bg: rgba(59, 130, 246, 0.12);
-  --info-border: rgba(59, 130, 246, 0.35);
+  --info-bg: var(--color-info-50);
+  --info-border: rgba(37, 99, 235, 0.24);
 
   /* Avatar Tones (AntD preset colors) */
-  --avatar-tone-0-bg: rgba(59, 130, 246, 0.16); --avatar-tone-0-text: #93c5fd; /* Blue */
-  --avatar-tone-1-bg: rgba(168, 85, 247, 0.16); --avatar-tone-1-text: #c4b5fd; /* Purple */
-  --avatar-tone-2-bg: rgba(99, 102, 241, 0.16); --avatar-tone-2-text: #a5b4fc; /* Indigo */
-  --avatar-tone-3-bg: rgba(20, 184, 166, 0.16); --avatar-tone-3-text: #5eead4; /* Teal */
-  --avatar-tone-4-bg: rgba(34, 197, 94, 0.16); --avatar-tone-4-text: #86efac; /* Green */
-  --avatar-tone-5-bg: rgba(132, 204, 22, 0.16); --avatar-tone-5-text: #bef264; /* Lime */
-  --avatar-tone-6-bg: rgba(245, 158, 11, 0.16); --avatar-tone-6-text: #fcd34d; /* Amber */
-  --avatar-tone-7-bg: rgba(249, 115, 22, 0.16); --avatar-tone-7-text: #fdba74; /* Orange */
-  --avatar-tone-8-bg: rgba(239, 68, 68, 0.16); --avatar-tone-8-text: #fca5a5; /* Red */
-  --avatar-tone-9-bg: rgba(244, 63, 94, 0.16); --avatar-tone-9-text: #fda4af; /* Rose */
-  --avatar-tone-10-bg: rgba(236, 72, 153, 0.16); --avatar-tone-10-text: #f9a8d4; /* Pink */
-  --avatar-tone-11-bg: rgba(255, 255, 255, 0.08); --avatar-tone-11-text: var(--text-secondary); /* Default */
+  --avatar-tone-0-bg: #eff6ff; --avatar-tone-0-text: #1d4ed8; /* Blue */
+  --avatar-tone-1-bg: #f5f3ff; --avatar-tone-1-text: #6d28d9; /* Purple */
+  --avatar-tone-2-bg: #eef2ff; --avatar-tone-2-text: #4338ca; /* Indigo */
+  --avatar-tone-3-bg: #f0fdfa; --avatar-tone-3-text: #0f766e; /* Teal */
+  --avatar-tone-4-bg: #f0fdf4; --avatar-tone-4-text: #15803d; /* Green */
+  --avatar-tone-5-bg: #f7fee7; --avatar-tone-5-text: #4d7c0f; /* Lime */
+  --avatar-tone-6-bg: #fffbeb; --avatar-tone-6-text: #b45309; /* Amber */
+  --avatar-tone-7-bg: #fff7ed; --avatar-tone-7-text: #c2410c; /* Orange */
+  --avatar-tone-8-bg: #fef2f2; --avatar-tone-8-text: #b91c1c; /* Red */
+  --avatar-tone-9-bg: #fff1f2; --avatar-tone-9-text: #be123c; /* Rose */
+  --avatar-tone-10-bg: #fdf2f8; --avatar-tone-10-text: #be185d; /* Pink */
+  --avatar-tone-11-bg: #f3f4f6; --avatar-tone-11-text: var(--text-secondary); /* Default */
 
   /* Dimensions & Spacing */
   --sidebar-width: 240px;
@@ -88,9 +106,9 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
   
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
-  --shadow-floating: 0 20px 25px -5px rgba(0, 0, 0, 0.55), 0 8px 10px -6px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 20px rgba(15, 23, 42, 0.08);
+  --shadow-floating: 0 24px 60px rgba(15, 23, 42, 0.16);
 
   --space-1: 4px;
   --space-2: 8px;
@@ -117,7 +135,7 @@ html, body {
 body {
   background-color: var(--bg-window);
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5715;
   -webkit-font-smoothing: antialiased;
 }
@@ -128,7 +146,7 @@ button, input, select {
 }
 
 .app-shell :is(p, span, label, small, strong, button, input, select, textarea) {
-  font-size: max(15px, 0.95em) !important;
+  font-size: inherit;
 }
 
 .app-shell .acc-info span {
@@ -139,8 +157,13 @@ button, input, select {
 .app-shell {
   display: flex;
   height: 100vh;
-  padding: 16px;
-  gap: 16px;
+  padding: 0;
+  gap: 0;
+  background: var(--color-bg-app);
+}
+
+.figma-shell {
+  isolation: isolate;
 }
 
 /* Sidebar */
@@ -149,32 +172,36 @@ button, input, select {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--space-2) 0;
+  padding: 0;
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border-subtle);
 }
 
 .brand-area {
-  padding: 8px var(--space-4) 24px;
+  min-height: 72px;
+  padding: 16px var(--space-4);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
-  text-align: center;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .brand-mark {
-  width: 100px;
-  height: 100px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  background: var(--bg-main);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  /* padding: 12px; */
-  border: 1px solid var(--border-light);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  padding: 6px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
 }
 
 .brand-mark img {
@@ -188,8 +215,9 @@ button, input, select {
   font-size: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
 }
 
 .brand-text strong {
@@ -206,8 +234,8 @@ button, input, select {
 .nav-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 var(--space-3);
+  gap: 6px;
+  padding: var(--space-4) var(--space-2);
 }
 
 .nav-item {
@@ -216,7 +244,7 @@ button, input, select {
   border: none;
   width: 100%;
   text-align: left;
-  padding: 10px 16px;
+  padding: 10px 12px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -243,12 +271,12 @@ button, input, select {
 }
 
 .nav-icon {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  background: var(--bg-surface);
+  background: #f8fafc;
   font-size: 14px;
   font-weight: 600;
   border: 1px solid var(--border-strong);
@@ -267,7 +295,8 @@ button, input, select {
 
 .sidebar-foot {
   margin-top: auto;
-  padding: var(--space-4) var(--space-4);
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .sidebar-foot-card {
@@ -291,10 +320,10 @@ button, input, select {
 /* Main Content Area */
 .main-window {
   flex: 1;
-  background: var(--bg-main);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-light);
+  background: var(--color-bg-page);
+  border-radius: 0;
+  box-shadow: none;
+  border: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -303,7 +332,7 @@ button, input, select {
 
 /* Banner */
 .banner {
-  padding: 8px 16px;
+  padding: 8px 24px;
   font-size: 14px;
   font-weight: 500;
   display: flex;
@@ -338,14 +367,22 @@ button, input, select {
 
 /* Top Header / Summary */
 .console-header {
-  padding: var(--space-5) var(--space-6);
-  background: var(--bg-main);
+  padding: var(--space-6);
+  background: var(--color-bg-card);
   display: flex;
   flex-direction: column;
   gap: 14px;
   border-bottom: 1px solid var(--border-light);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  box-shadow: none;
   z-index: 5;
+}
+
+.page-header {
+  min-height: 132px;
+}
+
+.page-body {
+  scroll-padding: var(--space-6);
 }
 
 .header-main {
@@ -465,7 +502,7 @@ button, input, select {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-6);
-  background: var(--bg-window);
+  background: var(--color-bg-page);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -526,7 +563,7 @@ button, input, select {
 }
 
 .card {
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   padding: var(--space-4);
@@ -537,7 +574,8 @@ button, input, select {
 }
 
 .card:hover {
-  box-shadow: var(--shadow-sm);
+  border-color: var(--color-border-default);
+  box-shadow: var(--shadow-md);
 }
 
 /* Mini Stat Card */
@@ -591,7 +629,7 @@ button, input, select {
 .btn.primary {
   background: var(--primary-btn-bg);
   color: var(--primary-btn-text);
-  box-shadow: 0 2px 0 rgba(5, 145, 255, 0.1);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
 }
 
 .btn.primary:hover:not(:disabled) {
@@ -601,7 +639,7 @@ button, input, select {
 .btn.danger {
   background: var(--danger);
   color: #ffffff;
-  box-shadow: 0 2px 0 rgba(255, 38, 5, 0.06);
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.14);
 }
 
 .btn.danger:hover:not(:disabled) {
@@ -609,10 +647,10 @@ button, input, select {
 }
 
 .btn.secondary {
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   border-color: var(--border-strong);
   color: var(--text-primary);
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn.secondary:hover:not(:disabled) {
@@ -652,7 +690,7 @@ button, input, select {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-4);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
@@ -671,7 +709,7 @@ button, input, select {
   padding: 6px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--bg-main);
+  background: var(--color-bg-input);
   color: var(--text-primary);
   font-size: 15px;
   transition:
@@ -779,7 +817,7 @@ button, input, select {
 .badge.available, .badge.active, .badge.success { background: var(--success-bg); color: var(--success); border-color: var(--success-border); }
 .badge.expired, .badge.incomplete, .badge.warning { background: var(--warning-bg); color: var(--warning); border-color: var(--warning-border); }
 .badge.invalid, .badge.disabled, .badge.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
-.badge.neutral { background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); border-color: var(--border-strong); }
+.badge.neutral { background: #f8fafc; color: var(--text-secondary); border-color: var(--border-strong); }
 .badge.featured { background: var(--warning-bg); color: var(--warning); border-color: var(--warning-border); }
 
 .mode-card {
@@ -814,7 +852,7 @@ button, input, select {
 }
 
 .mode-card[data-status="disabled"] {
-  background: var(--bg-surface);
+  background: var(--color-bg-card);
 }
 
 .dashboard-mode-grid {
@@ -881,7 +919,7 @@ button, input, select {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   background:
-    linear-gradient(to top, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(to top, rgba(37, 99, 235, 0.08) 1px, transparent 1px) 0 0 / 100% 25%,
     var(--bg-surface);
   display: flex;
   align-items: end;
@@ -898,7 +936,7 @@ button, input, select {
 }
 
 .dashboard-token-bar[data-muted="true"] {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(148, 163, 184, 0.45);
 }
 
 .dashboard-summary-list {
@@ -1104,7 +1142,7 @@ button, input, select {
   padding: 14px 16px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
 }
 
 .account-source-card strong {
@@ -1135,7 +1173,7 @@ button, input, select {
   padding: 14px 16px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
 }
 
 .account-assets-shell-head > div {
@@ -1168,7 +1206,7 @@ button, input, select {
 .empty-state {
   padding: 60px 20px;
   text-align: center;
-  background: var(--bg-surface);
+  background: var(--color-bg-card);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-md);
   color: var(--text-tertiary);
@@ -1177,7 +1215,7 @@ button, input, select {
 
 /* Forms & Settings */
 .settings-group {
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -1187,7 +1225,7 @@ button, input, select {
 
 .settings-header {
   padding: 16px 24px;
-  background: var(--bg-surface);
+  background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--border-light);
   display: flex;
   justify-content: space-between;
@@ -1278,7 +1316,7 @@ button, input, select {
 .startup-check-card {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   padding: 20px;
   display: grid;
   gap: 16px;
@@ -1381,7 +1419,7 @@ button, input, select {
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border-strong);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 14px;
@@ -1434,7 +1472,7 @@ button, input, select {
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-light);
-  background: var(--bg-main);
+  background: var(--color-bg-card);
   justify-content: flex-start;
   gap: 12px;
   transition:
