@@ -491,8 +491,11 @@ describe("desktop build output", () => {
     expect(usageView).toContain("id=\"usage-trend-chart\"");
     expect(usageView).toContain("id=\"usage-dimension-insights\"");
     expect(usageView).toContain("id=\"usage-alert-rule-list\"");
+    expect(usageView).toContain("id=\"usage-alert-event-list\"");
+    expect(usageView).toContain("告警事件列表");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(usageView).toContain("class=\"usage-alert-rule-list\"");
+    expect(usageView).toContain("class=\"usage-alert-event-list\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
@@ -502,9 +505,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("acknowledgeAccessAlert");
     expect(rendererSource).toContain("acknowledgeAllAccessAlerts");
     expect(rendererSource).toContain("clearAcknowledgedAccessAlerts");
+    expect(rendererSource).toContain("renderUsageAlertEvents");
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
     expect(rendererSource).toContain("data-action=\"clear-acknowledged-access-alerts\"");
+    expect(rendererSource).toContain("class=\"usage-alert-event-card");
     expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("occurrenceCount");
     expect(rendererSource).toContain("lastSeenAt");
@@ -535,6 +540,8 @@ describe("desktop build output", () => {
     expect(styles).toContain("justify-self: end;");
     expect(styles).toContain(".usage-dimension-grid {");
     expect(styles).toContain(".usage-alert-rule-list {");
+    expect(styles).toContain(".usage-alert-event-list {");
+    expect(styles).toContain(".usage-alert-event-card {");
   });
 
   it(

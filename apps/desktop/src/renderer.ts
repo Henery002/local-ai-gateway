@@ -3060,6 +3060,7 @@ function renderUsageWorkbench(): void {
   renderUsageTrendChart(summary);
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
+  renderUsageAlertEvents();
 }
 
 function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
@@ -3469,6 +3470,77 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
           <span>${escapeHtml(rule.detail)}</span>
           <em class="badge ${escapeHtml(rule.tone)}">${escapeHtml(rule.status)}</em>
           ${actionMarkup || secondaryActionMarkup || cleanupActionMarkup ? `<div class="usage-alert-actions">${actionMarkup}${secondaryActionMarkup}${cleanupActionMarkup}</div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function formatAccessAlertSeverityLabel(severity: AccessAlertEvent["severity"]): string {
+  if (severity === "critical") {
+    return "严重";
+  }
+  if (severity === "warning") {
+    return "警告";
+  }
+  return "提示";
+}
+
+function accessAlertSeverityTone(severity: AccessAlertEvent["severity"]): string {
+  if (severity === "critical") {
+    return "danger";
+  }
+  if (severity === "warning") {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function renderUsageAlertEvents(): void {
+  const node = document.getElementById("usage-alert-event-list");
+  if (!node) {
+    return;
+  }
+
+  const events = state.accessAlerts ?? [];
+  if (!events.length) {
+    node.innerHTML = "<div class='empty-card'>暂无正式访问告警事件。</div>";
+    return;
+  }
+
+  node.innerHTML = events
+    .map((event) => {
+      const isAcknowledged = Boolean(event.acknowledgedAt);
+      const occurrenceCount = event.occurrenceCount ?? 1;
+      const lastSeenAt = event.lastSeenAt ?? event.timestamp;
+      const meta = [
+        event.consumerId ? `成员 ${event.consumerId}` : undefined,
+        event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
+        `首次 ${formatDate(event.timestamp)}`,
+        occurrenceCount > 1
+          ? `重复 ${formatCompactCount(occurrenceCount)} 次，最近 ${formatDate(lastSeenAt)}`
+          : undefined,
+      ].filter(Boolean);
+      const ackText = isAcknowledged
+        ? `已确认 · ${formatDate(event.acknowledgedAt)}${event.acknowledgedBy ? ` · ${event.acknowledgedBy}` : ""}`
+        : "未确认";
+      const ackAction =
+        event.id && !isAcknowledged
+          ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(event.id))}">确认</button>`
+          : "";
+
+      return `
+        <div class="usage-alert-event-card ${isAcknowledged ? "acknowledged" : "unacknowledged"}">
+          <div class="usage-alert-event-main">
+            <div class="usage-alert-event-title">
+              <strong>${escapeHtml(event.type)}</strong>
+              <span class="badge ${escapeHtml(accessAlertSeverityTone(event.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(event.severity))}</span>
+              <span class="badge ${isAcknowledged ? "active" : "warning"}">${escapeHtml(ackText)}</span>
+            </div>
+            <p>${escapeHtml(event.message)}</p>
+            <span>${escapeHtml(meta.join(" · "))}</span>
+          </div>
+          <div class="usage-alert-actions">${ackAction}</div>
         </div>
       `;
     })

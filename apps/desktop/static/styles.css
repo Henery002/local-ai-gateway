@@ -2220,6 +2220,71 @@ button, input, select {
   gap: 6px;
 }
 
+.usage-alert-event-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-alert-event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.usage-alert-event-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+}
+
+.usage-alert-event-card.unacknowledged {
+  border-color: var(--warning-border);
+}
+
+.usage-alert-event-card.acknowledged {
+  opacity: 0.78;
+}
+
+.usage-alert-event-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.usage-alert-event-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.usage-alert-event-title strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.usage-alert-event-card p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.usage-alert-event-card span:not(.badge) {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
