@@ -2465,6 +2465,23 @@ function parseAccessModelAliasesInput(selector: string): string[] {
   );
 }
 
+function parseAccessTagsInput(selector: string): string[] {
+  const value =
+    (document.querySelector(selector) as HTMLInputElement | null)?.value.trim() ??
+    "";
+  if (!value) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,，]+/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+}
+
 function formatAccessPolicyTokenLimit(value?: number): string {
   return typeof value === "number" && value > 0
     ? `${formatCompactCount(value)} Token`
@@ -2648,8 +2665,8 @@ function renderAccessMemberDrawer(
         <div class="empty-card">${consumers.length > 0 ? "点击成员行右侧“查看”进入详情。" : "当前暂无访问成员。"}</div>
       </div>
       <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
-        <strong>轮换后一次性 API Key</strong>
-        <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+        <strong id="access-one-time-key-title">一次性 API Key</strong>
+        <p>此明文只在本次创建或轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
         <div class="secret-field-stack">
           <div class="secret-inline-row">
             <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
@@ -2770,6 +2787,61 @@ function renderAccessMemberDrawer(
     <div class="access-policy-panel mt-3">
       <div class="access-policy-panel-head">
         <div>
+          <strong>成员基础信息</strong>
+          <span>编辑成员名称、clientTag、备注和标签；这些字段只保存在本项目访问控制配置中。</span>
+        </div>
+        <button
+          class="btn secondary mini"
+          type="button"
+          data-access-consumer-save="${escapeHtml(selectedConsumer.id)}"
+        >保存成员信息</button>
+      </div>
+      <div class="pool-config-form-grid access-policy-edit-grid">
+        <div class="form-field">
+          <label>成员名称</label>
+          <input
+            class="input-field"
+            type="text"
+            data-access-consumer-name="${escapeHtml(selectedConsumer.id)}"
+            value="${escapeHtml(selectedConsumer.name)}"
+            placeholder="例如 Alice"
+          />
+        </div>
+        <div class="form-field">
+          <label>clientTag</label>
+          <input
+            class="input-field"
+            type="text"
+            data-access-consumer-client-tag="${escapeHtml(selectedConsumer.id)}"
+            value="${escapeHtml(selectedConsumer.clientTag)}"
+            placeholder="例如 alice"
+          />
+        </div>
+        <div class="form-field full">
+          <label>备注</label>
+          <input
+            class="input-field"
+            type="text"
+            data-access-consumer-note="${escapeHtml(selectedConsumer.id)}"
+            value="${escapeHtml(selectedConsumer.note ?? "")}"
+            placeholder="例如 Alice MacBook / 内部测试"
+          />
+        </div>
+        <div class="form-field full">
+          <label>标签</label>
+          <input
+            class="input-field"
+            type="text"
+            data-access-consumer-tags="${escapeHtml(selectedConsumer.id)}"
+            value="${escapeHtml((selectedConsumer.tags ?? []).join(", "))}"
+            placeholder="逗号分隔，例如 lan, qa"
+          />
+        </div>
+      </div>
+    </div>
+    <div class="access-policy-panel mt-3">
+      <div class="access-policy-panel-head">
+        <div>
           <strong>访问策略编辑</strong>
           <span>配置成员可用模型、日限额、QPS、并发和允许号池；保存后立即进入推理面前置拦截。</span>
         </div>
@@ -2790,6 +2862,30 @@ function renderAccessMemberDrawer(
             step="1"
             data-access-policy-daily-token-limit="${escapeHtml(selectedConsumer.id)}"
             value="${typeof policy?.quota?.dailyTokenLimit === "number" ? String(policy.quota.dailyTokenLimit) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
+          <label>月 Token 限额</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-monthly-token-limit="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.quota?.monthlyTokenLimit === "number" ? String(policy.quota.monthlyTokenLimit) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
+          <label>总 Token 限额</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-total-token-limit="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.quota?.totalTokenLimit === "number" ? String(policy.quota.totalTokenLimit) : ""}"
             placeholder="留空表示不限制"
           />
         </div>
@@ -2817,6 +2913,16 @@ function renderAccessMemberDrawer(
             placeholder="留空表示不限制"
           />
         </div>
+        <div class="form-field">
+          <label>策略到期时间</label>
+          <input
+            class="input-field"
+            type="datetime-local"
+            data-access-policy-expires-at="${escapeHtml(selectedConsumer.id)}"
+            value="${escapeHtml(formatAccessDateTimeLocalValue(policy?.expiresAt))}"
+            aria-label="策略到期时间"
+          />
+        </div>
         <div class="form-field full">
           <label>允许模型别名</label>
           <textarea
@@ -2831,12 +2937,45 @@ function renderAccessMemberDrawer(
         ${poolPolicyRows}
       </div>
     </div>
+    <div class="access-policy-panel mt-3">
+      <div class="access-policy-panel-head">
+        <div>
+          <strong>新增成员 Key</strong>
+          <span>为同一成员新增独立 Key，适合多设备或临时接入；明文只在创建后展示一次。</span>
+        </div>
+        <button
+          class="btn secondary mini"
+          type="button"
+          data-access-key-create="${escapeHtml(selectedConsumer.id)}"
+        >创建 Key</button>
+      </div>
+      <div class="pool-config-form-grid access-policy-edit-grid">
+        <div class="form-field">
+          <label>Key 名称</label>
+          <input
+            class="input-field"
+            type="text"
+            data-access-new-key-name="${escapeHtml(selectedConsumer.id)}"
+            placeholder="例如 Alice iPad / CI 测试"
+          />
+        </div>
+        <div class="form-field">
+          <label>Key 到期时间</label>
+          <input
+            class="input-field"
+            type="datetime-local"
+            data-access-new-key-expires-at="${escapeHtml(selectedConsumer.id)}"
+            aria-label="新增 Key 到期时间"
+          />
+        </div>
+      </div>
+    </div>
     <div id="access-member-detail-keys" class="access-key-list mt-3">
       ${keyRows}
     </div>
     <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
-      <strong>轮换后一次性 API Key</strong>
-      <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+      <strong id="access-one-time-key-title">一次性 API Key</strong>
+      <p>此明文只在本次创建或轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
       <div class="secret-field-stack">
         <div class="secret-inline-row">
           <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
@@ -8919,11 +9058,15 @@ function getAccessKeyExpiryInput(keyId: string): HTMLInputElement | undefined {
   ).find((input) => input.dataset.accessKeyExpiry === keyId);
 }
 
-function showRotatedAccessKey(apiKey: string): void {
+function showOneTimeAccessKey(apiKey: string, title: string): void {
   const result = document.getElementById("access-rotated-key-result");
+  const titleNode = document.getElementById("access-one-time-key-title");
   const input = document.getElementById(
     "access-rotated-one-time-key",
   ) as HTMLInputElement | null;
+  if (titleNode) {
+    titleNode.textContent = title;
+  }
   if (input) {
     input.value = apiKey;
   }
@@ -9063,6 +9206,91 @@ async function createAccessMember(): Promise<void> {
   setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
 }
 
+async function saveAccessConsumerBasics(consumerId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const consumer = nextAccessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!consumer) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+
+  const name =
+    (
+      document.querySelector(
+        `[data-access-consumer-name="${consumerId}"]`,
+      ) as HTMLInputElement | null
+    )?.value.trim() ?? "";
+  const rawClientTag =
+    (
+      document.querySelector(
+        `[data-access-consumer-client-tag="${consumerId}"]`,
+      ) as HTMLInputElement | null
+    )?.value.trim() ?? "";
+  const note =
+    (
+      document.querySelector(
+        `[data-access-consumer-note="${consumerId}"]`,
+      ) as HTMLInputElement | null
+    )?.value.trim() || undefined;
+  if (!name) {
+    setBanner("请先填写成员名称。", "error");
+    return;
+  }
+
+  consumer.name = name;
+  consumer.clientTag = normalizeAccessSlug(rawClientTag || name, "member");
+  consumer.note = note;
+  consumer.tags = parseAccessTagsInput(
+    `[data-access-consumer-tags="${consumerId}"]`,
+  );
+  consumer.updatedAt = new Date().toISOString();
+
+  await saveAccessControlSettings(nextAccessControl);
+  setBanner("访问成员基础信息已保存。", "success");
+}
+
+async function createAccessKeyForConsumer(consumerId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const consumer = nextAccessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!consumer) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+
+  const keyNameInput = document.querySelector(
+    `[data-access-new-key-name="${consumerId}"]`,
+  ) as HTMLInputElement | null;
+  const expiresAtInput = document.querySelector(
+    `[data-access-new-key-expires-at="${consumerId}"]`,
+  ) as HTMLInputElement | null;
+  const seed = consumer.clientTag || consumer.name || "member";
+  const now = new Date().toISOString();
+  const apiKey = generateApiKey(seed);
+
+  nextAccessControl.keys.push({
+    id: createAccessEntityId("key", seed),
+    consumerId,
+    name: keyNameInput?.value.trim() || `${consumer.name} 新 Key`,
+    keyPrefix: apiKey.slice(0, 8),
+    keySuffix: apiKey.slice(-4),
+    status: "enabled",
+    createdAt: now,
+    expiresAt: parseAccessDateTimeLocalValue(expiresAtInput?.value ?? ""),
+    hasKey: true,
+    apiKey,
+  });
+
+  await saveAccessControlSettings(nextAccessControl);
+  showOneTimeAccessKey(apiKey, "新增后一次性 API Key");
+  setBanner("访问 Key 已创建。请立即复制一次性 API Key。", "success");
+}
+
 async function toggleAccessKeyStatus(keyId: string): Promise<void> {
   const current = getSecuritySettingsWithDefaults();
   const nextAccessControl = cloneAccessControlForSave(current.accessControl);
@@ -9143,6 +9371,14 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
     `[data-access-policy-daily-token-limit="${consumerId}"]`,
     "日 Token 限额",
   );
+  const monthlyTokenLimit = parseAccessPositiveIntegerInput(
+    `[data-access-policy-monthly-token-limit="${consumerId}"]`,
+    "月 Token 限额",
+  );
+  const totalTokenLimit = parseAccessPositiveIntegerInput(
+    `[data-access-policy-total-token-limit="${consumerId}"]`,
+    "总 Token 限额",
+  );
   const requestsPerMinute = parseAccessPositiveIntegerInput(
     `[data-access-policy-requests-per-minute="${consumerId}"]`,
     "每分钟请求数",
@@ -9161,6 +9397,16 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
   } else {
     delete quota.dailyTokenLimit;
   }
+  if (typeof monthlyTokenLimit === "number") {
+    quota.monthlyTokenLimit = monthlyTokenLimit;
+  } else {
+    delete quota.monthlyTokenLimit;
+  }
+  if (typeof totalTokenLimit === "number") {
+    quota.totalTokenLimit = totalTokenLimit;
+  } else {
+    delete quota.totalTokenLimit;
+  }
   policy.quota = Object.keys(quota).length > 0 ? quota : undefined;
 
   const limits = { ...(policy.limits ?? {}) };
@@ -9175,6 +9421,18 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
     delete limits.maxConcurrentRequests;
   }
   policy.limits = Object.keys(limits).length > 0 ? limits : undefined;
+  const expiresAt = parseAccessDateTimeLocalValue(
+    (
+      document.querySelector(
+        `[data-access-policy-expires-at="${consumerId}"]`,
+      ) as HTMLInputElement | null
+    )?.value ?? "",
+  );
+  if (expiresAt) {
+    policy.expiresAt = expiresAt;
+  } else {
+    delete policy.expiresAt;
+  }
 
   await saveAccessControlSettings(nextAccessControl);
   setBanner("访问成员策略已保存。", "success");
@@ -9214,7 +9472,7 @@ async function rotateAccessKey(keyId: string): Promise<void> {
   key.rotatedAt = new Date().toISOString();
 
   await saveAccessControlSettings(nextAccessControl);
-  showRotatedAccessKey(apiKey);
+  showOneTimeAccessKey(apiKey, "轮换后一次性 API Key");
   setBanner("访问 Key 已轮换。请立即复制一次性 API Key。", "success");
 }
 
@@ -9499,6 +9757,23 @@ function bindActions(): void {
       return;
     }
 
+    const consumerSaveTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-consumer-save]",
+    );
+    if (consumerSaveTrigger?.dataset.accessConsumerSave) {
+      try {
+        setButtonLoading(consumerSaveTrigger, true, "保存中");
+        await saveAccessConsumerBasics(
+          consumerSaveTrigger.dataset.accessConsumerSave,
+        );
+      } catch (error) {
+        setBanner(`保存访问成员基础信息失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(consumerSaveTrigger, false);
+      }
+      return;
+    }
+
     const keyToggleTrigger = target.closest<HTMLButtonElement>(
       "[data-access-key-toggle]",
     );
@@ -9546,6 +9821,21 @@ function bindActions(): void {
       return;
     }
 
+    const keyCreateTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-key-create]",
+    );
+    if (keyCreateTrigger?.dataset.accessKeyCreate) {
+      try {
+        setButtonLoading(keyCreateTrigger, true, "创建中");
+        await createAccessKeyForConsumer(keyCreateTrigger.dataset.accessKeyCreate);
+      } catch (error) {
+        setBanner(`创建访问 Key 失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(keyCreateTrigger, false);
+      }
+      return;
+    }
+
     const keyRotateTrigger = target.closest<HTMLButtonElement>(
       "[data-access-key-rotate]",
     );
@@ -9572,14 +9862,14 @@ function bindActions(): void {
           ) as HTMLInputElement | null
         )?.value.trim() ?? "";
       if (!value) {
-        setBanner("当前没有可复制的轮换 API Key。", "info");
+        setBanner("当前没有可复制的一次性 API Key。", "info");
         return;
       }
       try {
         await copyTextWithFallback(value);
-        setBanner("轮换 API Key 已复制。", "success");
+        setBanner("一次性 API Key 已复制。", "success");
       } catch (error) {
-        setBanner(`复制轮换 API Key 失败：${String(error)}`, "error");
+        setBanner(`复制一次性 API Key 失败：${String(error)}`, "error");
       }
       return;
     }
