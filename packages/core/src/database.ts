@@ -1515,6 +1515,48 @@ export class GatewayDatabase {
       .run();
   }
 
+  pruneAccessAlertEvents(options: { maxRows?: number; retainDays?: number } = {}): void {
+    const maxRows = Math.max(1, options.maxRows ?? 50_000);
+    const retainDays = Math.max(1, options.retainDays ?? 90);
+    const minTimestamp = Date.now() - retainDays * 24 * 60 * 60 * 1000;
+
+    this.db
+      .prepare(
+        `
+          DELETE FROM access_alert_events
+          WHERE timestamp < ?
+        `,
+      )
+      .run(minTimestamp);
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT COUNT(1) AS count
+          FROM access_alert_events
+        `,
+      )
+      .get() as { count?: number } | undefined;
+    const count = typeof row?.count === "number" ? row.count : 0;
+    if (count <= maxRows) {
+      return;
+    }
+
+    this.db
+      .prepare(
+        `
+          DELETE FROM access_alert_events
+          WHERE id IN (
+            SELECT id
+            FROM access_alert_events
+            ORDER BY id ASC
+            LIMIT ?
+          )
+        `,
+      )
+      .run(count - maxRows);
+  }
+
   pruneSessionActivityEvents(options: { maxRows?: number; retainDays?: number } = {}): void {
     const maxRows = Math.max(500, options.maxRows ?? 50_000);
     const retainDays = Math.max(1, options.retainDays ?? 30);

@@ -2414,6 +2414,45 @@ describe("gateway app", () => {
     }
   });
 
+  it("prunes persisted access alert events by row count", async () => {
+    const { rootDir, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+
+    try {
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 3_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "oldest",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 2_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_rate_limit_exceeded",
+        message: "middle",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 1_000,
+        severity: "warning",
+        consumerId: "consumer-bob",
+        accessKeyId: "key-bob",
+        type: "access_policy_pool_denied",
+        message: "latest",
+      });
+
+      database.pruneAccessAlertEvents({ maxRows: 2 });
+
+      expect(database.getRecentAccessAlertEvents(10).map((event) => event.message))
+        .toEqual(["latest", "middle"]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("returns streaming SSE and tool calls", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);

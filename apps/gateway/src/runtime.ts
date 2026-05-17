@@ -115,6 +115,7 @@ export class GatewayRuntime {
   private routingHitInsertCount = 0;
   private poolSelectionInsertCount = 0;
   private usageEventInsertCount = 0;
+  private accessAlertInsertCount = 0;
   private inferenceRequestSequence = 0;
   private lastInferenceFinishedAt?: number;
   private readonly clientCircuitState = new Map<string, ClientCircuitState>();
@@ -296,6 +297,13 @@ export class GatewayRuntime {
 
   recordAccessAlertEvent(event: GatewayAccessAlertEvent): void {
     this.database.insertAccessAlertEvent(event);
+    this.accessAlertInsertCount += 1;
+    if (this.accessAlertInsertCount % 100 === 0) {
+      this.database.pruneAccessAlertEvents({
+        maxRows: 50_000,
+        retainDays: 90,
+      });
+    }
   }
 
   getActiveSessionId(): string | undefined {
