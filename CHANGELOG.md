@@ -20,6 +20,8 @@
 - 启动 P1-C 号池授权执行层第一段：访问成员配置 `allowedPoolIds` 后，策略路由命中的动态号池必须在授权列表内，否则推理面返回 `403 access_policy_pool_denied`，并在进入上游调用前停止请求。
 - 访问成员详情新增“允许号池”配置第一段：可在桌面端勾选当前号池并保存到该成员 `allowedPoolIds`，用于配合后端动态号池授权拒绝能力。
 - 新增 gateway 回归测试，覆盖访问成员被路由到未授权动态号池时的拒绝行为。
+- 补齐 P1-C LAN 号池可见性执行层第一段：`lan-member` 被策略路由到 `private` 或非 `shared-lan` 动态号池时，即使 `allowedPoolIds` 误配置包含该号池，也会返回 `403 access_policy_pool_visibility_denied` 并在进入上游调用前停止请求。
+- 新增 gateway 回归测试，覆盖 LAN 成员访问 private 动态号池被拒绝，以及访问已授权 `shared-lan` 动态号池可正常通过。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
 - 访问成员配置 `limits.maxConcurrentRequests` 后，网关会按成员维度统计进行中的推理请求，达到并发上限时返回 `429 access_policy_concurrency_exceeded`；运行态 in-flight 记录同步补充 `consumerId / accessKeyId`。
@@ -36,6 +38,7 @@
 - 推进 UI/UX Phase 10 响应式与密度精修：统一 Figma table 单元格换行与行高，优化访问成员表最小列宽，补齐策略摘要、用量告警、号池卡片在窄窗口下的折叠形态。
 - 推进 UI/UX Phase 11 抽屉与密钥区精修：一次性 API key 输入行改为自适应宽度，成员 key 卡片、策略面板和号池卡片标题补齐长文本换行与窄窗口纵向排列。
 - 推进 UI/UX Phase 12 全局弹窗精修：账号导入、确认、号池事件和用量明细弹窗统一最大高度、滚动体、移动端内边距、页签横向滚动和底部按钮折叠规则。
+- UI/UX Phase 1-12 标记为阶段性暂停，后续 UI 精修改为跟随功能闭环、真实数据态和 Electron 真实窗口验收推进。
 - 新增桌面构建回归测试，防止用量页真实统计容器、趋势渲染函数、AccessPolicy 摘要字段和响应式密度规则从桌面端脱落。
 
 ## [2026-05-17 01:55 CST]

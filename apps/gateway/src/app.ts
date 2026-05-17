@@ -198,6 +198,7 @@ type AccessControlInput = Partial<GatewayAccessControlSettings> & {
 type AccessCredentialContext = {
   consumerId: string;
   consumerName: string;
+  consumerType: GatewayAccessConsumer["type"];
   accessKeyId: string;
   clientTag: string;
   policy?: GatewayAccessPolicy;
@@ -430,6 +431,7 @@ function resolveAccessCredential(
   return {
     consumerId: consumer.id,
     consumerName: consumer.name,
+    consumerType: consumer.type,
     accessKeyId: accessKey.id,
     clientTag: consumer.clientTag,
     policy: accessControl?.policies?.find(
@@ -599,6 +601,7 @@ function assertAccessPolicyWithinRequestLimits(
 function assertAccessPolicyAllowsPool(
   accessContext: AccessCredentialContext | undefined,
   poolId: string | undefined,
+  poolSettings: GatewaySessionPoolSettings,
 ): void {
   const normalizedPoolId = poolId?.trim();
   if (!normalizedPoolId) {
@@ -606,23 +609,39 @@ function assertAccessPolicyAllowsPool(
   }
 
   const allowedPoolIds = accessContext?.policy?.allowedPoolIds;
-  if (!allowedPoolIds?.length) {
-    return;
-  }
-  if (allowedPoolIds.includes(normalizedPoolId)) {
-    return;
+  if (allowedPoolIds?.length && !allowedPoolIds.includes(normalizedPoolId)) {
+    throw new GatewayError(
+      403,
+      "access_policy_pool_denied",
+      "Requested pool is not allowed for this access consumer.",
+      {
+        consumerId: accessContext?.consumerId,
+        accessKeyId: accessContext?.accessKeyId,
+        poolId: normalizedPoolId,
+      },
+    );
   }
 
-  throw new GatewayError(
-    403,
-    "access_policy_pool_denied",
-    "Requested pool is not allowed for this access consumer.",
-    {
-      consumerId: accessContext?.consumerId,
-      accessKeyId: accessContext?.accessKeyId,
-      poolId: normalizedPoolId,
-    },
+  const poolVisibility = normalizePoolVisibility(
+    poolSettings.pools?.find((pool) => pool.id === normalizedPoolId)
+      ?.visibility,
   );
+  if (
+    accessContext?.consumerType === "lan-member" &&
+    poolVisibility !== "shared-lan"
+  ) {
+    throw new GatewayError(
+      403,
+      "access_policy_pool_visibility_denied",
+      "Requested pool visibility is not available for this access consumer.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        poolId: normalizedPoolId,
+        visibility: poolVisibility,
+      },
+    );
+  }
 }
 
 function normalizeInferenceClientMappings(
@@ -1009,7 +1028,11 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         : undefined;
     const dispatchMode = runtime.getEffectiveDispatchMode(matchedRule?.target);
     const targetPoolId = matchedRule?.target?.poolId?.trim();
-    assertAccessPolicyAllowsPool(authContext.accessContext, targetPoolId);
+    assertAccessPolicyAllowsPool(
+      authContext.accessContext,
+      targetPoolId,
+      runtime.getPoolSettings(),
+    );
     const poolAttemptLimit = resolvePoolAttemptLimit(
       runtime.getPoolSettings(),
       targetPoolId,

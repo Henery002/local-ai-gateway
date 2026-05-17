@@ -3105,6 +3105,207 @@ describe("gateway app", () => {
     }
   });
 
+  it("rejects LAN access consumers routed to a private dynamic pool", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-private",
+          name: "Private Pool",
+          enabled: true,
+          visibility: "private",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-alice-private-pool",
+          name: "Alice private pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "alice",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-private",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-private"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe(
+        "access_policy_pool_visibility_denied",
+      );
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        poolId: "pool-private",
+        visibility: "private",
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("allows LAN access consumers routed to an authorized shared-lan dynamic pool", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-shared",
+          name: "Shared Pool",
+          enabled: true,
+          visibility: "shared-lan",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-alice-shared-pool",
+          name: "Alice shared pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "alice",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-shared",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-shared"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.lastOptions?.sessionId).toBe("main:fake:default");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects paused, expired, and policy-disallowed access keys", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
