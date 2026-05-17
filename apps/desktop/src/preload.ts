@@ -10,6 +10,8 @@ const api = {
     ipcRenderer.invoke("gateway:acknowledge-access-alert", id),
   acknowledgeAllAccessAlerts: () =>
     ipcRenderer.invoke("gateway:acknowledge-all-access-alerts"),
+  clearAcknowledgedAccessAlerts: () =>
+    ipcRenderer.invoke("gateway:clear-acknowledged-access-alerts"),
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),

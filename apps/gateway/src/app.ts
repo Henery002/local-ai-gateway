@@ -1830,6 +1830,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.post("/admin/access/alerts/clear-acknowledged", async (request) => {
+    requireAdminAuth(runtime, request);
+    return {
+      ok: true,
+      data: runtime.database.deleteAcknowledgedAccessAlertEvents(),
+    };
+  });
+
   app.post("/admin/access/alerts/:id/acknowledge", async (request) => {
     requireAdminAuth(runtime, request);
     const rawId = (request.params as { id?: string } | undefined)?.id;

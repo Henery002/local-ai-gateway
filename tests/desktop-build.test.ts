@@ -490,8 +490,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("acknowledgeAccessAlert");
     expect(rendererSource).toContain("acknowledgeAllAccessAlerts");
+    expect(rendererSource).toContain("clearAcknowledgedAccessAlerts");
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
+    expect(rendererSource).toContain("data-action=\"clear-acknowledged-access-alerts\"");
     expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("occurrenceCount");
     expect(rendererSource).toContain("lastSeenAt");
@@ -506,9 +508,12 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("class=\"usage-insight-card\"");
     expect(preloadSource).toContain("acknowledgeAccessAlert");
     expect(preloadSource).toContain("acknowledgeAllAccessAlerts");
+    expect(preloadSource).toContain("clearAcknowledgedAccessAlerts");
     expect(mainSource).toContain("gateway:acknowledge-access-alert");
     expect(mainSource).toContain("gateway:acknowledge-all-access-alerts");
+    expect(mainSource).toContain("gateway:clear-acknowledged-access-alerts");
     expect(mainSource).toContain("/admin/access/alerts/acknowledge-all");
+    expect(mainSource).toContain("/admin/access/alerts/clear-acknowledged");
     expect(mainSource).toContain("/admin/access/alerts/");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");

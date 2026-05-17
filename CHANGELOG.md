@@ -9,6 +9,17 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-17 17:12 CST]
+
+### 新增
+
+- 新增正式访问告警已确认事件清理：管理端新增 `POST /admin/access/alerts/clear-acknowledged`，只删除本项目本地 SQLite `access_alert_events` 中 `acknowledged_at IS NOT NULL` 的告警事件；桌面端“用量与告警”在存在已确认告警时展示“清理已确认”入口，并刷新告警摘要。
+- 新增 gateway 与桌面构建回归测试，覆盖清理已确认告警不会删除未确认告警、桌面 API / IPC / UI action 接线完整。
+
+### 边界
+
+- 已确认告警清理不会清空 Token 用量、不会删除未确认告警、不会修改账号、号池、API key，也不会读取或改写 Cockpit / OpenClaw 原始配置和外部导入账号 token。
+
 ## [2026-05-17 04:53 CST]
 
 ### 新增

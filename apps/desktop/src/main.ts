@@ -1739,6 +1739,13 @@ ipcMain.handle("gateway:acknowledge-all-access-alerts", async () => {
   });
 });
 
+ipcMain.handle("gateway:clear-acknowledged-access-alerts", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/access/alerts/clear-acknowledged", {
+    method: "POST",
+  });
+});
+
 ipcMain.handle("gateway:get-provider-settings", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/providers");

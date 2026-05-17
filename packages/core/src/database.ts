@@ -5,6 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 
 import {
   GatewayAccessAlertAcknowledgeAllResult,
+  GatewayAccessAlertClearAcknowledgedResult,
   GatewayAccessAlertEvent,
   GatewayLogRecord,
   GatewayPaths,
@@ -641,6 +642,21 @@ export class GatewayDatabase {
       updatedCount: result.changes,
       acknowledgedAt,
       acknowledgedBy,
+    };
+  }
+
+  deleteAcknowledgedAccessAlertEvents(): GatewayAccessAlertClearAcknowledgedResult {
+    const result = this.db
+      .prepare(
+        `
+          DELETE FROM access_alert_events
+          WHERE acknowledged_at IS NOT NULL
+        `,
+      )
+      .run();
+
+    return {
+      deletedCount: result.changes,
     };
   }
 

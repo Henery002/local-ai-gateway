@@ -56,6 +56,7 @@ declare global {
         id: number,
       ) => Promise<{ ok: boolean; data: AccessAlertEvent }>;
       acknowledgeAllAccessAlerts: () => Promise<AccessAlertAcknowledgeAllResponse>;
+      clearAcknowledgedAccessAlerts: () => Promise<AccessAlertClearAcknowledgedResponse>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -297,6 +298,13 @@ type AccessAlertAcknowledgeAllResponse = {
     updatedCount: number;
     acknowledgedAt: number;
     acknowledgedBy: string;
+  };
+};
+
+type AccessAlertClearAcknowledgedResponse = {
+  ok: boolean;
+  data: {
+    deletedCount: number;
   };
 };
 
@@ -3346,6 +3354,9 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   const unacknowledgedAccessAlerts = recentAccessAlertEvents.filter(
     (event) => !event.acknowledgedAt,
   );
+  const acknowledgedAccessAlerts = recentAccessAlertEvents.filter(
+    (event) => event.acknowledgedAt,
+  );
   const latestAccessAlert =
     unacknowledgedAccessAlerts[0] ?? recentAccessAlertEvents[0];
   const latestAccessAlertOccurrenceNote =
@@ -3362,6 +3373,8 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     eventId?: number;
     secondaryAction?: string;
     secondaryActionLabel?: string;
+    cleanupAction?: string;
+    cleanupActionLabel?: string;
   };
   const accessAlertEventRule = latestAccessAlert
     ? {
@@ -3390,6 +3403,11 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
             ? "ack-all-access-alerts"
             : undefined,
         secondaryActionLabel: "全部确认",
+        cleanupAction:
+          acknowledgedAccessAlerts.length > 0
+            ? "clear-acknowledged-access-alerts"
+            : undefined,
+        cleanupActionLabel: `清理已确认 ${formatCompactCount(acknowledgedAccessAlerts.length)}`,
       }
     : {
         title: "正式告警事件",
@@ -3439,12 +3457,16 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
         rule.secondaryAction === "ack-all-access-alerts"
           ? `<button class="btn secondary mini" data-action="ack-all-access-alerts">${escapeHtml(rule.secondaryActionLabel ?? "全部处理")}</button>`
           : "";
+      const cleanupActionMarkup =
+        rule.cleanupAction === "clear-acknowledged-access-alerts"
+          ? `<button class="btn secondary mini" data-action="clear-acknowledged-access-alerts">${escapeHtml(rule.cleanupActionLabel ?? "清理已确认")}</button>`
+          : "";
       return `
         <div class="usage-alert-rule">
           <strong>${escapeHtml(rule.title)}</strong>
           <span>${escapeHtml(rule.detail)}</span>
           <em class="badge ${escapeHtml(rule.tone)}">${escapeHtml(rule.status)}</em>
-          ${actionMarkup || secondaryActionMarkup ? `<div class="usage-alert-actions">${actionMarkup}${secondaryActionMarkup}</div>` : ""}
+          ${actionMarkup || secondaryActionMarkup || cleanupActionMarkup ? `<div class="usage-alert-actions">${actionMarkup}${secondaryActionMarkup}${cleanupActionMarkup}</div>` : ""}
         </div>
       `;
     })
@@ -9324,6 +9346,25 @@ function bindActions(): void {
         );
       } catch (error) {
         setBanner(`批量确认告警失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "clear-acknowledged-access-alerts") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "清理中");
+        const result = await getGatewayApi().clearAcknowledgedAccessAlerts();
+        await refreshUsageSummaryOnly();
+        setBanner(
+          result.data.deletedCount > 0
+            ? `已清理 ${formatCompactCount(result.data.deletedCount)} 条已确认告警事件。`
+            : "当前没有已确认告警事件可清理。",
+          "success",
+        );
+      } catch (error) {
+        setBanner(`清理已确认告警失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button as HTMLButtonElement, false);
       }

@@ -616,6 +616,10 @@ export interface GatewayAccessAlertAcknowledgeAllResult {
   acknowledgedBy: string;
 }
 
+export interface GatewayAccessAlertClearAcknowledgedResult {
+  deletedCount: number;
+}
+
 export interface GatewayAccessAlertList {
   events: GatewayAccessAlertEvent[];
 }

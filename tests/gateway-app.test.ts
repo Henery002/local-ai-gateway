@@ -2589,6 +2589,71 @@ describe("gateway app", () => {
     }
   });
 
+  it("clears only acknowledged access alert events by admin endpoint", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 3_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "acknowledged quota warning",
+        acknowledgedAt: 1_700_000_000_000,
+        acknowledgedBy: "desktop-admin",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 2_000,
+        severity: "critical",
+        consumerId: "consumer-bob",
+        accessKeyId: "key-bob",
+        type: "access_policy_concurrency_exceeded",
+        message: "unacknowledged concurrency warning",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 1_000,
+        severity: "warning",
+        consumerId: "consumer-cora",
+        accessKeyId: "key-cora",
+        type: "access_policy_pool_denied",
+        message: "acknowledged pool warning",
+        acknowledgedAt: 1_700_000_001_000,
+        acknowledgedBy: "desktop-admin",
+      });
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/access/alerts/clear-acknowledged",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          deletedCount: 2,
+        },
+      });
+
+      const alerts = database.getRecentAccessAlertEvents(5);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toMatchObject({
+        message: "unacknowledged concurrency warning",
+        acknowledgedAt: undefined,
+        acknowledgedBy: undefined,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("deduplicates repeated unacknowledged access alert events", async () => {
     const { rootDir, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
