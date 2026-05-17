@@ -432,10 +432,14 @@ describe("desktop build output", () => {
     expect(systemView).toContain("id=\"provider-diagnostics\"");
     expect(systemView).toContain("id=\"recent-errors\"");
     expect(systemView).toContain("id=\"lan-access-template\"");
+    expect(systemView).toContain("id=\"runtime-troubleshooting-guide\"");
     expect(rendererSource).toContain("diagnostic-card detail-drawer-panel");
     expect(rendererSource).toContain("diagnostic-card-header");
     expect(rendererSource).toContain("diagnostic-fact-grid");
     expect(rendererSource).toContain("renderLanAccessTemplate");
+    expect(rendererSource).toContain("renderRuntimeTroubleshootingGuide");
+    expect(rendererSource).toContain("LAN 成员设备访问不通");
+    expect(rendererSource).toContain("401 / 403 鉴权失败");
     expect(rendererSource).toContain("copy-lan-access-template");
     expect(rendererSource).toContain("cc_switch");
     expect(rendererSource).toContain("自定义 Provider");
@@ -454,6 +458,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".system-config-panel {");
     expect(styles).toContain(".system-config-form-grid {");
     expect(styles).toContain(".diagnostics-shell {");
+    expect(styles).toContain(".troubleshooting-guide-grid {");
     expect(styles).toContain(".diagnostic-card {");
   });
 

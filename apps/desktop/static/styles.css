@@ -1857,6 +1857,54 @@ button, input, select {
   overflow-wrap: anywhere;
 }
 
+.runtime-troubleshooting-guide {
+  min-width: 0;
+}
+
+.troubleshooting-guide-card {
+  border-color: var(--color-border);
+}
+
+.troubleshooting-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.troubleshooting-guide-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+}
+
+.troubleshooting-guide-item > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.troubleshooting-guide-item strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.troubleshooting-guide-item p,
+.troubleshooting-guide-item small {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.troubleshooting-guide-item small {
+  color: var(--text-muted);
+}
+
 .diagnostics-shell-header {
   margin: 0;
   padding-bottom: var(--space-3);
@@ -4352,6 +4400,7 @@ button, input, select {
   .provider-registry-row { grid-template-columns: minmax(170px, 0.7fr) minmax(190px, 0.75fr) minmax(260px, 1.3fr); }
   .system-config-form-grid { grid-template-columns: 1fr; }
   .diagnostics-grid { grid-template-columns: 1fr; }
+  .troubleshooting-guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-chart-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4389,6 +4438,7 @@ button, input, select {
 
 @media (max-width: 760px) {
   .accounts-grid { grid-template-columns: 1fr; }
+  .troubleshooting-guide-grid { grid-template-columns: 1fr; }
   .modal-overlay {
     align-items: stretch;
     padding: 12px;

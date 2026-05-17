@@ -4501,6 +4501,79 @@ function renderLanAccessTemplate(): void {
   `;
 }
 
+function renderRuntimeTroubleshootingGuide(): void {
+  const container = document.getElementById("runtime-troubleshooting-guide");
+  if (!container) {
+    return;
+  }
+
+  const guides = [
+    {
+      title: "LAN 成员设备访问不通",
+      status: "网络",
+      detail:
+        "优先核对成员设备是否与管理员 Mac 在同一局域网、Base URL 是否使用局域网 IP，以及 macOS 防火墙或路由器 AP isolation 是否阻断端口。",
+      suggestion: "从成员设备执行 `/v1/models` 验证；本机可用但成员不可用时，先看绑定地址、端口和防火墙。",
+    },
+    {
+      title: "401 / 403 鉴权失败",
+      status: "鉴权",
+      detail:
+        "通常是成员 API Key 未复制完整、Key 已暂停 / 过期 / 轮换，或请求没有携带 `Authorization: Bearer` 头。",
+      suggestion: "在“访问与密钥”确认成员和 Key 均为启用状态；轮换后的明文只展示一次，需要重新分发。",
+    },
+    {
+      title: "403 号池或模型被拒绝",
+      status: "策略",
+      detail:
+        "LAN 成员只能访问授权模型和 `shared-lan` 号池；命中 private 或未授权号池时会在进入上游前拒绝。",
+      suggestion: "使用“号池与路由”的路由预演选择访问成员，查看 `accessDecision` 的拒绝原因。",
+    },
+    {
+      title: "429 额度 / QPS / 并发限制",
+      status: "限流",
+      detail:
+        "成员日限额、每分钟请求数或最大并发达到上限时会返回 429；用量与告警页会按成员和 Key 归因。",
+      suggestion: "先看用量与告警的成员排行、告警事件和阈值摘要，再决定提高额度或调整使用节奏。",
+    },
+    {
+      title: "管理员主机睡眠或网络切换",
+      status: "运行",
+      detail:
+        "LAN 共享依赖管理员这台 Mac 持续开机、联网并保持网关运行；睡眠、换网或重启会让成员请求中断。",
+      suggestion: "共享期间连接电源并避免睡眠；更长期使用再规划三期 server edition 或常驻主机。",
+    },
+  ];
+
+  container.innerHTML = `
+    <div class="diagnostic-card detail-drawer-panel troubleshooting-guide-card">
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>常见失败原因</strong>
+          <span>按现有 LAN 小范围共享边界整理，方便管理员快速定位成员接入失败。</span>
+        </div>
+        <span class="badge neutral">排查指引</span>
+      </div>
+      <div class="troubleshooting-guide-grid">
+        ${guides
+          .map(
+            (guide) => `
+              <div class="troubleshooting-guide-item">
+                <div>
+                  <strong>${escapeHtml(guide.title)}</strong>
+                  <span class="badge neutral">${escapeHtml(guide.status)}</span>
+                </div>
+                <p>${escapeHtml(guide.detail)}</p>
+                <small>${escapeHtml(guide.suggestion)}</small>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderDiagnostics(): void {
   const serviceContainer = document.getElementById("service-diagnostics");
   const container = document.getElementById("provider-diagnostics");
@@ -4511,6 +4584,7 @@ function renderDiagnostics(): void {
   renderStartupChecklist();
   renderAppDataStatus();
   renderLanAccessTemplate();
+  renderRuntimeTroubleshootingGuide();
 
   const runtimeDiagnostics = state.runtimeDiagnostics;
   if (!runtimeDiagnostics.length) {
