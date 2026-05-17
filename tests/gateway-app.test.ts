@@ -3991,6 +3991,115 @@ describe("gateway app", () => {
         accessKeyId: "key-alice",
         poolId: "pool-private",
         visibility: "private",
+        requiredVisibility: "shared-lan",
+        phase: "phase-two",
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects LAN access consumers routed to a public-ready dynamic pool", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-public",
+          name: "Public Ready Pool",
+          enabled: true,
+          visibility: "public-ready",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-alice-public-pool",
+          name: "Alice public-ready pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "alice",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-public",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-public"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe(
+        "access_policy_pool_visibility_denied",
+      );
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        poolId: "pool-public",
+        visibility: "public-ready",
+        requiredVisibility: "shared-lan",
+        phase: "phase-two",
       });
       expect(adapter.lastOptions).toBeUndefined();
     } finally {
@@ -4105,6 +4214,362 @@ describe("gateway app", () => {
             errorType: "access_policy_pool_visibility_denied",
             poolId: "pool-private",
             poolVisibility: "private",
+            details: {
+              consumerId: "consumer-alice",
+              poolId: "pool-private",
+              visibility: "private",
+              requiredVisibility: "shared-lan",
+              phase: "phase-two",
+            },
+          },
+        },
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("previews public-ready pool denial for LAN consumers", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-public",
+          name: "Public Ready Pool",
+          enabled: true,
+          visibility: "public-ready",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-alice-public-pool",
+          name: "Alice public-ready pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "alice",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-public",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-public"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+        body: {
+          accessConsumerId: "consumer-alice",
+          clientTag: "alice",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: "main:fake:default",
+        },
+      });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          reason: "rule_matched",
+          resolvedPoolId: "pool-public",
+          accessDecision: {
+            status: "denied",
+            consumerId: "consumer-alice",
+            consumerName: "Alice",
+            consumerType: "lan-member",
+            clientTag: "alice",
+            errorType: "access_policy_pool_visibility_denied",
+            poolId: "pool-public",
+            poolVisibility: "public-ready",
+            details: {
+              consumerId: "consumer-alice",
+              poolId: "pool-public",
+              visibility: "public-ready",
+              requiredVisibility: "shared-lan",
+              phase: "phase-two",
+            },
+          },
+        },
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects public-user access consumers in phase two", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-public",
+          name: "Public Ready Pool",
+          enabled: true,
+          visibility: "public-ready",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-public-user",
+          name: "Public user reserved route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "public-client",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-public",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-client",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Reserved public key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_publ",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-public",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-public"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe(
+        "access_policy_public_user_disabled",
+      );
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-public",
+        accessKeyId: "key-public",
+        consumerType: "public-user",
+        phase: "phase-two",
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("previews public-user disabled decisions in phase two", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-public",
+          name: "Public Ready Pool",
+          enabled: true,
+          visibility: "public-ready",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-public-user",
+          name: "Public user reserved route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "public-client",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-public",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-client",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Reserved public key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_publ",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-public",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-public"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+        body: {
+          accessConsumerId: "consumer-public",
+          clientTag: "public-client",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: "main:fake:default",
+        },
+      });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          reason: "rule_matched",
+          resolvedPoolId: "pool-public",
+          accessDecision: {
+            status: "denied",
+            consumerId: "consumer-public",
+            consumerName: "Public User",
+            consumerType: "public-user",
+            clientTag: "public-client",
+            errorType: "access_policy_public_user_disabled",
+            poolId: "pool-public",
+            poolVisibility: "public-ready",
+            details: {
+              consumerId: "consumer-public",
+              consumerType: "public-user",
+              phase: "phase-two",
+            },
           },
         },
       });

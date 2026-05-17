@@ -276,6 +276,8 @@ describe("runtime diagnostics", () => {
         }),
         expect.objectContaining({
           id: "public-ready-placeholder",
+          message: expect.stringContaining("不会把它分配给 LAN 成员使用"),
+          suggestion: expect.stringContaining("public-user"),
           severity: "info",
         }),
       ]),

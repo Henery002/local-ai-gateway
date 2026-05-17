@@ -499,6 +499,7 @@ function resolveAccessCredential(
   if (consumer.status === "expired") {
     throw new GatewayError(403, "access_consumer_expired", "Access consumer is expired.");
   }
+  assertPublicUserDisabledForPhaseTwo(consumer, accessKey.id);
 
   return {
     consumerId: consumer.id,
@@ -510,6 +511,35 @@ function resolveAccessCredential(
       (item) => item.consumerId === consumer.id,
     ),
   };
+}
+
+function assertPublicUserDisabledForPhaseTwo(
+  consumer:
+    | Pick<GatewayAccessConsumer, "id" | "type">
+    | AccessCredentialContext
+    | undefined,
+  accessKeyId?: string,
+): void {
+  if (!consumer) {
+    return;
+  }
+  const consumerType =
+    "consumerType" in consumer ? consumer.consumerType : consumer.type;
+  if (consumerType !== "public-user") {
+    return;
+  }
+
+  throw new GatewayError(
+    403,
+    "access_policy_public_user_disabled",
+    "Public-user access consumers are reserved for the future public gateway phase.",
+    {
+      consumerId: "consumerId" in consumer ? consumer.consumerId : consumer.id,
+      ...(accessKeyId ? { accessKeyId } : {}),
+      consumerType: "public-user",
+      phase: "phase-two",
+    },
+  );
 }
 
 function assertAccessPolicyAllowsModel(
@@ -711,6 +741,8 @@ function assertAccessPolicyAllowsPool(
         accessKeyId: accessContext.accessKeyId,
         poolId: normalizedPoolId,
         visibility: poolVisibility,
+        requiredVisibility: "shared-lan",
+        phase: "phase-two",
       },
     );
   }
@@ -789,6 +821,22 @@ function buildRoutingAccessDecision(
       (item) => item.consumerId === consumer.id,
     ),
   };
+
+  try {
+    assertPublicUserDisabledForPhaseTwo(accessContext);
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      return {
+        ...baseDecision,
+        status: "denied",
+        reason: error.code,
+        errorType: error.code,
+        message: error.message,
+        details: error.details,
+      };
+    }
+    throw error;
+  }
 
   try {
     assertAccessPolicyAllowsModel(accessContext, baseDecision.modelAlias);

@@ -9,6 +9,18 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-17 20:25 CST]
+
+### 新增
+
+- P3 前置公网边界第一段：`public-user` 访问者类型在二期推理面返回 `403 access_policy_public_user_disabled`，路由预演同步展示拒绝原因。
+- LAN 成员命中 `public-ready` 等非 `shared-lan` 动态号池时，拒绝详情新增 `requiredVisibility: shared-lan` 与 `phase: phase-two`，明确该号池仅为三期预留。
+- 系统诊断的 `public-ready` 提示补充二期不会开放公网入口、不会分配给 LAN 成员使用，以及 `public-user` 当前处于拒绝态。
+
+### 文档
+
+- 同步更新二期 / 三期开发进度清单、重构技术方案、桌面控制台说明和项目答疑清单，清理 `public-ready / public-user` 边界状态的过时表述。
+
 ## [2026-05-17 19:24 CST]
 
 ### 新增

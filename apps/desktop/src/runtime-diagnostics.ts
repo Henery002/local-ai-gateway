@@ -265,10 +265,11 @@ export function buildRuntimeDiagnostics(
       diagnostics.push({
         id: "public-ready-placeholder",
         title: "检测到外网预留号池",
-        message: "当前存在 public-ready 号池配置，但二期桌面版仍不会开放公网共享入口。",
+        message:
+          "当前存在 public-ready 号池配置，但二期桌面版仍不会开放公网共享入口，也不会把它分配给 LAN 成员使用。",
         severity: "info",
         suggestion:
-          "请只把 public-ready 当作三期治理预留标签；真正公网共享需要 HTTPS、域名、反代、审计、滥用防护和独立部署边界。",
+          "请只把 public-ready 当作三期治理预留标签；public-user 访问者在二期同样会被拒绝，真正公网共享需要 HTTPS、域名、反代、审计、滥用防护和独立部署边界。",
       });
     }
 
