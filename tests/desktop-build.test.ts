@@ -493,9 +493,12 @@ describe("desktop build output", () => {
     expect(usageView).toContain("id=\"usage-alert-rule-list\"");
     expect(usageView).toContain("id=\"usage-alert-event-list\"");
     expect(usageView).toContain("告警事件列表");
+    expect(usageView).toContain("id=\"usage-alert-status-filter\"");
+    expect(usageView).toContain("id=\"usage-alert-severity-filter\"");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(usageView).toContain("class=\"usage-alert-rule-list\"");
     expect(usageView).toContain("class=\"usage-alert-event-list\"");
+    expect(usageView).toContain("class=\"usage-alert-event-toolbar\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
@@ -506,6 +509,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("acknowledgeAllAccessAlerts");
     expect(rendererSource).toContain("clearAcknowledgedAccessAlerts");
     expect(rendererSource).toContain("renderUsageAlertEvents");
+    expect(rendererSource).toContain("usageAlertStatusFilter");
+    expect(rendererSource).toContain("usageAlertSeverityFilter");
+    expect(rendererSource).toContain("usage-alert-group-title");
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
     expect(rendererSource).toContain("data-action=\"clear-acknowledged-access-alerts\"");
@@ -540,6 +546,8 @@ describe("desktop build output", () => {
     expect(styles).toContain("justify-self: end;");
     expect(styles).toContain(".usage-dimension-grid {");
     expect(styles).toContain(".usage-alert-rule-list {");
+    expect(styles).toContain(".usage-alert-event-toolbar {");
+    expect(styles).toContain(".usage-alert-group-title {");
     expect(styles).toContain(".usage-alert-event-list {");
     expect(styles).toContain(".usage-alert-event-card {");
   });

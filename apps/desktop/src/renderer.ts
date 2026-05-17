@@ -938,6 +938,8 @@ type DashboardView =
   | "system";
 type IntegrationTemplateKey = "openclaw" | "hermes" | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
+type UsageAlertStatusFilter = "all" | "unacknowledged" | "acknowledged";
+type UsageAlertSeverityFilter = "all" | AccessAlertEvent["severity"];
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
@@ -964,6 +966,8 @@ const state: {
   runtimeDiagnostics: RuntimeDiagnostic[];
   usageClientFilter: UsageClientFilter;
   usageObserveWindow: UsageObserveWindow;
+  usageAlertStatusFilter: UsageAlertStatusFilter;
+  usageAlertSeverityFilter: UsageAlertSeverityFilter;
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
   activePoolEventsModalId?: string;
@@ -977,6 +981,8 @@ const state: {
   runtimeDiagnostics: [],
   usageClientFilter: "all",
   usageObserveWindow: "daily",
+  usageAlertStatusFilter: "all",
+  usageAlertSeverityFilter: "all",
   routingClientFilter: "all",
   routingObserveWindow: "5m",
 };
@@ -3502,34 +3508,66 @@ function renderUsageAlertEvents(): void {
     return;
   }
 
-  const events = state.accessAlerts ?? [];
+  const statusFilter = document.getElementById(
+    "usage-alert-status-filter",
+  ) as HTMLSelectElement | null;
+  const severityFilter = document.getElementById(
+    "usage-alert-severity-filter",
+  ) as HTMLSelectElement | null;
+  if (statusFilter) {
+    statusFilter.value = state.usageAlertStatusFilter;
+  }
+  if (severityFilter) {
+    severityFilter.value = state.usageAlertSeverityFilter;
+  }
+
+  const events = (state.accessAlerts ?? []).filter((event) => {
+    if (
+      state.usageAlertStatusFilter === "unacknowledged" &&
+      event.acknowledgedAt
+    ) {
+      return false;
+    }
+    if (
+      state.usageAlertStatusFilter === "acknowledged" &&
+      !event.acknowledgedAt
+    ) {
+      return false;
+    }
+    if (
+      state.usageAlertSeverityFilter !== "all" &&
+      event.severity !== state.usageAlertSeverityFilter
+    ) {
+      return false;
+    }
+    return true;
+  });
   if (!events.length) {
-    node.innerHTML = "<div class='empty-card'>暂无正式访问告警事件。</div>";
+    node.innerHTML = "<div class='empty-card'>暂无符合筛选条件的正式访问告警事件。</div>";
     return;
   }
 
-  node.innerHTML = events
-    .map((event) => {
-      const isAcknowledged = Boolean(event.acknowledgedAt);
-      const occurrenceCount = event.occurrenceCount ?? 1;
-      const lastSeenAt = event.lastSeenAt ?? event.timestamp;
-      const meta = [
-        event.consumerId ? `成员 ${event.consumerId}` : undefined,
-        event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
-        `首次 ${formatDate(event.timestamp)}`,
-        occurrenceCount > 1
-          ? `重复 ${formatCompactCount(occurrenceCount)} 次，最近 ${formatDate(lastSeenAt)}`
-          : undefined,
-      ].filter(Boolean);
-      const ackText = isAcknowledged
-        ? `已确认 · ${formatDate(event.acknowledgedAt)}${event.acknowledgedBy ? ` · ${event.acknowledgedBy}` : ""}`
-        : "未确认";
-      const ackAction =
-        event.id && !isAcknowledged
-          ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(event.id))}">确认</button>`
-          : "";
+  const renderEventCard = (event: AccessAlertEvent): string => {
+    const isAcknowledged = Boolean(event.acknowledgedAt);
+    const occurrenceCount = event.occurrenceCount ?? 1;
+    const lastSeenAt = event.lastSeenAt ?? event.timestamp;
+    const meta = [
+      event.consumerId ? `成员 ${event.consumerId}` : undefined,
+      event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
+      `首次 ${formatDate(event.timestamp)}`,
+      occurrenceCount > 1
+        ? `重复 ${formatCompactCount(occurrenceCount)} 次，最近 ${formatDate(lastSeenAt)}`
+        : undefined,
+    ].filter(Boolean);
+    const ackText = isAcknowledged
+      ? `已确认 · ${formatDate(event.acknowledgedAt)}${event.acknowledgedBy ? ` · ${event.acknowledgedBy}` : ""}`
+      : "未确认";
+    const ackAction =
+      event.id && !isAcknowledged
+        ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(event.id))}">确认</button>`
+        : "";
 
-      return `
+    return `
         <div class="usage-alert-event-card ${isAcknowledged ? "acknowledged" : "unacknowledged"}">
           <div class="usage-alert-event-main">
             <div class="usage-alert-event-title">
@@ -3543,7 +3581,30 @@ function renderUsageAlertEvents(): void {
           <div class="usage-alert-actions">${ackAction}</div>
         </div>
       `;
-    })
+  };
+  const groupedEvents = [
+    {
+      title: "未确认告警",
+      events: events.filter((event) => !event.acknowledgedAt),
+    },
+    {
+      title: "已确认告警",
+      events: events.filter((event) => event.acknowledgedAt),
+    },
+  ].filter((group) => group.events.length > 0);
+
+  node.innerHTML = groupedEvents
+    .map(
+      (group) => `
+        <div class="usage-alert-event-group">
+          <div class="usage-alert-group-title">
+            <strong>${escapeHtml(group.title)}</strong>
+            <span>${escapeHtml(formatCompactCount(group.events.length))} 条</span>
+          </div>
+          ${group.events.map(renderEventCard).join("")}
+        </div>
+      `,
+    )
     .join("");
 }
 
@@ -9142,6 +9203,32 @@ function bindActions(): void {
       if (consumer && clientTagInput && !clientTagInput.value.trim()) {
         clientTagInput.value = consumer.clientTag;
       }
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
+      target.id === "usage-alert-status-filter"
+    ) {
+      const value = target.value;
+      state.usageAlertStatusFilter =
+        value === "unacknowledged" || value === "acknowledged"
+          ? value
+          : "all";
+      renderUsageAlertEvents();
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
+      target.id === "usage-alert-severity-filter"
+    ) {
+      const value = target.value;
+      state.usageAlertSeverityFilter =
+        value === "critical" || value === "warning" || value === "info"
+          ? value
+          : "all";
+      renderUsageAlertEvents();
       return;
     }
 

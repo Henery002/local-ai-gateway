@@ -2225,9 +2225,44 @@ button, input, select {
   gap: 14px;
 }
 
+.usage-alert-event-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.usage-alert-event-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 160px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .usage-alert-event-list {
   display: grid;
   gap: 10px;
+}
+
+.usage-alert-event-group {
+  display: grid;
+  gap: 8px;
+}
+
+.usage-alert-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.usage-alert-group-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 .usage-alert-event-card {

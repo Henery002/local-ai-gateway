@@ -730,6 +730,25 @@
                     </div>
                     <span class="badge neutral">最近事件</span>
                   </div>
+                  <div class="usage-alert-event-toolbar">
+                    <label>
+                      <span>状态</span>
+                      <select id="usage-alert-status-filter" class="input-field">
+                        <option value="all">全部</option>
+                        <option value="unacknowledged">未确认</option>
+                        <option value="acknowledged">已确认</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>级别</span>
+                      <select id="usage-alert-severity-filter" class="input-field">
+                        <option value="all">全部</option>
+                        <option value="critical">严重</option>
+                        <option value="warning">警告</option>
+                        <option value="info">提示</option>
+                      </select>
+                    </label>
+                  </div>
                   <div id="usage-alert-event-list" class="usage-alert-event-list">
                     <div class="empty-card">正在等待告警事件。</div>
                   </div>
