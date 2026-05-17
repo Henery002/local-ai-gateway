@@ -35,6 +35,7 @@ import {
   buildAccessPolicyErrorSummaryRule,
   buildAccessPolicyRuntimeSnapshot,
   buildAccessPolicyUsageSnapshot,
+  type AccessPolicyAlertThresholds,
 } from "./access-policy-usage.js";
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
@@ -354,6 +355,11 @@ type DashboardHealth = {
     enabledMappingCount?: number;
     lanAccess?: {
       enabled: boolean;
+    };
+    accessControl?: {
+      alertThresholds?: AccessPolicyAlertThresholds & {
+        failureRateWarningRatio?: number;
+      };
     };
   };
   inferenceObservability?: {
@@ -847,12 +853,18 @@ type SecurityAccessControl = {
   consumers: SecurityAccessConsumer[];
   keys: SecurityAccessKey[];
   policies: SecurityAccessPolicy[];
+  alertThresholds?: AccessPolicyAlertThresholds & {
+    failureRateWarningRatio?: number;
+  };
 };
 
 type SecurityAccessControlInput = {
   consumers: SecurityAccessConsumer[];
   keys: SecurityAccessKeyInput[];
   policies: SecurityAccessPolicy[];
+  alertThresholds?: AccessPolicyAlertThresholds & {
+    failureRateWarningRatio?: number;
+  };
 };
 
 type SecuritySettings = {
@@ -985,6 +997,12 @@ const state: {
   usageAlertSeverityFilter: "all",
   routingClientFilter: "all",
   routingObserveWindow: "5m",
+};
+
+const DEFAULT_ACCESS_ALERT_THRESHOLDS = {
+  dailyQuotaWarningRatio: 0.9,
+  runtimeWarningRatio: 0.9,
+  failureRateWarningRatio: 0.1,
 };
 
 let autoRefreshTimer: number | undefined;
@@ -1179,6 +1197,57 @@ function formatUsageSuccessRate(usage: UsageCounters): string {
     return "暂无";
   }
   return `${Math.round((usage.successCount / usage.requestCount) * 100)}%`;
+}
+
+function normalizeAccessAlertThresholdRatio(
+  value: unknown,
+  fallback: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.min(1, Math.max(0.01, value));
+}
+
+function getAccessAlertThresholds(): Required<
+  AccessPolicyAlertThresholds & { failureRateWarningRatio: number }
+> {
+  const thresholds =
+    state.securitySettings?.accessControl?.alertThresholds ??
+    state.health?.inferenceAuth?.accessControl?.alertThresholds;
+  return {
+    dailyQuotaWarningRatio: normalizeAccessAlertThresholdRatio(
+      thresholds?.dailyQuotaWarningRatio,
+      DEFAULT_ACCESS_ALERT_THRESHOLDS.dailyQuotaWarningRatio,
+    ),
+    runtimeWarningRatio: normalizeAccessAlertThresholdRatio(
+      thresholds?.runtimeWarningRatio,
+      DEFAULT_ACCESS_ALERT_THRESHOLDS.runtimeWarningRatio,
+    ),
+    failureRateWarningRatio: normalizeAccessAlertThresholdRatio(
+      thresholds?.failureRateWarningRatio,
+      DEFAULT_ACCESS_ALERT_THRESHOLDS.failureRateWarningRatio,
+    ),
+  };
+}
+
+function formatAccessAlertThresholdPercent(value: number): string {
+  return String(Math.round(value * 100));
+}
+
+function syncUsageAlertThresholdInputs(): void {
+  const thresholds = getAccessAlertThresholds();
+  const inputs = [
+    ["usage-alert-daily-threshold", thresholds.dailyQuotaWarningRatio],
+    ["usage-alert-runtime-threshold", thresholds.runtimeWarningRatio],
+    ["usage-alert-failure-threshold", thresholds.failureRateWarningRatio],
+  ] as const;
+  for (const [id, value] of inputs) {
+    const input = document.getElementById(id) as HTMLInputElement | null;
+    if (input && document.activeElement !== input) {
+      input.value = formatAccessAlertThresholdPercent(value);
+    }
+  }
 }
 
 function normalizeUsageClientTagLabel(clientTag: string): string {
@@ -2322,6 +2391,17 @@ function parseAccessPositiveIntegerInput(
   return Math.floor(parsed);
 }
 
+function parseAccessAlertThresholdInput(selector: string, label: string): number {
+  const value =
+    (document.querySelector(selector) as HTMLInputElement | null)?.value.trim() ??
+    "";
+  const parsed = Number(value);
+  if (!value || !Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
+    throw new Error(`${label}必须是 1 到 100 之间的百分比。`);
+  }
+  return Math.round(parsed) / 100;
+}
+
 function parseAccessModelAliasesInput(selector: string): string[] {
   const value =
     (
@@ -3338,9 +3418,11 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   if (!node) {
     return;
   }
+  syncUsageAlertThresholdInputs();
 
   const consumers = state.securitySettings?.accessControl?.consumers ?? [];
   const policies = state.securitySettings?.accessControl?.policies ?? [];
+  const alertThresholds = getAccessAlertThresholds();
   const sharedPools = (state.poolSettings?.pools ?? []).filter(
     (pool) => normalizePoolVisibility(pool.visibility) === "shared-lan",
   );
@@ -3355,6 +3437,7 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     policies,
     dailyUsageSummary: state.usageSummary?.daily,
     runtimeConsumers: state.health?.inferenceObservability?.accessConsumers,
+    thresholds: alertThresholds,
   });
   const policyErrorRule = buildAccessPolicyErrorSummaryRule(
     state.health?.recentErrors ?? [],
@@ -3449,10 +3532,10 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     {
       title: "失败率异常",
       detail: summary
-        ? `当前窗口失败 ${formatCompactCount(summary.totals.failureCount)} 次，成功率 ${formatUsageSuccessRate(summary.totals)}。`
+        ? `当前窗口失败 ${formatCompactCount(summary.totals.failureCount)} 次，成功率 ${formatUsageSuccessRate(summary.totals)}；预警阈值 ${formatAccessAlertThresholdPercent(alertThresholds.failureRateWarningRatio)}%。`
         : "暂无请求统计。",
-      status: failureRate > 0.1 ? "偏高" : "正常",
-      tone: failureRate > 0.1 ? "warning" : "active",
+      status: failureRate > alertThresholds.failureRateWarningRatio ? "偏高" : "正常",
+      tone: failureRate > alertThresholds.failureRateWarningRatio ? "warning" : "active",
     },
   ];
 
@@ -8104,6 +8187,7 @@ function appendSecurityClientMappingDraft(): void {
       consumers: [],
       keys: [],
       policies: [],
+      alertThresholds: undefined,
     },
   };
   syncSecurityMappingDraftsFromDom();
@@ -8169,6 +8253,9 @@ function cloneAccessControlForSave(
       allowedModelAliases: [...(policy.allowedModelAliases ?? [])],
       allowedPoolIds: [...(policy.allowedPoolIds ?? [])],
     })),
+    alertThresholds: accessControl.alertThresholds
+      ? { ...accessControl.alertThresholds }
+      : undefined,
   };
 }
 
@@ -8209,6 +8296,28 @@ async function saveAccessControlSettings(
   renderAccessAndKeys();
   renderSecurityClientMappings(state.securitySettings.clientMappings);
   return response.data;
+}
+
+async function saveUsageAlertThresholds(): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  nextAccessControl.alertThresholds = {
+    dailyQuotaWarningRatio: parseAccessAlertThresholdInput(
+      "#usage-alert-daily-threshold",
+      "日限额预警阈值",
+    ),
+    runtimeWarningRatio: parseAccessAlertThresholdInput(
+      "#usage-alert-runtime-threshold",
+      "QPS / 并发预警阈值",
+    ),
+    failureRateWarningRatio: parseAccessAlertThresholdInput(
+      "#usage-alert-failure-threshold",
+      "失败率预警阈值",
+    ),
+  };
+  await saveAccessControlSettings(nextAccessControl);
+  renderUsageWorkbench();
+  setBanner("告警阈值已保存。", "success");
 }
 
 function getAccessKeyExpiryInput(keyId: string): HTMLInputElement | undefined {
@@ -8272,6 +8381,7 @@ function getSecuritySettingsWithDefaults(): SecuritySettings {
       consumers: [],
       keys: [],
       policies: [],
+      alertThresholds: undefined,
     },
   };
 }
@@ -9552,6 +9662,18 @@ function bindActions(): void {
       return;
     }
 
+    if (action === "save-usage-alert-thresholds") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "保存中");
+        await saveUsageAlertThresholds();
+      } catch (error) {
+        setBanner(`保存告警阈值失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
     if (action === "ack-access-alert" && button.dataset.alertId) {
       const alertId = Number.parseInt(button.dataset.alertId, 10);
       if (!Number.isFinite(alertId) || alertId <= 0) {
@@ -10175,6 +10297,7 @@ async function refresh(): Promise<void> {
         consumers: [],
         keys: [],
         policies: [],
+        alertThresholds: undefined,
       },
     };
   }

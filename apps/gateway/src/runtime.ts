@@ -587,6 +587,7 @@ export class GatewayRuntime {
           hasKey: Boolean(item.keyHash),
         })),
         policies: settings.accessControl?.policies ?? [],
+        alertThresholds: settings.accessControl?.alertThresholds,
       },
     };
   }

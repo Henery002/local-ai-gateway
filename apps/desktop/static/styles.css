@@ -2176,6 +2176,30 @@ button, input, select {
   gap: 12px;
 }
 
+.usage-alert-threshold-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+}
+
+.usage-alert-threshold-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.usage-alert-threshold-toolbar .btn {
+  min-height: 38px;
+}
+
 .usage-alert-rule {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

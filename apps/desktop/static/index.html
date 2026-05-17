@@ -717,6 +717,21 @@
                     </div>
                     <span class="badge neutral">策略预览</span>
                   </div>
+                  <div class="usage-alert-threshold-toolbar">
+                    <label>
+                      <span>日限额预警 %</span>
+                      <input id="usage-alert-daily-threshold" class="input-field" type="number" min="1" max="100" step="1" value="90" />
+                    </label>
+                    <label>
+                      <span>QPS / 并发预警 %</span>
+                      <input id="usage-alert-runtime-threshold" class="input-field" type="number" min="1" max="100" step="1" value="90" />
+                    </label>
+                    <label>
+                      <span>失败率预警 %</span>
+                      <input id="usage-alert-failure-threshold" class="input-field" type="number" min="1" max="100" step="1" value="10" />
+                    </label>
+                    <button class="btn secondary" data-action="save-usage-alert-thresholds">保存阈值</button>
+                  </div>
                   <div id="usage-alert-rule-list" class="usage-alert-rule-list">
                     <div class="empty-card">正在等待告警摘要。</div>
                   </div>

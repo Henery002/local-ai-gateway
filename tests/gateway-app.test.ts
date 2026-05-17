@@ -2961,6 +2961,55 @@ describe("gateway app", () => {
     }
   });
 
+  it("persists access alert thresholds in security settings", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const response = await app.inject({
+        method: "PUT",
+        url: "/admin/config/security",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        body: {
+          mode: "api-key",
+          accessControl: {
+            consumers: [],
+            keys: [],
+            policies: [],
+            alertThresholds: {
+              dailyQuotaWarningRatio: 0.75,
+              runtimeWarningRatio: 0.8,
+              failureRateWarningRatio: 0.2,
+            },
+          },
+          apiKey: "gateway-admin-test-key",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.accessControl.alertThresholds).toMatchObject({
+        dailyQuotaWarningRatio: 0.75,
+        runtimeWarningRatio: 0.8,
+        failureRateWarningRatio: 0.2,
+      });
+      expect(
+        runtime.configStore.getInferenceAuthSettings().accessControl
+          ?.alertThresholds,
+      ).toMatchObject({
+        dailyQuotaWarningRatio: 0.75,
+        runtimeWarningRatio: 0.8,
+        failureRateWarningRatio: 0.2,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("authenticates access keys by hash and resolves consumer client tag", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);

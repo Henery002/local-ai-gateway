@@ -58,6 +58,11 @@ export type AccessPolicyAlertRule = {
   tone: "active" | "warning" | "neutral";
 };
 
+export type AccessPolicyAlertThresholds = {
+  dailyQuotaWarningRatio?: number;
+  runtimeWarningRatio?: number;
+};
+
 export type AccessPolicyRuntimeSnapshot = {
   requestLimitConfigured: boolean;
   requestLimit?: number;
@@ -73,6 +78,8 @@ export type AccessPolicyRuntimeSnapshot = {
   tone: "active" | "warning" | "neutral";
 };
 
+const DEFAULT_WARNING_RATIO = 0.9;
+
 function normalizePositiveInteger(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return undefined;
@@ -87,10 +94,22 @@ function normalizeUsageCounter(value: unknown): number {
   return Math.floor(value);
 }
 
+function normalizeWarningRatio(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_WARNING_RATIO;
+  }
+  return Math.min(1, Math.max(0.01, value));
+}
+
+function formatWarningRatio(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 export function buildAccessPolicyUsageSnapshot(input: {
   consumerId: string;
   dailyTokenLimit?: number;
   dailyUsageSummary?: DailyUsageSummaryLike;
+  warningRatio?: number;
 }): AccessPolicyUsageSnapshot {
   const usedTokens = (input.dailyUsageSummary?.consumers ?? [])
     .filter((item) => item.consumerId === input.consumerId)
@@ -110,6 +129,7 @@ export function buildAccessPolicyUsageSnapshot(input: {
 
   const remainingTokens = Math.max(0, limitTokens - usedTokens);
   const usageRatio = Math.min(1, usedTokens / limitTokens);
+  const warningRatio = normalizeWarningRatio(input.warningRatio);
   return {
     configured: true,
     usedTokens,
@@ -121,7 +141,7 @@ export function buildAccessPolicyUsageSnapshot(input: {
         ? input.dailyUsageSummary.since + 24 * 60 * 60 * 1000
         : undefined,
     updatedAt: input.dailyUsageSummary?.updatedAt,
-    tone: usageRatio >= 0.9 ? "warning" : "active",
+    tone: usageRatio >= warningRatio ? "warning" : "active",
   };
 }
 
@@ -131,11 +151,13 @@ export function buildAccessPolicyRuntimeSnapshot(input: {
   recentRequestCount1m?: number;
   inFlightRequests?: number;
   updatedAt?: number;
+  warningRatio?: number;
 }): AccessPolicyRuntimeSnapshot {
   const requestLimit = normalizePositiveInteger(input.requestsPerMinute);
   const concurrencyLimit = normalizePositiveInteger(input.maxConcurrentRequests);
   const recentRequestCount1m = normalizeUsageCounter(input.recentRequestCount1m);
   const inFlightRequests = normalizeUsageCounter(input.inFlightRequests);
+  const warningRatio = normalizeWarningRatio(input.warningRatio);
 
   const requestUsageRatio =
     typeof requestLimit === "number"
@@ -148,7 +170,8 @@ export function buildAccessPolicyRuntimeSnapshot(input: {
   const tone =
     requestUsageRatio === undefined && concurrencyUsageRatio === undefined
       ? "neutral"
-      : (requestUsageRatio ?? 0) >= 0.9 || (concurrencyUsageRatio ?? 0) >= 0.9
+      : (requestUsageRatio ?? 0) >= warningRatio ||
+          (concurrencyUsageRatio ?? 0) >= warningRatio
         ? "warning"
         : "active";
 
@@ -178,13 +201,21 @@ export function buildAccessPolicyAlertRules(input: {
   policies: AccessPolicyLike[];
   dailyUsageSummary?: DailyUsageSummaryLike;
   runtimeConsumers?: RuntimeConsumerLike[];
+  thresholds?: AccessPolicyAlertThresholds;
 }): AccessPolicyAlertRule[] {
+  const dailyQuotaWarningRatio = normalizeWarningRatio(
+    input.thresholds?.dailyQuotaWarningRatio,
+  );
+  const runtimeWarningRatio = normalizeWarningRatio(
+    input.thresholds?.runtimeWarningRatio,
+  );
   const dailySnapshots = input.policies
     .map((policy) =>
       buildAccessPolicyUsageSnapshot({
         consumerId: policy.consumerId,
         dailyTokenLimit: policy.quota?.dailyTokenLimit,
         dailyUsageSummary: input.dailyUsageSummary,
+        warningRatio: dailyQuotaWarningRatio,
       }),
     )
     .filter((snapshot) => snapshot.configured);
@@ -207,6 +238,7 @@ export function buildAccessPolicyAlertRules(input: {
           runtime?.maxConcurrentRequests ?? policy.limits?.maxConcurrentRequests,
         recentRequestCount1m: runtime?.recentRequestCount1m,
         inFlightRequests: runtime?.inFlightCount,
+        warningRatio: runtimeWarningRatio,
       });
     })
     .filter(
@@ -231,7 +263,7 @@ export function buildAccessPolicyAlertRules(input: {
         ? {
             id: "daily-quota",
             title: "成员日限额余量低",
-            detail: `${warningDailyCount} 个成员日额度达到 90% 以上${
+            detail: `${warningDailyCount} 个成员日额度达到 ${formatWarningRatio(dailyQuotaWarningRatio)} 以上${
               exhaustedDailyCount > 0
                 ? `，其中 ${exhaustedDailyCount} 个已用尽`
                 : ""
@@ -260,7 +292,7 @@ export function buildAccessPolicyAlertRules(input: {
         ? {
             id: "runtime-pressure",
             title: "QPS / 并发接近上限",
-            detail: `${warningRuntimeCount} 个成员近 60 秒请求或当前并发达到 90% 以上。`,
+            detail: `${warningRuntimeCount} 个成员近 60 秒请求或当前并发达到 ${formatWarningRatio(runtimeWarningRatio)} 以上。`,
             status: "接近上限",
             tone: "warning",
           }

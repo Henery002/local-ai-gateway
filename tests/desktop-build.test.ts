@@ -493,6 +493,10 @@ describe("desktop build output", () => {
     expect(usageView).toContain("id=\"usage-alert-rule-list\"");
     expect(usageView).toContain("id=\"usage-alert-event-list\"");
     expect(usageView).toContain("告警事件列表");
+    expect(usageView).toContain("id=\"usage-alert-daily-threshold\"");
+    expect(usageView).toContain("id=\"usage-alert-runtime-threshold\"");
+    expect(usageView).toContain("id=\"usage-alert-failure-threshold\"");
+    expect(usageView).toContain("data-action=\"save-usage-alert-thresholds\"");
     expect(usageView).toContain("id=\"usage-alert-status-filter\"");
     expect(usageView).toContain("id=\"usage-alert-severity-filter\"");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
@@ -511,6 +515,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageAlertEvents");
     expect(rendererSource).toContain("usageAlertStatusFilter");
     expect(rendererSource).toContain("usageAlertSeverityFilter");
+    expect(rendererSource).toContain("saveUsageAlertThresholds");
+    expect(rendererSource).toContain("getAccessAlertThresholds");
     expect(rendererSource).toContain("usage-alert-group-title");
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
@@ -546,6 +552,7 @@ describe("desktop build output", () => {
     expect(styles).toContain("justify-self: end;");
     expect(styles).toContain(".usage-dimension-grid {");
     expect(styles).toContain(".usage-alert-rule-list {");
+    expect(styles).toContain(".usage-alert-threshold-toolbar {");
     expect(styles).toContain(".usage-alert-event-toolbar {");
     expect(styles).toContain(".usage-alert-group-title {");
     expect(styles).toContain(".usage-alert-event-list {");

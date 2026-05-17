@@ -201,6 +201,53 @@ describe("desktop access policy alert rules", () => {
     ]);
   });
 
+  it("uses configurable warning thresholds for daily quota and runtime pressure", () => {
+    const rules = buildAccessPolicyAlertRules({
+      policies: [
+        {
+          consumerId: "consumer-alice",
+          quota: { dailyTokenLimit: 100 },
+          limits: {
+            requestsPerMinute: 10,
+            maxConcurrentRequests: 4,
+          },
+        },
+      ],
+      dailyUsageSummary: {
+        consumers: [
+          {
+            consumerId: "consumer-alice",
+            usage: { totalTokens: 80 },
+          },
+        ],
+      },
+      runtimeConsumers: [
+        {
+          consumerId: "consumer-alice",
+          recentRequestCount1m: 8,
+          inFlightCount: 2,
+        },
+      ],
+      thresholds: {
+        dailyQuotaWarningRatio: 0.75,
+        runtimeWarningRatio: 0.8,
+      },
+    });
+
+    expect(rules).toEqual([
+      expect.objectContaining({
+        id: "daily-quota",
+        status: "接近上限",
+        tone: "warning",
+      }),
+      expect.objectContaining({
+        id: "runtime-pressure",
+        status: "接近上限",
+        tone: "warning",
+      }),
+    ]);
+  });
+
   it("reports active alert rules when configured policies have remaining capacity", () => {
     const rules = buildAccessPolicyAlertRules({
       policies: [

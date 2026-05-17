@@ -330,10 +330,17 @@ export interface GatewayAccessPolicy {
   expiresAt?: string;
 }
 
+export interface GatewayAccessAlertThresholds {
+  dailyQuotaWarningRatio?: number;
+  runtimeWarningRatio?: number;
+  failureRateWarningRatio?: number;
+}
+
 export interface GatewayAccessControlSettings {
   consumers?: GatewayAccessConsumer[];
   keys?: GatewayAccessKey[];
   policies?: GatewayAccessPolicy[];
+  alertThresholds?: GatewayAccessAlertThresholds;
 }
 
 export interface GatewayAccessKeyPublic {
@@ -354,6 +361,7 @@ export interface GatewayAccessControlPublicSettings {
   consumers: GatewayAccessConsumer[];
   keys: GatewayAccessKeyPublic[];
   policies: GatewayAccessPolicy[];
+  alertThresholds?: GatewayAccessAlertThresholds;
 }
 
 export interface GatewayLanAccessSettings {

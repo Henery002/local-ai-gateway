@@ -319,6 +319,13 @@ function normalizeAccessKeyStatus(value: unknown): GatewayAccessKey["status"] {
   return "enabled";
 }
 
+function normalizeAccessAlertThresholdRatio(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.min(1, Math.max(0.01, value));
+}
+
 function normalizePoolVisibility(value: unknown): GatewayPoolVisibility {
   if (value === "shared-lan" || value === "public-ready") {
     return value;
@@ -441,6 +448,20 @@ function normalizeAccessControlSettingsForSave(
     consumers,
     keys,
     policies,
+    alertThresholds:
+      input.alertThresholds === undefined
+        ? previous?.alertThresholds
+        : {
+            dailyQuotaWarningRatio: normalizeAccessAlertThresholdRatio(
+              input.alertThresholds?.dailyQuotaWarningRatio,
+            ),
+            runtimeWarningRatio: normalizeAccessAlertThresholdRatio(
+              input.alertThresholds?.runtimeWarningRatio,
+            ),
+            failureRateWarningRatio: normalizeAccessAlertThresholdRatio(
+              input.alertThresholds?.failureRateWarningRatio,
+            ),
+          },
   };
 }
 
