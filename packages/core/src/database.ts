@@ -12,6 +12,7 @@ import {
   GatewayPoolSelectionEvent,
   GatewayRoutingHitEvent,
   GatewayUsageAccountSummary,
+  GatewayUsageAccessKeyTimelinePoint,
   GatewayUsageAccessKeySummary,
   GatewayUsageClientFilter,
   GatewayUsageClientSummary,
@@ -21,6 +22,7 @@ import {
   GatewayUsageEvent,
   GatewayUsageModelSummary,
   GatewayUsageModelTimelinePoint,
+  GatewayUsagePoolTimelinePoint,
   GatewayUsagePoolSummary,
   GatewayUsageWindowSummary,
   SessionActivitySnapshot,
@@ -1791,6 +1793,96 @@ export class GatewayDatabase {
           reasoning_tokens: number | null;
         }>)
       : [];
+    const accessKeyTimeline = timelineBucketMs
+      ? (this.db
+          .prepare(
+            `
+              SELECT
+                CAST(timestamp / ? AS INTEGER) * ? AS bucket_start,
+                access_key_id,
+                consumer_id,
+                COALESCE(NULLIF(client_tag, ''), 'unknown') AS normalized_client_tag,
+                COUNT(1) AS request_count,
+                SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+                SUM(latency_ms) AS total_latency_ms,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                SUM(cached_tokens) AS cached_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens
+              FROM inference_usage_events
+              ${filter.sql}${filter.sql ? " AND " : " WHERE "}access_key_id IS NOT NULL AND access_key_id != ''
+              GROUP BY bucket_start, access_key_id, consumer_id, normalized_client_tag
+              ORDER BY bucket_start ASC, total_tokens DESC, request_count DESC
+              LIMIT ?
+            `,
+          )
+          .all(
+            timelineBucketMs,
+            timelineBucketMs,
+            ...filter.params,
+            timelineLimit,
+          ) as Array<{
+          bucket_start: number;
+          access_key_id: string;
+          consumer_id: string | null;
+          normalized_client_tag: string;
+          request_count: number | null;
+          success_count: number | null;
+          failure_count: number | null;
+          total_latency_ms: number | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cached_tokens: number | null;
+          reasoning_tokens: number | null;
+        }>)
+      : [];
+    const poolTimeline = timelineBucketMs
+      ? (this.db
+          .prepare(
+            `
+              SELECT
+                CAST(timestamp / ? AS INTEGER) * ? AS bucket_start,
+                pool_id,
+                COALESCE(NULLIF(client_tag, ''), 'unknown') AS normalized_client_tag,
+                COUNT(1) AS request_count,
+                SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+                SUM(latency_ms) AS total_latency_ms,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                SUM(cached_tokens) AS cached_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens
+              FROM inference_usage_events
+              ${filter.sql}${filter.sql ? " AND " : " WHERE "}pool_id IS NOT NULL AND pool_id != ''
+              GROUP BY bucket_start, pool_id, normalized_client_tag
+              ORDER BY bucket_start ASC, total_tokens DESC, request_count DESC
+              LIMIT ?
+            `,
+          )
+          .all(
+            timelineBucketMs,
+            timelineBucketMs,
+            ...filter.params,
+            timelineLimit,
+          ) as Array<{
+          bucket_start: number;
+          pool_id: string;
+          normalized_client_tag: string;
+          request_count: number | null;
+          success_count: number | null;
+          failure_count: number | null;
+          total_latency_ms: number | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cached_tokens: number | null;
+          reasoning_tokens: number | null;
+        }>)
+      : [];
 
     return {
       since,
@@ -1809,6 +1901,12 @@ export class GatewayDatabase {
             ),
             modelTimeline: modelTimeline.map((row) =>
               this.mapUsageModelTimelinePoint(row, timelineBucketMs),
+            ),
+            accessKeyTimeline: accessKeyTimeline.map((row) =>
+              this.mapUsageAccessKeyTimelinePoint(row, timelineBucketMs),
+            ),
+            poolTimeline: poolTimeline.map((row) =>
+              this.mapUsagePoolTimelinePoint(row, timelineBucketMs),
             ),
           }
         : {}),
@@ -2249,6 +2347,80 @@ export class GatewayDatabase {
       bucketStart: row.bucket_start,
       bucketEnd: row.bucket_start + bucketMs,
       modelAlias: row.model_alias,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsageAccessKeyTimelinePoint(
+    row: {
+      bucket_start: number;
+      access_key_id: string;
+      consumer_id: string | null;
+      normalized_client_tag: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+    },
+    bucketMs: number,
+  ): GatewayUsageAccessKeyTimelinePoint {
+    return {
+      bucketStart: row.bucket_start,
+      bucketEnd: row.bucket_start + bucketMs,
+      accessKeyId: row.access_key_id,
+      consumerId: row.consumer_id ?? undefined,
+      clientTag: row.normalized_client_tag,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsagePoolTimelinePoint(
+    row: {
+      bucket_start: number;
+      pool_id: string;
+      normalized_client_tag: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+    },
+    bucketMs: number,
+  ): GatewayUsagePoolTimelinePoint {
+    return {
+      bucketStart: row.bucket_start,
+      bucketEnd: row.bucket_start + bucketMs,
+      poolId: row.pool_id,
+      clientTag: row.normalized_client_tag,
       usage: {
         requestCount: normalizeUsageCounterValue(row.request_count),
         successCount: normalizeUsageCounterValue(row.success_count),

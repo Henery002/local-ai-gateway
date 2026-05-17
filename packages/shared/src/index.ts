@@ -562,6 +562,23 @@ export interface GatewayUsageModelTimelinePoint {
   usage: GatewayUsageCounters;
 }
 
+export interface GatewayUsageAccessKeyTimelinePoint {
+  bucketStart: number;
+  bucketEnd: number;
+  accessKeyId: string;
+  consumerId?: string;
+  clientTag?: string;
+  usage: GatewayUsageCounters;
+}
+
+export interface GatewayUsagePoolTimelinePoint {
+  bucketStart: number;
+  bucketEnd: number;
+  poolId: string;
+  clientTag?: string;
+  usage: GatewayUsageCounters;
+}
+
 export interface GatewayUsageAccessKeySummary {
   accessKeyId: string;
   consumerId?: string;
@@ -595,6 +612,8 @@ export interface GatewayUsageWindowSummary {
   consumers: GatewayUsageConsumerSummary[];
   consumerTimeline?: GatewayUsageConsumerTimelinePoint[];
   modelTimeline?: GatewayUsageModelTimelinePoint[];
+  accessKeyTimeline?: GatewayUsageAccessKeyTimelinePoint[];
+  poolTimeline?: GatewayUsagePoolTimelinePoint[];
   accessKeys: GatewayUsageAccessKeySummary[];
   pools: GatewayUsagePoolSummary[];
   models: GatewayUsageModelSummary[];

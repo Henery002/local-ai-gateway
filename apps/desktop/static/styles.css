@@ -2280,6 +2280,34 @@ button, input, select {
   background: linear-gradient(90deg, var(--accent-color), var(--success));
 }
 
+.usage-attribution-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.usage-attribution-timeline-section {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.usage-attribution-timeline-section h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.usage-attribution-detail {
+  display: block;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .usage-dimension-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4611,6 +4639,8 @@ button, input, select {
   .usage-model-timeline-header span { text-align: left; }
   .usage-model-timeline-meta strong,
   .usage-model-timeline-meta span { white-space: normal; }
+  .usage-attribution-timeline-grid { grid-template-columns: 1fr; }
+  .usage-attribution-detail { white-space: normal; }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: 1fr; }
   .routing-observe-grid { grid-template-columns: 1fr; }

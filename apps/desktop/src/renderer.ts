@@ -228,6 +228,23 @@ type UsageModelTimelinePoint = {
   usage: UsageCounters;
 };
 
+type UsageAccessKeyTimelinePoint = {
+  bucketStart: number;
+  bucketEnd: number;
+  accessKeyId: string;
+  consumerId?: string;
+  clientTag?: string;
+  usage: UsageCounters;
+};
+
+type UsagePoolTimelinePoint = {
+  bucketStart: number;
+  bucketEnd: number;
+  poolId: string;
+  clientTag?: string;
+  usage: UsageCounters;
+};
+
 type UsageAccessKeySummary = {
   accessKeyId: string;
   consumerId?: string;
@@ -261,6 +278,8 @@ type UsageWindowSummary = {
   consumers: UsageConsumerSummary[];
   consumerTimeline?: UsageConsumerTimelinePoint[];
   modelTimeline?: UsageModelTimelinePoint[];
+  accessKeyTimeline?: UsageAccessKeyTimelinePoint[];
+  poolTimeline?: UsagePoolTimelinePoint[];
   accessKeys: UsageAccessKeySummary[];
   pools: UsagePoolSummary[];
   models: UsageModelSummary[];
@@ -3173,8 +3192,19 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     state.usageObserveWindow === "daily" ? summary.consumerTimeline ?? [] : [];
   const modelTimeline =
     state.usageObserveWindow === "daily" ? summary.modelTimeline ?? [] : [];
+  const accessKeyTimeline =
+    state.usageObserveWindow === "daily" ? summary.accessKeyTimeline ?? [] : [];
+  const poolTimeline =
+    state.usageObserveWindow === "daily" ? summary.poolTimeline ?? [] : [];
   if (consumerTimeline.length > 0) {
-    renderUsageConsumerTimelineChart(node, summary, consumerTimeline, modelTimeline);
+    renderUsageConsumerTimelineChart(
+      node,
+      summary,
+      consumerTimeline,
+      modelTimeline,
+      accessKeyTimeline,
+      poolTimeline,
+    );
     return;
   }
 
@@ -3230,6 +3260,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
     </div>
     ${renderUsageModelTimelinePanel(modelTimeline)}
+    ${renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline)}
   `;
 }
 
@@ -3238,6 +3269,8 @@ function renderUsageConsumerTimelineChart(
   summary: UsageWindowSummary,
   timeline: UsageConsumerTimelinePoint[],
   modelTimeline: UsageModelTimelinePoint[],
+  accessKeyTimeline: UsageAccessKeyTimelinePoint[],
+  poolTimeline: UsagePoolTimelinePoint[],
 ): void {
   const hourMs = 60 * 60 * 1000;
   const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
@@ -3349,6 +3382,7 @@ function renderUsageConsumerTimelineChart(
       <span>Top 成员：${escapeHtml(topConsumers.length > 0 ? topConsumers.map((item) => `${item.label} ${formatCompactCount(item.totalTokens)}`).join(" / ") : "暂无")}</span>
     </div>
     ${renderUsageModelTimelinePanel(modelTimeline)}
+    ${renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline)}
   `;
 }
 
@@ -3430,6 +3464,174 @@ function renderUsageModelTimelinePanel(timeline: UsageModelTimelinePoint[]): str
             `;
           })
           .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageAttributionTimelinePanel(
+  accessKeyTimeline: UsageAccessKeyTimelinePoint[],
+  poolTimeline: UsagePoolTimelinePoint[],
+): string {
+  if (accessKeyTimeline.length === 0 && poolTimeline.length === 0) {
+    return "";
+  }
+
+  const hourMs = 60 * 60 * 1000;
+  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+  const firstBucketStart = currentHour - 23 * hourMs;
+  const accessKeysById = new Map(
+    (state.securitySettings?.accessControl?.keys ?? []).map((key) => [
+      key.id,
+      key,
+    ]),
+  );
+  const consumersById = new Map(
+    (state.securitySettings?.accessControl?.consumers ?? []).map((consumer) => [
+      consumer.id,
+      consumer,
+    ]),
+  );
+  const poolsById = new Map(
+    (state.poolSettings?.pools ?? []).map((pool) => [pool.id, pool]),
+  );
+
+  const accessKeyStats = new Map<
+    string,
+    {
+      label: string;
+      detail: string;
+      totalTokens: number;
+      requestCount: number;
+      failureCount: number;
+    }
+  >();
+  for (const point of accessKeyTimeline) {
+    if (point.bucketStart < firstBucketStart || point.bucketStart > currentHour) {
+      continue;
+    }
+    const key = accessKeysById.get(point.accessKeyId);
+    const consumer = point.consumerId
+      ? consumersById.get(point.consumerId)
+      : undefined;
+    const current = accessKeyStats.get(point.accessKeyId) ?? {
+      label: key?.name || point.clientTag || point.accessKeyId,
+      detail: [
+        consumer?.name,
+        point.clientTag ? `clientTag: ${point.clientTag}` : undefined,
+        key ? `${key.keyPrefix}...${key.keySuffix}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      totalTokens: 0,
+      requestCount: 0,
+      failureCount: 0,
+    };
+    current.totalTokens += point.usage.totalTokens;
+    current.requestCount += point.usage.requestCount;
+    current.failureCount += point.usage.failureCount;
+    accessKeyStats.set(point.accessKeyId, current);
+  }
+
+  const poolStats = new Map<
+    string,
+    {
+      label: string;
+      detail: string;
+      totalTokens: number;
+      requestCount: number;
+      failureCount: number;
+    }
+  >();
+  for (const point of poolTimeline) {
+    if (point.bucketStart < firstBucketStart || point.bucketStart > currentHour) {
+      continue;
+    }
+    const pool = poolsById.get(point.poolId);
+    const current = poolStats.get(point.poolId) ?? {
+      label: pool?.name || point.poolId,
+      detail: [
+        point.clientTag ? `clientTag: ${point.clientTag}` : undefined,
+        pool?.visibility ? formatPoolVisibilityLabel(pool.visibility) : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      totalTokens: 0,
+      requestCount: 0,
+      failureCount: 0,
+    };
+    current.totalTokens += point.usage.totalTokens;
+    current.requestCount += point.usage.requestCount;
+    current.failureCount += point.usage.failureCount;
+    poolStats.set(point.poolId, current);
+  }
+
+  const renderRows = (
+    rows: Array<{
+      label: string;
+      detail: string;
+      totalTokens: number;
+      requestCount: number;
+      failureCount: number;
+    }>,
+    emptyLabel: string,
+  ) => {
+    const topRows = rows
+      .sort((left, right) => right.totalTokens - left.totalTokens)
+      .slice(0, 3);
+    if (topRows.length === 0) {
+      return `<div class="empty-card">${escapeHtml(emptyLabel)}</div>`;
+    }
+    const maxValue = Math.max(...topRows.map((item) => item.totalTokens), 1);
+    return topRows
+      .map((item, index) => {
+        const width = Math.max(8, Math.round((item.totalTokens / maxValue) * 100));
+        const failureLabel =
+          item.requestCount > 0
+            ? `${Math.round((item.failureCount / item.requestCount) * 100)}%`
+            : "0%";
+        return `
+          <div class="usage-model-timeline-row">
+            <div class="usage-model-timeline-rank">${escapeHtml(String(index + 1))}</div>
+            <div class="usage-model-timeline-main">
+              <div class="usage-model-timeline-meta">
+                <strong>${escapeHtml(item.label)}</strong>
+                <span>${escapeHtml(formatCompactCount(item.totalTokens))} Token · ${escapeHtml(formatCompactCount(item.requestCount))} 次请求 · 失败 ${escapeHtml(failureLabel)}</span>
+              </div>
+              ${item.detail ? `<small class="usage-attribution-detail">${escapeHtml(item.detail)}</small>` : ""}
+              <div class="usage-model-timeline-track">
+                <div
+                  class="usage-model-timeline-bar"
+                  style="width: ${width}%"
+                  title="${escapeHtml(`${item.label} · ${formatCompactCount(item.totalTokens)} Token`)}"
+                ></div>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  };
+
+  return `
+    <div class="usage-model-timeline-panel usage-attribution-timeline-panel">
+      <div class="usage-model-timeline-header">
+        <strong>Key / 号池 24h 趋势</strong>
+        <span>按 Access Key 与动态号池聚合最近 24 小时归因消耗</span>
+      </div>
+      <div class="usage-attribution-timeline-grid">
+        <div class="usage-attribution-timeline-section">
+          <h4>Access Key</h4>
+          <div class="usage-model-timeline-list">
+            ${renderRows(Array.from(accessKeyStats.values()), "当前 24 小时暂无 Access Key 归因用量。")}
+          </div>
+        </div>
+        <div class="usage-attribution-timeline-section">
+          <h4>号池</h4>
+          <div class="usage-model-timeline-list">
+            ${renderRows(Array.from(poolStats.values()), "当前 24 小时暂无号池归因用量。")}
+          </div>
+        </div>
       </div>
     </div>
   `;

@@ -3299,6 +3299,125 @@ describe("gateway app", () => {
     }
   });
 
+  it("returns hourly access key and pool timelines for daily usage summary", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const hourMs = 60 * 60 * 1000;
+    const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+
+    try {
+      runtime.recordUsageEvent({
+        timestamp: currentHour - hourMs + 1_000,
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "alice@example.test",
+        clientTag: "alice",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        poolId: "pool-shared",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: true,
+        stream: false,
+        latencyMs: 100,
+        inputTokens: 4,
+        outputTokens: 3,
+        totalTokens: 7,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+      });
+      runtime.recordUsageEvent({
+        timestamp: currentHour + 1_000,
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "bob@example.test",
+        clientTag: "bob",
+        consumerId: "consumer-bob",
+        accessKeyId: "key-bob",
+        poolId: "pool-shared",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: false,
+        stream: false,
+        latencyMs: 120,
+        inputTokens: 6,
+        outputTokens: 5,
+        totalTokens: 11,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const daily = response.json().data.daily;
+      expect(daily.accessKeyTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            bucketStart: currentHour - hourMs,
+            bucketEnd: currentHour,
+            accessKeyId: "key-alice",
+            consumerId: "consumer-alice",
+            clientTag: "alice",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              totalTokens: 7,
+            }),
+          }),
+          expect.objectContaining({
+            bucketStart: currentHour,
+            bucketEnd: currentHour + hourMs,
+            accessKeyId: "key-bob",
+            consumerId: "consumer-bob",
+            clientTag: "bob",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              failureCount: 1,
+              totalTokens: 11,
+            }),
+          }),
+        ]),
+      );
+      expect(daily.poolTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            bucketStart: currentHour - hourMs,
+            bucketEnd: currentHour,
+            poolId: "pool-shared",
+            clientTag: "alice",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              totalTokens: 7,
+            }),
+          }),
+          expect.objectContaining({
+            bucketStart: currentHour,
+            bucketEnd: currentHour + hourMs,
+            poolId: "pool-shared",
+            clientTag: "bob",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              failureCount: 1,
+              totalTokens: 11,
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects access consumers that already reached their daily token quota", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
