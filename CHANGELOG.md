@@ -22,6 +22,9 @@
 - 新增 gateway 回归测试，覆盖访问成员被路由到未授权动态号池时的拒绝行为。
 - 补齐 P1-C LAN 号池可见性执行层第一段：`lan-member` 被策略路由到 `private` 或非 `shared-lan` 动态号池时，即使 `allowedPoolIds` 误配置包含该号池，也会返回 `403 access_policy_pool_visibility_denied` 并在进入上游调用前停止请求。
 - 新增 gateway 回归测试，覆盖 LAN 成员访问 private 动态号池被拒绝，以及访问已授权 `shared-lan` 动态号池可正常通过。
+- 路由预演新增访问成员策略判定：`/admin/config/routing/preview` 支持传入 `accessConsumerId` 并返回 `accessDecision`，覆盖模型权限、号池授权、LAN `shared-lan` 可见性约束和成员基础状态。
+- 桌面端“路由预演”面板新增访问成员下拉与策略判定结果展示，可提前看到某成员请求某模型 / 号池时的允许、拒绝和错误原因。
+- 新增 gateway 与桌面构建回归测试，覆盖 consumer 路由预演的 private 号池拒绝结果和桌面端访问成员预演控件。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
 - 访问成员配置 `limits.maxConcurrentRequests` 后，网关会按成员维度统计进行中的推理请求，达到并发上限时返回 `429 access_policy_concurrency_exceeded`；运行态 in-flight 记录同步补充 `consumerId / accessKeyId`。

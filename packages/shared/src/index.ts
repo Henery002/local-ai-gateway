@@ -392,10 +392,26 @@ export interface GatewayInferenceAuthPublicSettings {
 }
 
 export interface GatewayRoutingPreviewInput {
+  accessConsumerId?: string;
   clientTag?: string;
   requestedModelAlias?: string;
   currentModelAlias?: string;
   currentSessionId?: string;
+}
+
+export interface GatewayRoutingAccessDecision {
+  status: "allowed" | "denied";
+  reason: string;
+  consumerId: string;
+  consumerName?: string;
+  consumerType?: GatewayAccessConsumerType;
+  clientTag?: string;
+  modelAlias?: string;
+  poolId?: string;
+  poolVisibility?: GatewayPoolVisibility;
+  errorType?: string;
+  message?: string;
+  details?: Record<string, unknown>;
 }
 
 export interface GatewayRoutingPreviewResult {
@@ -410,6 +426,7 @@ export interface GatewayRoutingPreviewResult {
   selectionReason?: string;
   candidateCount?: number;
   rejectedCandidates?: GatewayPoolRejectedCandidate[];
+  accessDecision?: GatewayRoutingAccessDecision;
 }
 
 export interface GatewayPoolRejectedCandidate {

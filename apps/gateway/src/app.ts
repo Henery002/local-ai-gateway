@@ -20,7 +20,9 @@ import {
   GatewayPoolFailureClass,
   GatewayProviderSettings,
   GatewayPoolVisibility,
+  GatewayRoutingAccessDecision,
   GatewayRoutingPreviewInput,
+  GatewayRoutingPreviewResult,
   GatewayRoutingSettings,
   GatewaySessionPoolSettings,
   GatewayUsageClientFilter,
@@ -199,7 +201,7 @@ type AccessCredentialContext = {
   consumerId: string;
   consumerName: string;
   consumerType: GatewayAccessConsumer["type"];
-  accessKeyId: string;
+  accessKeyId?: string;
   clientTag: string;
   policy?: GatewayAccessPolicy;
 };
@@ -642,6 +644,116 @@ function assertAccessPolicyAllowsPool(
       },
     );
   }
+}
+
+function getPoolVisibility(
+  poolSettings: GatewaySessionPoolSettings,
+  poolId: string | undefined,
+): GatewayPoolVisibility | undefined {
+  const normalizedPoolId = poolId?.trim();
+  if (!normalizedPoolId) {
+    return undefined;
+  }
+  return normalizePoolVisibility(
+    poolSettings.pools?.find((pool) => pool.id === normalizedPoolId)
+      ?.visibility,
+  );
+}
+
+function buildRoutingAccessDecision(
+  runtime: GatewayRuntime,
+  input: GatewayRoutingPreviewInput,
+  preview: GatewayRoutingPreviewResult,
+): GatewayRoutingAccessDecision | undefined {
+  const consumerId = normalizeAccessId(input.accessConsumerId);
+  if (!consumerId) {
+    return undefined;
+  }
+
+  const accessControl = runtime.configStore.getInferenceAuthSettings().accessControl;
+  const consumer = accessControl?.consumers?.find((item) => item.id === consumerId);
+  if (!consumer) {
+    return {
+      status: "denied",
+      reason: "access_consumer_not_found",
+      consumerId,
+      message: "Access consumer is missing.",
+    };
+  }
+
+  const baseDecision = {
+    consumerId: consumer.id,
+    consumerName: consumer.name,
+    consumerType: consumer.type,
+    clientTag: consumer.clientTag,
+    modelAlias: input.requestedModelAlias?.trim() || preview.resolvedModelAlias,
+    poolId: preview.resolvedPoolId,
+    poolVisibility: getPoolVisibility(runtime.getPoolSettings(), preview.resolvedPoolId),
+  };
+
+  if (consumer.status === "paused") {
+    return {
+      ...baseDecision,
+      status: "denied",
+      reason: "access_consumer_paused",
+      errorType: "access_consumer_paused",
+      message: "Access consumer is paused.",
+    };
+  }
+  if (consumer.status === "expired") {
+    return {
+      ...baseDecision,
+      status: "denied",
+      reason: "access_consumer_expired",
+      errorType: "access_consumer_expired",
+      message: "Access consumer is expired.",
+    };
+  }
+
+  const accessContext: AccessCredentialContext = {
+    consumerId: consumer.id,
+    consumerName: consumer.name,
+    consumerType: consumer.type,
+    clientTag: consumer.clientTag,
+    policy: accessControl?.policies?.find(
+      (item) => item.consumerId === consumer.id,
+    ),
+  };
+
+  try {
+    assertAccessPolicyAllowsModel(accessContext, baseDecision.modelAlias);
+    assertAccessPolicyAllowsPool(
+      accessContext,
+      preview.resolvedPoolId,
+      runtime.getPoolSettings(),
+    );
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      return {
+        ...baseDecision,
+        status: "denied",
+        reason: error.code,
+        errorType: error.code,
+        message: error.message,
+        details: error.details,
+        poolId:
+          typeof error.details?.poolId === "string"
+            ? error.details.poolId
+            : baseDecision.poolId,
+        poolVisibility:
+          typeof error.details?.visibility === "string"
+            ? normalizePoolVisibility(error.details.visibility)
+            : baseDecision.poolVisibility,
+      };
+    }
+    throw error;
+  }
+
+  return {
+    ...baseDecision,
+    status: "allowed",
+    reason: "access_policy_allowed",
+  };
 }
 
 function normalizeInferenceClientMappings(
@@ -1689,9 +1801,13 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   app.post("/admin/config/routing/preview", async (request) => {
     requireAdminAuth(runtime, request);
     const body = (request.body ?? {}) as GatewayRoutingPreviewInput;
+    const preview = runtime.previewRouting(body);
     return {
       ok: true,
-      data: runtime.previewRouting(body),
+      data: {
+        ...preview,
+        accessDecision: buildRoutingAccessDecision(runtime, body, preview),
+      },
     };
   });
 

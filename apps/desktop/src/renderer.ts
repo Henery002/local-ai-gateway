@@ -535,6 +535,7 @@ type RoutingSettingsResponse = {
 };
 
 type RoutingPreviewInput = {
+  accessConsumerId?: string;
   clientTag?: string;
   requestedModelAlias?: string;
   currentModelAlias?: string;
@@ -560,6 +561,20 @@ type RoutingPreviewResponse = {
       sessionId?: string;
       reason: string;
     }>;
+    accessDecision?: {
+      status: "allowed" | "denied";
+      reason: string;
+      consumerId: string;
+      consumerName?: string;
+      consumerType?: SecurityAccessConsumer["type"];
+      clientTag?: string;
+      modelAlias?: string;
+      poolId?: string;
+      poolVisibility?: PoolDefinition["visibility"];
+      errorType?: string;
+      message?: string;
+      details?: Record<string, unknown>;
+    };
   };
 };
 
@@ -5872,6 +5887,54 @@ function renderRoutingPreviewResult(
         </div>
       `
       : "";
+  const accessDecision = payload.accessDecision
+    ? `
+        <div class="routing-preview-access-decision ${payload.accessDecision.status}">
+          <div>
+            <strong>${payload.accessDecision.status === "allowed" ? "访问策略允许" : "访问策略拒绝"}</strong>
+            <span>${escapeHtml(
+              payload.accessDecision.status === "allowed"
+                ? "该访问成员按当前模型、路由和号池配置可继续请求。"
+                : payload.accessDecision.message ??
+                    payload.accessDecision.reason,
+            )}</span>
+          </div>
+          <div class="routing-preview-facts compact">
+            <div class="routing-preview-fact">
+              <label>访问成员</label>
+              <span>${escapeHtml(
+                payload.accessDecision.consumerName ??
+                  payload.accessDecision.consumerId,
+              )}</span>
+            </div>
+            <div class="routing-preview-fact">
+              <label>成员类型</label>
+              <span>${escapeHtml(payload.accessDecision.consumerType ?? "unknown")}</span>
+            </div>
+            <div class="routing-preview-fact">
+              <label>策略原因</label>
+              <span>${escapeHtml(payload.accessDecision.errorType ?? payload.accessDecision.reason)}</span>
+            </div>
+            <div class="routing-preview-fact">
+              <label>判定模型</label>
+              <span>${escapeHtml(payload.accessDecision.modelAlias ?? payload.resolvedModelAlias)}</span>
+            </div>
+            <div class="routing-preview-fact">
+              <label>判定号池</label>
+              <span>${escapeHtml(payload.accessDecision.poolId ?? payload.resolvedPoolId ?? "未命中号池")}</span>
+            </div>
+            <div class="routing-preview-fact">
+              <label>号池可见性</label>
+              <span>${escapeHtml(
+                payload.accessDecision.poolVisibility
+                  ? formatPoolVisibilityLabel(payload.accessDecision.poolVisibility)
+                  : "无",
+              )}</span>
+            </div>
+          </div>
+        </div>
+      `
+    : "";
   const rejectedCandidates = payload.rejectedCandidates?.length
     ? `
         <div class="routing-preview-warning">
@@ -5913,9 +5976,35 @@ function renderRoutingPreviewResult(
         ${candidateFact}
       </div>
       ${warnings}
+      ${accessDecision}
       ${rejectedCandidates}
     </div>
   `;
+}
+
+function renderRoutingPreviewConsumerOptions(): void {
+  const select = document.getElementById(
+    "routing-preview-access-consumer",
+  ) as HTMLSelectElement | null;
+  if (!select) {
+    return;
+  }
+
+  const currentValue = select.value;
+  const consumers = state.securitySettings?.accessControl?.consumers ?? [];
+  select.innerHTML = [
+    `<option value="">不指定访问成员</option>`,
+    ...consumers.map(
+      (consumer) =>
+        `<option value="${escapeHtml(consumer.id)}">${escapeHtml(
+          `${consumer.name} · ${consumer.clientTag} · ${consumer.type}`,
+        )}</option>`,
+    ),
+  ].join("");
+
+  if (currentValue && consumers.some((consumer) => consumer.id === currentValue)) {
+    select.value = currentValue;
+  }
 }
 
 function resetRoutingPreviewResult(): void {
@@ -6171,6 +6260,7 @@ function applySecuritySettingsToForm(): void {
     }
   }
   renderSecurityClientMappings(settings?.clientMappings ?? []);
+  renderRoutingPreviewConsumerOptions();
   syncSecretFieldActionState();
 }
 
@@ -6608,6 +6698,12 @@ async function saveRoutingSettings(): Promise<void> {
 async function previewRoutingSettings(): Promise<void> {
   const api = getGatewayApi();
   const payload: RoutingPreviewInput = {
+    accessConsumerId:
+      (
+        document.getElementById(
+          "routing-preview-access-consumer",
+        ) as HTMLSelectElement | null
+      )?.value.trim() || undefined,
     clientTag:
       (
         document.getElementById(
@@ -8193,6 +8289,22 @@ function bindActions(): void {
       void refreshUsageSummaryOnly().catch((error) => {
         setBanner(`刷新 Token 用量统计失败：${normalizeErrorMessage(error)}`, "error");
       });
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
+      target.id === "routing-preview-access-consumer"
+    ) {
+      const consumer = state.securitySettings?.accessControl?.consumers.find(
+        (item) => item.id === target.value,
+      );
+      const clientTagInput = document.getElementById(
+        "routing-preview-client-tag",
+      ) as HTMLInputElement | null;
+      if (consumer && clientTagInput && !clientTagInput.value.trim()) {
+        clientTagInput.value = consumer.clientTag;
+      }
       return;
     }
 

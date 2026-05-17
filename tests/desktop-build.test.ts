@@ -199,6 +199,26 @@ describe("desktop build output", () => {
     expect(accessView).toContain("id=\"access-create-member-modal\"");
   });
 
+  it("renders routing preview access consumer controls", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const renderer = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+
+    const routingView = indexHtml.match(
+      /<div class="view" data-view="routing" hidden>([\s\S]*?)<!-- View: Pools -->/,
+    )?.[1];
+
+    expect(routingView).toBeTruthy();
+    expect(routingView).toContain("id=\"routing-preview-access-consumer\"");
+    expect(renderer).toContain("accessDecision");
+    expect(renderer).toContain("renderRoutingPreviewConsumerOptions");
+  });
+
   it("renders access member creation controls with one-time key output", () => {
     const indexHtml = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/index.html"),

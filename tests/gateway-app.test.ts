@@ -3210,6 +3210,122 @@ describe("gateway app", () => {
     }
   });
 
+  it("previews access consumer pool visibility denial before live routing", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-private",
+          name: "Private Pool",
+          enabled: true,
+          visibility: "private",
+          selectionStrategy: "priority",
+          members: [{ selector: "acct_fake", priority: 10 }],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-alice-private-pool",
+          name: "Alice private pool",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "alice",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-private",
+          },
+        },
+      ],
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["pool-private"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+        body: {
+          accessConsumerId: "consumer-alice",
+          clientTag: "alice",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: "main:fake:default",
+        },
+      });
+
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          reason: "rule_matched",
+          resolvedPoolId: "pool-private",
+          accessDecision: {
+            status: "denied",
+            consumerId: "consumer-alice",
+            consumerName: "Alice",
+            consumerType: "lan-member",
+            clientTag: "alice",
+            errorType: "access_policy_pool_visibility_denied",
+            poolId: "pool-private",
+            poolVisibility: "private",
+          },
+        },
+      });
+      expect(adapter.lastOptions).toBeUndefined();
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("allows LAN access consumers routed to an authorized shared-lan dynamic pool", async () => {
     const { rootDir, runtime, database, adapter } = createTestRuntime();
     cleanupDirs.push(rootDir);

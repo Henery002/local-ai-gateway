@@ -3152,6 +3152,44 @@ button, input, select {
   gap: 12px;
 }
 
+.routing-preview-facts.compact {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.routing-preview-access-decision {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-main);
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.routing-preview-access-decision.allowed {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+
+.routing-preview-access-decision.denied {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.routing-preview-access-decision strong,
+.routing-preview-access-decision span {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.routing-preview-access-decision strong {
+  display: block;
+  color: var(--text-primary);
+}
+
+.routing-preview-access-decision span {
+  color: var(--text-secondary);
+}
+
 .routing-preview-fact {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-light);
