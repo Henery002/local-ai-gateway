@@ -61,6 +61,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
     );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
 
     const navGroup = indexHtml.match(
       /<div class="nav-group">([\s\S]*?)<\/div>\s*<div class="sidebar-foot">/,
@@ -83,6 +87,9 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("class=\"card access-create-member-modal action-modal-card mt-4\"");
     expect(indexHtml).toContain("class=\"modal-content figma-modal\"");
     expect(indexHtml).toContain("class=\"modal-tabs figma-tabs\"");
+    expect(styles).toContain(".secret-inline-row .input-field");
+    expect(styles).toContain(".detail-drawer-panel,");
+    expect(styles).toContain("overflow: hidden;");
   });
 
   it("uses Figma stat-card hooks for usage and overview metrics", () => {
@@ -301,6 +308,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".pool-control-panel {");
     expect(styles).toContain(".pool-list-shell {");
     expect(styles).toContain(".pool-card-header {");
+    expect(styles).toContain(".pool-card-title-text {");
     expect(styles).toContain(".pool-config-form-grid {");
     expect(styles).toContain(".pool-member-table-shell {");
     expect(styles).toContain(".pool-card-header,");

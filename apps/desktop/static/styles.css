@@ -875,6 +875,16 @@ button, input, select {
   width: 100%;
 }
 
+.secret-inline-row .input-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.secret-inline-row .btn {
+  flex: 0 0 auto;
+}
+
 .secret-input-shell {
   flex: 1;
   min-width: 0;
@@ -1193,6 +1203,7 @@ button, input, select {
   border-color: var(--color-border-default);
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
 .detail-drawer-panel {
@@ -1253,12 +1264,14 @@ button, input, select {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .access-policy-panel-head div,
 .access-policy-pool-option span {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .access-policy-panel-head span,
@@ -1303,12 +1316,23 @@ button, input, select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .access-key-card-head div,
 .access-key-meta {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+.access-key-card-head strong,
+.access-key-card-head span,
+.access-key-meta strong,
+.access-key-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .access-key-card-head span,
@@ -2931,6 +2955,15 @@ button, input, select {
   min-width: 0;
 }
 
+.pool-card-title-text {
+  min-width: 0;
+}
+
+.pool-card-title-text strong,
+.pool-card-title-text span {
+  overflow-wrap: anywhere;
+}
+
 .pool-card-index-avatar {
   width: 42px;
   height: 42px;
@@ -3569,6 +3602,8 @@ button, input, select {
 
 .pool-card-actions {
   justify-content: flex-end;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .pool-config-form-grid {
@@ -4012,6 +4047,18 @@ button, input, select {
   }
   .access-policy-item > .badge {
     align-self: flex-start;
+  }
+  .secret-inline-row,
+  .access-key-card-head,
+  .access-key-actions,
+  .access-policy-panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .secret-inline-row .btn,
+  .access-key-actions .btn {
+    width: 100%;
+    justify-content: center;
   }
   .provider-config-panel > .settings-header { align-items: flex-start; flex-direction: column; }
   .provider-enable-switch { margin-left: 0; }
