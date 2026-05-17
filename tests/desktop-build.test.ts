@@ -280,6 +280,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("saveAccessKeyExpiry");
     expect(rendererSource).toContain("saveAccessPolicySettings");
     expect(rendererSource).toContain("saveAccessPolicyPools");
+    expect(rendererSource).toContain("renderAccessPolicyUsageSnapshot");
+    expect(rendererSource).toContain("buildAccessPolicyUsageSnapshot");
     expect(rendererSource).toContain("dailyTokenLimit");
     expect(rendererSource).toContain("requestsPerMinute");
     expect(rendererSource).toContain("maxConcurrentRequests");

@@ -30,6 +30,7 @@ import {
   deleteSelectedPools,
   normalizePoolSelection,
 } from "./pool-bulk-actions.js";
+import { buildAccessPolicyUsageSnapshot } from "./access-policy-usage.js";
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
@@ -2239,6 +2240,52 @@ function formatAccessPolicyNumberLimit(value?: number, unit = ""): string {
     : "未限制";
 }
 
+function renderAccessPolicyUsageSnapshot(
+  consumerId: string,
+  policy: SecurityAccessPolicy | undefined,
+): string {
+  const snapshot = buildAccessPolicyUsageSnapshot({
+    consumerId,
+    dailyTokenLimit: policy?.quota?.dailyTokenLimit,
+    dailyUsageSummary: state.usageSummary?.daily,
+  });
+  const progressPercent =
+    typeof snapshot.usageRatio === "number"
+      ? Math.round(snapshot.usageRatio * 100)
+      : 0;
+  const title = snapshot.configured ? "日额度余量" : "日额度未限制";
+  const detail = snapshot.configured
+    ? `已用 ${formatCompactCount(snapshot.usedTokens)} / ${formatCompactCount(
+        snapshot.limitTokens ?? 0,
+      )} Token，剩余 ${formatCompactCount(snapshot.remainingTokens ?? 0)} Token`
+    : `近 24 小时已用 ${formatCompactCount(snapshot.usedTokens)} Token`;
+  const resetLabel = snapshot.resetAt
+    ? `重置参考：${formatDate(snapshot.resetAt)}`
+    : "重置参考：近 24 小时滚动窗口";
+  const updatedLabel = snapshot.updatedAt
+    ? `统计更新：${formatDate(snapshot.updatedAt)}`
+    : "统计更新：暂无";
+
+  return `
+    <div class="access-policy-usage-snapshot ${snapshot.tone}">
+      <div class="access-policy-usage-head">
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(detail)}</span>
+        </div>
+        <span class="badge ${snapshot.tone === "warning" ? "warning" : snapshot.configured ? "active" : "neutral"}">${snapshot.configured ? `${progressPercent}%` : "不限"}</span>
+      </div>
+      <div class="access-policy-usage-bar" aria-hidden="true">
+        <span style="width: ${Math.min(100, Math.max(0, progressPercent))}%"></span>
+      </div>
+      <div class="access-policy-usage-meta">
+        <span>${escapeHtml(resetLabel)}</span>
+        <span>${escapeHtml(updatedLabel)}</span>
+      </div>
+    </div>
+  `;
+}
+
 function accessKeyBadgeClass(key: SecurityAccessKey): string {
   if (key.status === "enabled" && !isPastIsoDate(key.expiresAt)) {
     return "active";
@@ -2392,6 +2439,7 @@ function renderAccessMemberDrawer(
         <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 模型` : "模型不限"} / ${policy?.allowedPoolIds?.length ? `${policy.allowedPoolIds.length} 号池` : "号池不限"}</strong>
       </div>
     </div>
+    ${renderAccessPolicyUsageSnapshot(selectedConsumer.id, policy)}
     <div class="access-member-note">${escapeHtml(selectedConsumer.note || "暂无备注。")}</div>
     <div class="access-policy-panel mt-3">
       <div class="access-policy-panel-head">

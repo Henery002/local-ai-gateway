@@ -27,6 +27,8 @@
 - 新增 gateway 与桌面构建回归测试，覆盖 consumer 路由预演的 private 号池拒绝结果和桌面端访问成员预演控件。
 - 访问成员详情新增 AccessPolicy 编辑第一段：可编辑日 Token 限额、每分钟请求数、最大并发请求、允许模型别名和允许号池，并统一保存到该成员策略。
 - 新增桌面构建回归测试，覆盖访问成员策略编辑字段与保存动作绑定。
+- 访问成员详情新增日额度余量展示第一段：按成员聚合近 24 小时 Token 用量，展示已用 / 剩余、进度条、重置参考和统计更新时间。
+- 新增 `desktop-access-policy-usage` 纯函数回归测试，覆盖成员多 key 用量聚合、超额状态和未配置日限额场景。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
 - 访问成员配置 `limits.maxConcurrentRequests` 后，网关会按成员维度统计进行中的推理请求，达到并发上限时返回 `429 access_policy_concurrency_exceeded`；运行态 in-flight 记录同步补充 `consumerId / accessKeyId`。

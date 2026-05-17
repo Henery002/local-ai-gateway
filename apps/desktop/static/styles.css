@@ -1285,6 +1285,76 @@ button, input, select {
   gap: 8px;
 }
 
+.access-policy-usage-snapshot {
+  margin-top: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  padding: 14px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.access-policy-usage-snapshot.active {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+
+.access-policy-usage-snapshot.warning {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.access-policy-usage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.access-policy-usage-head strong,
+.access-policy-usage-head span {
+  display: block;
+}
+
+.access-policy-usage-head strong {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.access-policy-usage-head span {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.access-policy-usage-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+}
+
+.access-policy-usage-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+
+.access-policy-usage-snapshot.warning .access-policy-usage-bar span {
+  background: var(--warning);
+}
+
+.access-policy-usage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .access-policy-pool-option {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
