@@ -2192,6 +2192,41 @@ function parseAccessDateTimeLocalValue(value: string): string | undefined {
   return date.toISOString();
 }
 
+function parseAccessPositiveIntegerInput(
+  selector: string,
+  label: string,
+): number | undefined {
+  const value =
+    (document.querySelector(selector) as HTMLInputElement | null)?.value.trim() ??
+    "";
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label}必须是大于 0 的整数。`);
+  }
+  return Math.floor(parsed);
+}
+
+function parseAccessModelAliasesInput(selector: string): string[] {
+  const value =
+    (
+      document.querySelector(selector) as HTMLTextAreaElement | null
+    )?.value.trim() ?? "";
+  if (!value) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,，]+/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  );
+}
+
 function formatAccessPolicyTokenLimit(value?: number): string {
   return typeof value === "number" && value > 0
     ? `${formatCompactCount(value)} Token`
@@ -2361,14 +2396,62 @@ function renderAccessMemberDrawer(
     <div class="access-policy-panel mt-3">
       <div class="access-policy-panel-head">
         <div>
-          <strong>允许号池</strong>
-          <span>只把必要的 shared 号池授权给 LAN 成员；私有号池默认保留给管理员自用。</span>
+          <strong>访问策略编辑</strong>
+          <span>配置成员可用模型、日限额、QPS、并发和允许号池；保存后立即进入推理面前置拦截。</span>
         </div>
         <button
           class="btn secondary mini"
           type="button"
+          data-access-policy-save-settings="${escapeHtml(selectedConsumer.id)}"
           data-access-policy-save-pools="${escapeHtml(selectedConsumer.id)}"
-        >保存号池授权</button>
+        >保存访问策略</button>
+      </div>
+      <div class="pool-config-form-grid access-policy-edit-grid">
+        <div class="form-field">
+          <label>日 Token 限额</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-daily-token-limit="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.quota?.dailyTokenLimit === "number" ? String(policy.quota.dailyTokenLimit) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
+          <label>每分钟请求数</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-requests-per-minute="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.limits?.requestsPerMinute === "number" ? String(policy.limits.requestsPerMinute) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
+          <label>最大并发请求</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-max-concurrent="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.limits?.maxConcurrentRequests === "number" ? String(policy.limits.maxConcurrentRequests) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field full">
+          <label>允许模型别名</label>
+          <textarea
+            class="input-field"
+            rows="2"
+            data-access-policy-model-aliases="${escapeHtml(selectedConsumer.id)}"
+            placeholder="留空表示不限制；多个模型可用逗号或换行分隔"
+          >${escapeHtml((policy?.allowedModelAliases ?? []).join("\n"))}</textarea>
+        </div>
       </div>
       <div class="access-policy-pool-list">
         ${poolPolicyRows}
@@ -7550,7 +7633,7 @@ async function saveAccessKeyExpiry(keyId: string): Promise<void> {
   setBanner(expiresAt ? "访问 Key 到期时间已保存。" : "访问 Key 到期时间已清空。", "success");
 }
 
-async function saveAccessPolicyPools(consumerId: string): Promise<void> {
+async function saveAccessPolicySettings(consumerId: string): Promise<void> {
   const current = getSecuritySettingsWithDefaults();
   const nextAccessControl = cloneAccessControlForSave(current.accessControl);
   const consumer = nextAccessControl.consumers.find(
@@ -7579,8 +7662,58 @@ async function saveAccessPolicyPools(consumerId: string): Promise<void> {
       allowedPoolIds: selectedPoolIds,
     });
   }
+
+  const policy = nextAccessControl.policies.find(
+    (item) => item.consumerId === consumerId,
+  );
+  if (!policy) {
+    setBanner("未找到目标访问策略。", "error");
+    return;
+  }
+
+  const dailyTokenLimit = parseAccessPositiveIntegerInput(
+    `[data-access-policy-daily-token-limit="${consumerId}"]`,
+    "日 Token 限额",
+  );
+  const requestsPerMinute = parseAccessPositiveIntegerInput(
+    `[data-access-policy-requests-per-minute="${consumerId}"]`,
+    "每分钟请求数",
+  );
+  const maxConcurrentRequests = parseAccessPositiveIntegerInput(
+    `[data-access-policy-max-concurrent="${consumerId}"]`,
+    "最大并发请求数",
+  );
+  policy.allowedModelAliases = parseAccessModelAliasesInput(
+    `[data-access-policy-model-aliases="${consumerId}"]`,
+  );
+
+  const quota = { ...(policy.quota ?? {}) };
+  if (typeof dailyTokenLimit === "number") {
+    quota.dailyTokenLimit = dailyTokenLimit;
+  } else {
+    delete quota.dailyTokenLimit;
+  }
+  policy.quota = Object.keys(quota).length > 0 ? quota : undefined;
+
+  const limits = { ...(policy.limits ?? {}) };
+  if (typeof requestsPerMinute === "number") {
+    limits.requestsPerMinute = requestsPerMinute;
+  } else {
+    delete limits.requestsPerMinute;
+  }
+  if (typeof maxConcurrentRequests === "number") {
+    limits.maxConcurrentRequests = maxConcurrentRequests;
+  } else {
+    delete limits.maxConcurrentRequests;
+  }
+  policy.limits = Object.keys(limits).length > 0 ? limits : undefined;
+
   await saveAccessControlSettings(nextAccessControl);
-  setBanner("访问成员号池授权已保存。", "success");
+  setBanner("访问成员策略已保存。", "success");
+}
+
+async function saveAccessPolicyPools(consumerId: string): Promise<void> {
+  await saveAccessPolicySettings(consumerId);
 }
 
 async function rotateAccessKey(keyId: string): Promise<void> {

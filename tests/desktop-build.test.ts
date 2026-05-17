@@ -271,8 +271,14 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("data-access-key-save-expiry");
     expect(rendererSource).toContain("data-access-policy-pool");
     expect(rendererSource).toContain("data-access-policy-save-pools");
+    expect(rendererSource).toContain("data-access-policy-daily-token-limit");
+    expect(rendererSource).toContain("data-access-policy-requests-per-minute");
+    expect(rendererSource).toContain("data-access-policy-max-concurrent");
+    expect(rendererSource).toContain("data-access-policy-model-aliases");
+    expect(rendererSource).toContain("data-access-policy-save-settings");
     expect(rendererSource).toContain("rotateAccessKey");
     expect(rendererSource).toContain("saveAccessKeyExpiry");
+    expect(rendererSource).toContain("saveAccessPolicySettings");
     expect(rendererSource).toContain("saveAccessPolicyPools");
     expect(rendererSource).toContain("dailyTokenLimit");
     expect(rendererSource).toContain("requestsPerMinute");

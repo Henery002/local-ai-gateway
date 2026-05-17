@@ -25,6 +25,8 @@
 - 路由预演新增访问成员策略判定：`/admin/config/routing/preview` 支持传入 `accessConsumerId` 并返回 `accessDecision`，覆盖模型权限、号池授权、LAN `shared-lan` 可见性约束和成员基础状态。
 - 桌面端“路由预演”面板新增访问成员下拉与策略判定结果展示，可提前看到某成员请求某模型 / 号池时的允许、拒绝和错误原因。
 - 新增 gateway 与桌面构建回归测试，覆盖 consumer 路由预演的 private 号池拒绝结果和桌面端访问成员预演控件。
+- 访问成员详情新增 AccessPolicy 编辑第一段：可编辑日 Token 限额、每分钟请求数、最大并发请求、允许模型别名和允许号池，并统一保存到该成员策略。
+- 新增桌面构建回归测试，覆盖访问成员策略编辑字段与保存动作绑定。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
 - 继续推进 P1-B AccessPolicy 执行层：访问成员配置 `limits.requestsPerMinute` 后，网关会按该成员近 60 秒已记录请求数做前置限流，超额返回 `429 access_policy_rate_limit_exceeded` 并设置 `Retry-After: 60`。
 - 访问成员配置 `limits.maxConcurrentRequests` 后，网关会按成员维度统计进行中的推理请求，达到并发上限时返回 `429 access_policy_concurrency_exceeded`；运行态 in-flight 记录同步补充 `consumerId / accessKeyId`。
