@@ -32,7 +32,9 @@
 - 用量与告警页新增成员策略告警摘要第一段：基于成员日额度余量、近 60 秒请求窗口和当前并发状态，展示“成员日限额余量低”与“QPS / 并发接近上限”的真实状态。
 - 用量与告警页新增访问策略拒绝聚合第一段：网关 recent errors 会记录 `GatewayError` 的 `errorCode / statusCode / details`，桌面端按 `access_policy_* / access_key_* / access_consumer_*` 汇总最近拒绝原因。
 - 用量明细弹窗新增访问成员与 Access Key 排行：在原账号、客户端、模型维度之外，直接展示 `consumerId / accessKeyId` 归因后的 Token、请求数、成功率和延迟。
+- 新增号池用量归因第一段：`inference_usage_events` 兼容新增 `pool_id`，动态号池命中的推理请求会写入 pool 维度；用量摘要新增 `pools` 排行，桌面端维度洞察和用量明细弹窗展示号池 Token 消耗。
 - 新增 `desktop-access-policy-usage` 纯函数回归测试，覆盖成员多 key 用量聚合、超额状态、未配置日限额、QPS 余量、并发余量、成员策略告警摘要和访问策略错误聚合场景。
+- 新增 gateway 回归测试，覆盖动态号池请求写入 `usageSummary.daily.pools` 的号池维度统计。
 - 新增 gateway 回归测试，覆盖 `access_policy_daily_quota_exceeded` 被写入结构化 recent errors，便于桌面端后续聚合策略拒绝。
 - 新增 gateway 回归测试，覆盖管理端 health 输出按访问成员归因的 QPS / 并发运行态数据。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。

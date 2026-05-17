@@ -1497,6 +1497,22 @@ describe("gateway app", () => {
 
       expect(response.statusCode).toBe(200);
       expect(adapter.lastOptions?.sessionId).toBe(sessionHigh.id);
+
+      const usageSummary = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary?clientFilter=openclaw",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(usageSummary.statusCode).toBe(200);
+      expect(usageSummary.json().data.daily.pools[0]).toMatchObject({
+        poolId: "pool-openclaw",
+        usage: {
+          requestCount: 1,
+          totalTokens: 12,
+        },
+      });
     } finally {
       await app.close();
       database.close();

@@ -213,6 +213,13 @@ type UsageAccessKeySummary = {
   usage: UsageCounters;
 };
 
+type UsagePoolSummary = {
+  poolId: string;
+  clientTag?: string;
+  updatedAt?: number;
+  usage: UsageCounters;
+};
+
 type UsageModelSummary = {
   modelAlias: string;
   updatedAt?: number;
@@ -230,6 +237,7 @@ type UsageWindowSummary = {
   clients: UsageClientSummary[];
   consumers: UsageConsumerSummary[];
   accessKeys: UsageAccessKeySummary[];
+  pools: UsagePoolSummary[];
   models: UsageModelSummary[];
 };
 
@@ -3063,6 +3071,7 @@ function renderUsageDimensionInsights(
 
   const topConsumer = summary.consumers[0];
   const topAccount = summary.accounts[0];
+  const topPool = (summary.pools ?? [])[0];
   const topModel = summary.models[0];
   const failureRate =
     summary.totals.requestCount > 0
@@ -3084,10 +3093,12 @@ function renderUsageDimensionInsights(
     },
     {
       label: "账号与号池",
-      value: topAccount ? topAccount.email ?? topAccount.accountId : "暂无账号消耗",
-      detail: topAccount
-        ? `${formatCompactCount(topAccount.usage.totalTokens)} Token · shared 号池 ${formatCompactCount(sharedPoolCount)} 个`
-        : `当前配置 shared 号池 ${formatCompactCount(sharedPoolCount)} 个。`,
+      value: topPool?.poolId ?? (topAccount ? topAccount.email ?? topAccount.accountId : "暂无账号消耗"),
+      detail: topPool
+        ? `${formatCompactCount(topPool.usage.totalTokens)} Token · ${formatCompactCount(topPool.usage.requestCount)} 次号池请求`
+        : topAccount
+          ? `${formatCompactCount(topAccount.usage.totalTokens)} Token · shared 号池 ${formatCompactCount(sharedPoolCount)} 个`
+          : `当前配置 shared 号池 ${formatCompactCount(sharedPoolCount)} 个。`,
     },
     {
       label: "模型分布",
@@ -7095,6 +7106,9 @@ function renderUsageDetailsModal(): void {
       key,
     ]),
   );
+  const poolsById = new Map(
+    (state.poolSettings?.pools ?? []).map((pool) => [pool.id, pool]),
+  );
 
   const renderUsageDetailItems = (
     rows: Array<{
@@ -7199,6 +7213,27 @@ function renderUsageDetailsModal(): void {
               };
             }),
             "当前窗口暂无 Access Key 维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+      <div class="usage-details-section">
+        <h4>号池排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            (summary.pools ?? []).map((row) => {
+              const pool = poolsById.get(row.poolId);
+              return {
+                title: pool?.name || row.poolId,
+                subtitle: [
+                  row.clientTag ? `clientTag: ${row.clientTag}` : undefined,
+                  pool?.visibility ? formatPoolVisibilityLabel(pool.visibility) : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+                usage: row.usage,
+              };
+            }),
+            "当前窗口暂无号池维度的 Token 用量记录。",
           )}
         </div>
       </div>

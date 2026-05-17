@@ -499,6 +499,7 @@ export interface GatewayUsageEvent {
   clientTag?: string;
   consumerId?: string;
   accessKeyId?: string;
+  poolId?: string;
   providerId: string;
   modelAlias: string;
   upstreamModelId?: string;
@@ -545,6 +546,13 @@ export interface GatewayUsageAccessKeySummary {
   updatedAt?: number;
 }
 
+export interface GatewayUsagePoolSummary {
+  poolId: string;
+  clientTag?: string;
+  usage: GatewayUsageCounters;
+  updatedAt?: number;
+}
+
 export interface GatewayUsageModelSummary {
   modelAlias: string;
   usage: GatewayUsageCounters;
@@ -562,6 +570,7 @@ export interface GatewayUsageWindowSummary {
   clients: GatewayUsageClientSummary[];
   consumers: GatewayUsageConsumerSummary[];
   accessKeys: GatewayUsageAccessKeySummary[];
+  pools: GatewayUsagePoolSummary[];
   models: GatewayUsageModelSummary[];
 }
 

@@ -1427,6 +1427,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         clientTag,
         consumerId: authContext.accessContext?.consumerId,
         accessKeyId: authContext.accessContext?.accessKeyId,
+        poolId: targetPoolId && selectedByPoolMember ? targetPoolId : undefined,
         providerId: resolved.adapter.id,
         modelAlias: resolvedModelAlias,
         upstreamModelId: resolved.model.providerModelId,
