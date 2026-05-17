@@ -2797,6 +2797,125 @@ describe("gateway app", () => {
     }
   });
 
+  it("returns hourly consumer timeline for daily usage summary", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const hourMs = 60 * 60 * 1000;
+    const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+
+    try {
+      runtime.recordUsageEvent({
+        timestamp: currentHour - hourMs + 1_000,
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "alice@example.test",
+        clientTag: "alice",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: true,
+        stream: false,
+        latencyMs: 100,
+        inputTokens: 4,
+        outputTokens: 3,
+        totalTokens: 7,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+      });
+      runtime.recordUsageEvent({
+        timestamp: currentHour + 1_000,
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "alice@example.test",
+        clientTag: "alice",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: true,
+        stream: false,
+        latencyMs: 120,
+        inputTokens: 6,
+        outputTokens: 5,
+        totalTokens: 11,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+      });
+      runtime.recordUsageEvent({
+        timestamp: currentHour + 2_000,
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "bob@example.test",
+        clientTag: "bob",
+        consumerId: "consumer-bob",
+        accessKeyId: "key-bob",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: false,
+        stream: false,
+        latencyMs: 200,
+        inputTokens: 2,
+        outputTokens: 3,
+        totalTokens: 5,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/usage/summary",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.daily.consumerTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            bucketStart: currentHour - hourMs,
+            bucketEnd: currentHour,
+            consumerId: "consumer-alice",
+            clientTag: "alice",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              totalTokens: 7,
+            }),
+          }),
+          expect.objectContaining({
+            bucketStart: currentHour,
+            bucketEnd: currentHour + hourMs,
+            consumerId: "consumer-alice",
+            clientTag: "alice",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              totalTokens: 11,
+            }),
+          }),
+          expect.objectContaining({
+            bucketStart: currentHour,
+            bucketEnd: currentHour + hourMs,
+            consumerId: "consumer-bob",
+            clientTag: "bob",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              failureCount: 1,
+              totalTokens: 5,
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects access consumers that already reached their daily token quota", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);

@@ -206,6 +206,15 @@ type UsageConsumerSummary = {
   usage: UsageCounters;
 };
 
+type UsageConsumerTimelinePoint = {
+  bucketStart: number;
+  bucketEnd: number;
+  consumerId: string;
+  accessKeyId?: string;
+  clientTag?: string;
+  usage: UsageCounters;
+};
+
 type UsageAccessKeySummary = {
   accessKeyId: string;
   consumerId?: string;
@@ -237,6 +246,7 @@ type UsageWindowSummary = {
   accounts: UsageAccountSummary[];
   clients: UsageClientSummary[];
   consumers: UsageConsumerSummary[];
+  consumerTimeline?: UsageConsumerTimelinePoint[];
   accessKeys: UsageAccessKeySummary[];
   pools: UsagePoolSummary[];
   models: UsageModelSummary[];
@@ -1148,6 +1158,17 @@ function normalizeUsageClientTagLabel(clientTag: string): string {
     return "localRagHub";
   }
   return clientTag;
+}
+
+function formatUsageHourLabel(value: number): string {
+  return `${String(new Date(value).getHours()).padStart(2, "0")}:00`;
+}
+
+function getAccessConsumerDisplayName(consumerId: string, clientTag?: string): string {
+  const consumer = state.securitySettings?.accessControl?.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  return consumer?.name || clientTag || consumerId;
 }
 
 function renderClientTagBadges(
@@ -3022,6 +3043,13 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     return;
   }
 
+  const consumerTimeline =
+    state.usageObserveWindow === "daily" ? summary.consumerTimeline ?? [] : [];
+  if (consumerTimeline.length > 0) {
+    renderUsageConsumerTimelineChart(node, summary, consumerTimeline);
+    return;
+  }
+
   const bars = [
     {
       label: "输入",
@@ -3072,6 +3100,123 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
       <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
+    </div>
+  `;
+}
+
+function renderUsageConsumerTimelineChart(
+  node: HTMLElement,
+  summary: UsageWindowSummary,
+  timeline: UsageConsumerTimelinePoint[],
+): void {
+  const hourMs = 60 * 60 * 1000;
+  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+  const firstBucketStart = currentHour - 23 * hourMs;
+  const byBucket = new Map<
+    number,
+    {
+      totalTokens: number;
+      requestCount: number;
+      failureCount: number;
+      byConsumer: Map<string, number>;
+    }
+  >();
+  const byConsumer = new Map<
+    string,
+    {
+      label: string;
+      totalTokens: number;
+    }
+  >();
+
+  for (const point of timeline) {
+    if (point.bucketStart < firstBucketStart || point.bucketStart > currentHour) {
+      continue;
+    }
+    const bucket = byBucket.get(point.bucketStart) ?? {
+      totalTokens: 0,
+      requestCount: 0,
+      failureCount: 0,
+      byConsumer: new Map<string, number>(),
+    };
+    bucket.totalTokens += point.usage.totalTokens;
+    bucket.requestCount += point.usage.requestCount;
+    bucket.failureCount += point.usage.failureCount;
+    const label = getAccessConsumerDisplayName(point.consumerId, point.clientTag);
+    bucket.byConsumer.set(
+      label,
+      (bucket.byConsumer.get(label) ?? 0) + point.usage.totalTokens,
+    );
+    byBucket.set(point.bucketStart, bucket);
+
+    const consumer = byConsumer.get(point.consumerId) ?? {
+      label,
+      totalTokens: 0,
+    };
+    consumer.totalTokens += point.usage.totalTokens;
+    byConsumer.set(point.consumerId, consumer);
+  }
+
+  const buckets = Array.from({ length: 24 }, (_, index) => {
+    const bucketStart = firstBucketStart + index * hourMs;
+    return {
+      bucketStart,
+      data: byBucket.get(bucketStart),
+    };
+  });
+  const maxValue = Math.max(
+    ...buckets.map((bucket) => bucket.data?.totalTokens ?? 0),
+    1,
+  );
+  const topConsumers = Array.from(byConsumer.values())
+    .sort((left, right) => right.totalTokens - left.totalTokens)
+    .slice(0, 3);
+
+  node.innerHTML = `
+    <div class="usage-timeline-bars">
+      ${buckets
+        .map((bucket) => {
+          const totalTokens = bucket.data?.totalTokens ?? 0;
+          const height =
+            totalTokens > 0
+              ? Math.max(8, Math.round((totalTokens / maxValue) * 100))
+              : 0;
+          const topConsumer = bucket.data
+            ? Array.from(bucket.data.byConsumer.entries()).sort(
+                (left, right) => right[1] - left[1],
+              )[0]
+            : undefined;
+          const titleParts = [
+            `${formatUsageHourLabel(bucket.bucketStart)}-${formatUsageHourLabel(bucket.bucketStart + hourMs)}`,
+            `${formatCompactCount(totalTokens)} Token`,
+            bucket.data
+              ? `${formatCompactCount(bucket.data.requestCount)} 次请求`
+              : "暂无请求",
+            topConsumer
+              ? `Top ${topConsumer[0]} ${formatCompactCount(topConsumer[1])}`
+              : undefined,
+          ].filter(Boolean);
+          return `
+            <div class="usage-timeline-bar-wrap">
+              <div class="usage-timeline-bar-track">
+                <div
+                  class="usage-chart-bar primary"
+                  style="height: ${height}%; min-height: ${totalTokens > 0 ? "8px" : "0"}"
+                  title="${escapeHtml(titleParts.join(" · "))}"
+                ></div>
+              </div>
+              <span>${escapeHtml(formatUsageHourLabel(bucket.bucketStart).slice(0, 2))}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+    <div class="usage-chart-legend">
+      <span>成员 24h 趋势：${escapeHtml(formatCompactCount(timeline.length))} 个小时成员桶</span>
+      <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
+      <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
+      <span>峰值小时：${escapeHtml(formatCompactCount(maxValue))} Token</span>
+      <span>Top 成员：${escapeHtml(topConsumers.length > 0 ? topConsumers.map((item) => `${item.label} ${formatCompactCount(item.totalTokens)}`).join(" / ") : "暂无")}</span>
     </div>
   `;
 }

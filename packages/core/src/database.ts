@@ -14,6 +14,7 @@ import {
   GatewayUsageClientFilter,
   GatewayUsageClientSummary,
   GatewayUsageConsumerSummary,
+  GatewayUsageConsumerTimelinePoint,
   GatewayUsageCounters,
   GatewayUsageEvent,
   GatewayUsageModelSummary,
@@ -1136,12 +1137,21 @@ export class GatewayDatabase {
       accountLimit?: number;
       clientLimit?: number;
       modelLimit?: number;
+      timelineBucketMs?: number;
+      timelineLimit?: number;
     } = {},
   ): GatewayUsageWindowSummary {
     const clientFilter = options.clientFilter ?? "all";
     const accountLimit = Math.max(1, options.accountLimit ?? 12);
     const clientLimit = Math.max(1, options.clientLimit ?? 12);
     const modelLimit = Math.max(1, options.modelLimit ?? 12);
+    const timelineBucketMs =
+      typeof options.timelineBucketMs === "number" &&
+      Number.isFinite(options.timelineBucketMs) &&
+      options.timelineBucketMs > 0
+        ? Math.floor(options.timelineBucketMs)
+        : undefined;
+    const timelineLimit = Math.max(1, options.timelineLimit ?? 240);
     const filter = this.buildUsageWhereClause(options.sinceTimestamp, clientFilter);
 
     const metaRow = this.db
@@ -1447,6 +1457,53 @@ export class GatewayDatabase {
       updated_at: number | null;
     }>;
 
+    const consumerTimeline = timelineBucketMs
+      ? (this.db
+          .prepare(
+            `
+              SELECT
+                CAST(timestamp / ? AS INTEGER) * ? AS bucket_start,
+                consumer_id,
+                access_key_id,
+                COALESCE(NULLIF(client_tag, ''), 'unknown') AS normalized_client_tag,
+                COUNT(1) AS request_count,
+                SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+                SUM(latency_ms) AS total_latency_ms,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                SUM(cached_tokens) AS cached_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens
+              FROM inference_usage_events
+              ${filter.sql}${filter.sql ? " AND " : " WHERE "}consumer_id IS NOT NULL AND consumer_id != ''
+              GROUP BY bucket_start, consumer_id, access_key_id, normalized_client_tag
+              ORDER BY bucket_start ASC, total_tokens DESC, request_count DESC
+              LIMIT ?
+            `,
+          )
+          .all(
+            timelineBucketMs,
+            timelineBucketMs,
+            ...filter.params,
+            timelineLimit,
+          ) as Array<{
+          bucket_start: number;
+          consumer_id: string;
+          access_key_id: string | null;
+          normalized_client_tag: string;
+          request_count: number | null;
+          success_count: number | null;
+          failure_count: number | null;
+          total_latency_ms: number | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cached_tokens: number | null;
+          reasoning_tokens: number | null;
+        }>)
+      : [];
+
     return {
       since,
       updatedAt,
@@ -1457,6 +1514,13 @@ export class GatewayDatabase {
       accounts: accounts.map((row) => this.mapUsageAccountSummary(row)),
       clients: clients.map((row) => this.mapUsageClientSummary(row)),
       consumers: consumers.map((row) => this.mapUsageConsumerSummary(row)),
+      ...(timelineBucketMs
+        ? {
+            consumerTimeline: consumerTimeline.map((row) =>
+              this.mapUsageConsumerTimelinePoint(row, timelineBucketMs),
+            ),
+          }
+        : {}),
       accessKeys: accessKeys.map((row) => this.mapUsageAccessKeySummary(row)),
       pools: pools.map((row) => this.mapUsagePoolSummary(row)),
       models: models.map((row) => this.mapUsageModelSummary(row)),
@@ -1822,6 +1886,44 @@ export class GatewayDatabase {
       clientTag: row.normalized_client_tag,
       updatedAt:
         typeof row.updated_at === "number" ? row.updated_at : undefined,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsageConsumerTimelinePoint(
+    row: {
+      bucket_start: number;
+      consumer_id: string;
+      access_key_id: string | null;
+      normalized_client_tag: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+    },
+    bucketMs: number,
+  ): GatewayUsageConsumerTimelinePoint {
+    return {
+      bucketStart: row.bucket_start,
+      bucketEnd: row.bucket_start + bucketMs,
+      consumerId: row.consumer_id,
+      accessKeyId: row.access_key_id ?? undefined,
+      clientTag: row.normalized_client_tag,
       usage: {
         requestCount: normalizeUsageCounterValue(row.request_count),
         successCount: normalizeUsageCounterValue(row.success_count),

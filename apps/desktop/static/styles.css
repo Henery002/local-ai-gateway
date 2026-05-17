@@ -2021,9 +2021,25 @@ button, input, select {
   min-height: 170px;
 }
 
+.usage-timeline-bars {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(8px, 1fr));
+  align-items: end;
+  gap: 4px;
+  min-height: 170px;
+}
+
 .usage-chart-bar-wrap {
   display: grid;
   grid-template-rows: minmax(120px, 1fr) auto auto;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+}
+
+.usage-timeline-bar-wrap {
+  display: grid;
+  grid-template-rows: minmax(120px, 1fr) auto;
   gap: 6px;
   min-width: 0;
   text-align: center;
@@ -2035,6 +2051,17 @@ button, input, select {
   justify-content: center;
   min-height: 120px;
   border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-bg-card) 70%, transparent);
+  border: 1px solid var(--color-border-subtle);
+  overflow: hidden;
+}
+
+.usage-timeline-bar-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 120px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--color-bg-card) 70%, transparent);
   border: 1px solid var(--color-border-subtle);
   overflow: hidden;
@@ -2068,9 +2095,14 @@ button, input, select {
 }
 
 .usage-chart-bar-wrap span,
+.usage-timeline-bar-wrap span,
 .usage-chart-legend span {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.usage-timeline-bar-wrap span {
+  font-size: 10px;
 }
 
 .usage-chart-legend {

@@ -945,6 +945,8 @@ export class GatewayRuntime {
       daily: this.database.getUsageSummary({
         clientFilter,
         sinceTimestamp: now - 24 * 60 * 60 * 1000,
+        timelineBucketMs: 60 * 60 * 1000,
+        timelineLimit: 24 * 24,
       }),
       weekly: this.database.getUsageSummary({
         clientFilter,

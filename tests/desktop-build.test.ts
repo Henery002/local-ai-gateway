@@ -468,6 +468,8 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-alert-rule-list\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
+    expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
+    expect(rendererSource).toContain("consumerTimeline");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("正式告警事件");
@@ -482,6 +484,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".usage-chart-panel {");
     expect(styles).toContain(".usage-chart-frame {");
     expect(styles).toContain(".usage-chart-bars {");
+    expect(styles).toContain(".usage-timeline-bars {");
     expect(styles).toContain(".usage-alert-rule em {");
     expect(styles).toContain("justify-self: end;");
     expect(styles).toContain(".usage-dimension-grid {");
