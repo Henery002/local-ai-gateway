@@ -1815,6 +1815,21 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.post("/admin/access/alerts/acknowledge-all", async (request) => {
+    requireAdminAuth(runtime, request);
+    const body = request.body as { acknowledgedBy?: unknown } | undefined;
+    const acknowledgedBy =
+      typeof body?.acknowledgedBy === "string"
+        ? body.acknowledgedBy.trim()
+        : undefined;
+    return {
+      ok: true,
+      data: runtime.database.acknowledgeAllAccessAlertEvents({
+        acknowledgedBy: acknowledgedBy || "admin",
+      }),
+    };
+  });
+
   app.post("/admin/access/alerts/:id/acknowledge", async (request) => {
     requireAdminAuth(runtime, request);
     const rawId = (request.params as { id?: string } | undefined)?.id;

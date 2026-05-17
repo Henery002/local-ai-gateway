@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 
 import {
+  GatewayAccessAlertAcknowledgeAllResult,
   GatewayAccessAlertEvent,
   GatewayLogRecord,
   GatewayPaths,
@@ -498,6 +499,28 @@ export class GatewayDatabase {
     }
 
     return this.getAccessAlertEvent(id);
+  }
+
+  acknowledgeAllAccessAlertEvents(
+    input: { acknowledgedAt?: number; acknowledgedBy?: string } = {},
+  ): GatewayAccessAlertAcknowledgeAllResult {
+    const acknowledgedAt = input.acknowledgedAt ?? Date.now();
+    const acknowledgedBy = input.acknowledgedBy?.trim() || "admin";
+    const result = this.db
+      .prepare(
+        `
+          UPDATE access_alert_events
+          SET acknowledged_at = ?, acknowledged_by = ?
+          WHERE acknowledged_at IS NULL
+        `,
+      )
+      .run(acknowledgedAt, acknowledgedBy);
+
+    return {
+      updatedCount: result.changes,
+      acknowledgedAt,
+      acknowledgedBy,
+    };
   }
 
   getUsageTotalsForAccessConsumer(options: {

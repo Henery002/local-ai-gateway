@@ -481,7 +481,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("acknowledgeAccessAlert");
+    expect(rendererSource).toContain("acknowledgeAllAccessAlerts");
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
+    expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
     expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("正式告警事件");
     expect(rendererSource).toContain("访问成员排行");
@@ -492,7 +494,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("(summary.pools ?? []).map");
     expect(rendererSource).toContain("class=\"usage-insight-card\"");
     expect(preloadSource).toContain("acknowledgeAccessAlert");
+    expect(preloadSource).toContain("acknowledgeAllAccessAlerts");
     expect(mainSource).toContain("gateway:acknowledge-access-alert");
+    expect(mainSource).toContain("gateway:acknowledge-all-access-alerts");
+    expect(mainSource).toContain("/admin/access/alerts/acknowledge-all");
     expect(mainSource).toContain("/admin/access/alerts/");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");

@@ -55,6 +55,7 @@ declare global {
       acknowledgeAccessAlert: (
         id: number,
       ) => Promise<{ ok: boolean; data: AccessAlertEvent }>;
+      acknowledgeAllAccessAlerts: () => Promise<AccessAlertAcknowledgeAllResponse>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -285,6 +286,15 @@ type AccessAlertListResponse = {
   ok: boolean;
   data: {
     events: AccessAlertEvent[];
+  };
+};
+
+type AccessAlertAcknowledgeAllResponse = {
+  ok: boolean;
+  data: {
+    updatedCount: number;
+    acknowledgedAt: number;
+    acknowledgedBy: string;
   };
 };
 
@@ -3340,6 +3350,8 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     action?: string;
     actionLabel?: string;
     eventId?: number;
+    secondaryAction?: string;
+    secondaryActionLabel?: string;
   };
   const accessAlertEventRule = latestAccessAlert
     ? {
@@ -3363,6 +3375,11 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
             : undefined,
         actionLabel: "确认",
         eventId: latestAccessAlert.id,
+        secondaryAction:
+          unacknowledgedAccessAlerts.length > 1
+            ? "ack-all-access-alerts"
+            : undefined,
+        secondaryActionLabel: "全部确认",
       }
     : {
         title: "正式告警事件",
@@ -3408,12 +3425,16 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
         rule.action === "ack-access-alert" && rule.eventId
           ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(rule.eventId))}">${escapeHtml(rule.actionLabel ?? "处理")}</button>`
           : "";
+      const secondaryActionMarkup =
+        rule.secondaryAction === "ack-all-access-alerts"
+          ? `<button class="btn secondary mini" data-action="ack-all-access-alerts">${escapeHtml(rule.secondaryActionLabel ?? "全部处理")}</button>`
+          : "";
       return `
         <div class="usage-alert-rule">
           <strong>${escapeHtml(rule.title)}</strong>
           <span>${escapeHtml(rule.detail)}</span>
           <em class="badge ${escapeHtml(rule.tone)}">${escapeHtml(rule.status)}</em>
-          ${actionMarkup}
+          ${actionMarkup || secondaryActionMarkup ? `<div class="usage-alert-actions">${actionMarkup}${secondaryActionMarkup}</div>` : ""}
         </div>
       `;
     })
@@ -9256,6 +9277,25 @@ function bindActions(): void {
         setBanner("告警事件已确认。", "success");
       } catch (error) {
         setBanner(`确认告警失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "ack-all-access-alerts") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "确认中");
+        const result = await getGatewayApi().acknowledgeAllAccessAlerts();
+        await refreshUsageSummaryOnly();
+        setBanner(
+          result.data.updatedCount > 0
+            ? `已确认 ${formatCompactCount(result.data.updatedCount)} 条告警事件。`
+            : "当前没有未确认告警事件。",
+          "success",
+        );
+      } catch (error) {
+        setBanner(`批量确认告警失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button as HTMLButtonElement, false);
       }

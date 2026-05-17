@@ -607,6 +607,12 @@ export interface GatewayAccessAlertEvent {
   acknowledgedBy?: string;
 }
 
+export interface GatewayAccessAlertAcknowledgeAllResult {
+  updatedCount: number;
+  acknowledgedAt: number;
+  acknowledgedBy: string;
+}
+
 export interface GatewayAccessAlertList {
   events: GatewayAccessAlertEvent[];
 }

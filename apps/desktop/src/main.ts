@@ -1706,6 +1706,14 @@ ipcMain.handle("gateway:acknowledge-access-alert", async (_event, id: number) =>
   });
 });
 
+ipcMain.handle("gateway:acknowledge-all-access-alerts", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/access/alerts/acknowledge-all", {
+    method: "POST",
+    body: JSON.stringify({ acknowledgedBy: "desktop-admin" }),
+  });
+});
+
 ipcMain.handle("gateway:get-provider-settings", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/providers");

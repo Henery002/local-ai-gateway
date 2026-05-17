@@ -8,6 +8,8 @@ const api = {
   getAccessAlerts: () => ipcRenderer.invoke("gateway:get-access-alerts"),
   acknowledgeAccessAlert: (id: number) =>
     ipcRenderer.invoke("gateway:acknowledge-access-alert", id),
+  acknowledgeAllAccessAlerts: () =>
+    ipcRenderer.invoke("gateway:acknowledge-all-access-alerts"),
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),

@@ -2511,6 +2511,84 @@ describe("gateway app", () => {
     }
   });
 
+  it("acknowledges all unacknowledged access alert events by admin endpoint", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 3_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "old unacknowledged",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 2_000,
+        severity: "critical",
+        consumerId: "consumer-bob",
+        accessKeyId: "key-bob",
+        type: "access_policy_concurrency_exceeded",
+        message: "new unacknowledged",
+      });
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 1_000,
+        severity: "warning",
+        consumerId: "consumer-cora",
+        accessKeyId: "key-cora",
+        type: "access_policy_pool_denied",
+        message: "already acknowledged",
+        acknowledgedAt: 1_700_000_000_000,
+        acknowledgedBy: "previous-admin",
+      });
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/access/alerts/acknowledge-all",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        body: {
+          acknowledgedBy: "desktop-admin",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          updatedCount: 2,
+          acknowledgedBy: "desktop-admin",
+        },
+      });
+      expect(response.json().data.acknowledgedAt).toEqual(expect.any(Number));
+
+      const alerts = database.getRecentAccessAlertEvents(5);
+      expect(alerts).toHaveLength(3);
+      expect(alerts.find((event) => event.message === "old unacknowledged"))
+        .toMatchObject({
+          acknowledgedAt: response.json().data.acknowledgedAt,
+          acknowledgedBy: "desktop-admin",
+        });
+      expect(alerts.find((event) => event.message === "new unacknowledged"))
+        .toMatchObject({
+          acknowledgedAt: response.json().data.acknowledgedAt,
+          acknowledgedBy: "desktop-admin",
+        });
+      expect(alerts.find((event) => event.message === "already acknowledged"))
+        .toMatchObject({
+          acknowledgedAt: 1_700_000_000_000,
+          acknowledgedBy: "previous-admin",
+        });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("returns streaming SSE and tool calls", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
