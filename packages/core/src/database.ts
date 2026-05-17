@@ -96,9 +96,16 @@ type AccessAlertEventRow = {
   details_json: string | null;
   acknowledged_at: number | null;
   acknowledged_by: string | null;
+  dedupe_key: string | null;
+  occurrence_count: number | null;
+  last_seen_at: number | null;
 };
 
 function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEvent {
+  const occurrenceCount =
+    typeof row.occurrence_count === "number" && row.occurrence_count > 0
+      ? row.occurrence_count
+      : 1;
   return {
     id: row.id,
     timestamp: row.timestamp,
@@ -112,7 +119,40 @@ function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEve
       : undefined,
     acknowledgedAt: row.acknowledged_at ?? undefined,
     acknowledgedBy: row.acknowledged_by ?? undefined,
+    dedupeKey: row.dedupe_key ?? undefined,
+    occurrenceCount,
+    lastSeenAt: row.last_seen_at ?? row.timestamp,
   };
+}
+
+function normalizeAccessAlertDedupePart(value: unknown): string {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : "-";
+}
+
+function buildAccessAlertDedupeKey(event: GatewayAccessAlertEvent): string {
+  const details = event.details ?? {};
+  const poolId =
+    typeof details.poolId === "string"
+      ? details.poolId
+      : typeof details.resolvedPoolId === "string"
+        ? details.resolvedPoolId
+        : undefined;
+  const modelAlias =
+    typeof details.modelAlias === "string"
+      ? details.modelAlias
+      : typeof details.requestedModelAlias === "string"
+        ? details.requestedModelAlias
+        : undefined;
+
+  return [
+    normalizeAccessAlertDedupePart(event.type),
+    normalizeAccessAlertDedupePart(event.consumerId),
+    normalizeAccessAlertDedupePart(event.accessKeyId),
+    normalizeAccessAlertDedupePart(poolId),
+    normalizeAccessAlertDedupePart(modelAlias),
+  ].join("|");
 }
 
 export class GatewayDatabase {
@@ -201,7 +241,10 @@ export class GatewayDatabase {
         message TEXT NOT NULL,
         details_json TEXT,
         acknowledged_at INTEGER,
-        acknowledged_by TEXT
+        acknowledged_by TEXT,
+        dedupe_key TEXT,
+        occurrence_count INTEGER NOT NULL DEFAULT 1,
+        last_seen_at INTEGER
       );
     `);
     ensureColumnIfMissing(
@@ -257,6 +300,24 @@ export class GatewayDatabase {
       "access_alert_events",
       "acknowledged_by",
       "acknowledged_by TEXT",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "dedupe_key",
+      "dedupe_key TEXT",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "occurrence_count",
+      "occurrence_count INTEGER NOT NULL DEFAULT 1",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "last_seen_at",
+      "last_seen_at INTEGER",
     );
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inference_usage_events_timestamp
@@ -399,6 +460,54 @@ export class GatewayDatabase {
   }
 
   insertAccessAlertEvent(event: GatewayAccessAlertEvent): void {
+    const dedupeKey = event.dedupeKey ?? buildAccessAlertDedupeKey(event);
+    const occurrenceCount = Math.max(1, Math.floor(event.occurrenceCount ?? 1));
+    const lastSeenAt = event.lastSeenAt ?? event.timestamp;
+    if (!event.acknowledgedAt) {
+      const existing = this.db
+        .prepare(
+          `
+            SELECT id
+            FROM access_alert_events
+            WHERE dedupe_key = ? AND acknowledged_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+          `,
+        )
+        .get(dedupeKey) as { id: number } | undefined;
+
+      if (existing) {
+        this.db
+          .prepare(
+            `
+              UPDATE access_alert_events
+              SET
+                severity = ?,
+                consumer_id = ?,
+                access_key_id = ?,
+                type = ?,
+                message = ?,
+                details_json = ?,
+                last_seen_at = ?,
+                occurrence_count = occurrence_count + ?
+              WHERE id = ?
+            `,
+          )
+          .run(
+            event.severity,
+            event.consumerId ?? null,
+            event.accessKeyId ?? null,
+            event.type,
+            event.message,
+            event.details ? JSON.stringify(event.details) : null,
+            lastSeenAt,
+            occurrenceCount,
+            existing.id,
+          );
+        return;
+      }
+    }
+
     this.db
       .prepare(
         `
@@ -411,9 +520,12 @@ export class GatewayDatabase {
             message,
             details_json,
             acknowledged_at,
-            acknowledged_by
+            acknowledged_by,
+            dedupe_key,
+            occurrence_count,
+            last_seen_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -426,6 +538,9 @@ export class GatewayDatabase {
         event.details ? JSON.stringify(event.details) : null,
         event.acknowledgedAt ?? null,
         event.acknowledgedBy ?? null,
+        dedupeKey,
+        occurrenceCount,
+        lastSeenAt,
       );
   }
 
@@ -443,9 +558,12 @@ export class GatewayDatabase {
             message,
             details_json,
             acknowledged_at,
-            acknowledged_by
+            acknowledged_by,
+            dedupe_key,
+            occurrence_count,
+            last_seen_at
           FROM access_alert_events
-          ORDER BY id DESC
+          ORDER BY COALESCE(last_seen_at, timestamp) DESC, id DESC
           LIMIT ?
         `,
       )
@@ -468,7 +586,10 @@ export class GatewayDatabase {
             message,
             details_json,
             acknowledged_at,
-            acknowledged_by
+            acknowledged_by,
+            dedupe_key,
+            occurrence_count,
+            last_seen_at
           FROM access_alert_events
           WHERE id = ?
         `,

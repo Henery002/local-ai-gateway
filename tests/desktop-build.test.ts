@@ -485,6 +485,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
     expect(rendererSource).toContain("acknowledgedAt");
+    expect(rendererSource).toContain("occurrenceCount");
+    expect(rendererSource).toContain("lastSeenAt");
+    expect(rendererSource).toContain("重复");
     expect(rendererSource).toContain("正式告警事件");
     expect(rendererSource).toContain("访问成员排行");
     expect(rendererSource).toContain("Access Key 排行");

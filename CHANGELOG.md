@@ -35,11 +35,12 @@
 - 新增号池用量归因第一段：`inference_usage_events` 兼容新增 `pool_id`，动态号池命中的推理请求会写入 pool 维度；用量摘要新增 `pools` 排行，桌面端维度洞察和用量明细弹窗展示号池 Token 消耗。
 - 新增正式访问告警事件第一段：SQLite 新增 `access_alert_events`，访问 key / 成员 / 策略类拒绝会写入持久化事件；管理端新增 `/admin/access/alerts`，桌面端“用量与告警”展示最近正式告警事件，并按 90 天 / 5 万行做轻量清理。
 - 新增正式访问告警确认状态第一段：`access_alert_events` 兼容新增 `acknowledged_at / acknowledged_by`，管理端新增 `/admin/access/alerts/:id/acknowledge` 和 `/admin/access/alerts/acknowledge-all`，桌面端“用量与告警”可确认最近未确认告警或一次确认全部未确认告警；确认只作用于本项目本地告警事件，不影响账号、号池或 Cockpit / OpenClaw 原始配置。
+- 新增正式访问告警事件去重第一段：`access_alert_events` 兼容新增 `dedupe_key / occurrence_count / last_seen_at`，同一访问策略拒绝类告警会合并未确认事件，保留首次发生时间、更新最近发生时间和重复次数；桌面端“用量与告警”展示重复次数和最近发生时间。
 - 新增成员 24h 用量趋势第一段：`usageSummary.daily` 输出按小时聚合的 `consumerTimeline`，桌面端“用量与告警”日窗口优先展示访问成员 24 小时 Token 趋势。
 - 新增 `desktop-access-policy-usage` 纯函数回归测试，覆盖成员多 key 用量聚合、超额状态、未配置日限额、QPS 余量、并发余量、成员策略告警摘要和访问策略错误聚合场景。
 - 新增 gateway 回归测试，覆盖动态号池请求写入 `usageSummary.daily.pools` 的号池维度统计。
 - 新增 gateway 回归测试，覆盖成员日额度拒绝写入 `access_alert_events`、通过 `/admin/access/alerts` 查询、告警事件按行数裁剪、管理员确认单条告警，以及批量确认所有未确认告警。
-- 新增 gateway 与桌面构建回归测试，覆盖成员小时趋势聚合、用量页趋势图 hook、桌面端单条告警确认入口和全部确认入口。
+- 新增 gateway 与桌面构建回归测试，覆盖成员小时趋势聚合、用量页趋势图 hook、桌面端单条告警确认入口、全部确认入口、重复告警合并和重复次数展示。
 - 新增 gateway 回归测试，覆盖 `access_policy_daily_quota_exceeded` 被写入结构化 recent errors，便于桌面端后续聚合策略拒绝。
 - 新增 gateway 回归测试，覆盖管理端 health 输出按访问成员归因的 QPS / 并发运行态数据。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。

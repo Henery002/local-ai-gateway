@@ -280,6 +280,8 @@ type AccessAlertEvent = {
   details?: Record<string, unknown>;
   acknowledgedAt?: number;
   acknowledgedBy?: string;
+  occurrenceCount?: number;
+  lastSeenAt?: number;
 };
 
 type AccessAlertListResponse = {
@@ -3342,6 +3344,10 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   );
   const latestAccessAlert =
     unacknowledgedAccessAlerts[0] ?? recentAccessAlertEvents[0];
+  const latestAccessAlertOccurrenceNote =
+    latestAccessAlert && (latestAccessAlert.occurrenceCount ?? 1) > 1
+      ? ` · 重复 ${formatCompactCount(latestAccessAlert.occurrenceCount ?? 1)} 次，最近 ${formatDate(latestAccessAlert.lastSeenAt ?? latestAccessAlert.timestamp)}`
+      : "";
   type UsageAlertRule = {
     title: string;
     detail: string;
@@ -3357,8 +3363,8 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     ? {
         title: "正式告警事件",
         detail: latestAccessAlert.acknowledgedAt
-          ? `${latestAccessAlert.type} · 已于 ${formatDate(latestAccessAlert.acknowledgedAt)} 确认`
-          : `${latestAccessAlert.type} · ${latestAccessAlert.message}`,
+          ? `${latestAccessAlert.type} · 已于 ${formatDate(latestAccessAlert.acknowledgedAt)} 确认${latestAccessAlertOccurrenceNote}`
+          : `${latestAccessAlert.type} · ${latestAccessAlert.message}${latestAccessAlertOccurrenceNote}`,
         status:
           unacknowledgedAccessAlerts.length > 0
             ? `${formatCompactCount(unacknowledgedAccessAlerts.length)} 条未确认`

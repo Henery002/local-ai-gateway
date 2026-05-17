@@ -605,6 +605,9 @@ export interface GatewayAccessAlertEvent {
   details?: Record<string, unknown>;
   acknowledgedAt?: number;
   acknowledgedBy?: string;
+  dedupeKey?: string;
+  occurrenceCount?: number;
+  lastSeenAt?: number;
 }
 
 export interface GatewayAccessAlertAcknowledgeAllResult {

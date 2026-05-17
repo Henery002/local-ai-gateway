@@ -2589,6 +2589,56 @@ describe("gateway app", () => {
     }
   });
 
+  it("deduplicates repeated unacknowledged access alert events", async () => {
+    const { rootDir, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+
+    try {
+      database.insertAccessAlertEvent({
+        timestamp: 1_700_000_000_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "first quota warning",
+        details: {
+          limit: 10,
+          usedTokens: 12,
+        },
+      });
+      database.insertAccessAlertEvent({
+        timestamp: 1_700_000_060_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "second quota warning",
+        details: {
+          limit: 10,
+          usedTokens: 18,
+        },
+      });
+
+      expect(database.getRecentAccessAlertEvents(10)).toEqual([
+        expect.objectContaining({
+          timestamp: 1_700_000_000_000,
+          lastSeenAt: 1_700_000_060_000,
+          occurrenceCount: 2,
+          type: "access_policy_daily_quota_exceeded",
+          consumerId: "consumer-alice",
+          accessKeyId: "key-alice",
+          message: "second quota warning",
+          details: {
+            limit: 10,
+            usedTokens: 18,
+          },
+        }),
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("returns streaming SSE and tool calls", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
