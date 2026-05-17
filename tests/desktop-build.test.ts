@@ -469,6 +469,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
+    expect(rendererSource).toContain("访问成员排行");
+    expect(rendererSource).toContain("Access Key 排行");
+    expect(rendererSource).toContain("summary.consumers.map");
+    expect(rendererSource).toContain("summary.accessKeys.map");
     expect(rendererSource).toContain("class=\"usage-insight-card\"");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");

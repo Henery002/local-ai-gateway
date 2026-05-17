@@ -7083,6 +7083,18 @@ function renderUsageDetailsModal(): void {
   }
 
   titleNode.textContent = `Token 用量明细 · ${usageWindowLabel(state.usageObserveWindow)} · ${usageClientFilterLabel(state.usageClientFilter)}`;
+  const accessConsumersById = new Map(
+    (state.securitySettings?.accessControl?.consumers ?? []).map((consumer) => [
+      consumer.id,
+      consumer,
+    ]),
+  );
+  const accessKeysById = new Map(
+    (state.securitySettings?.accessControl?.keys ?? []).map((key) => [
+      key.id,
+      key,
+    ]),
+  );
 
   const renderUsageDetailItems = (
     rows: Array<{
@@ -7136,6 +7148,57 @@ function renderUsageDetailsModal(): void {
               usage: row.usage,
             })),
             "当前窗口暂无客户端维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+      <div class="usage-details-section">
+        <h4>访问成员排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            summary.consumers.map((row) => {
+              const consumer = accessConsumersById.get(row.consumerId);
+              return {
+                title:
+                  consumer?.name ||
+                  row.clientTag ||
+                  consumer?.clientTag ||
+                  row.consumerId,
+                subtitle: [
+                  consumer?.type,
+                  row.clientTag ? `clientTag: ${row.clientTag}` : undefined,
+                  row.accessKeyId ? `key: ${row.accessKeyId}` : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+                usage: row.usage,
+              };
+            }),
+            "当前窗口暂无访问成员维度的 Token 用量记录。",
+          )}
+        </div>
+      </div>
+      <div class="usage-details-section">
+        <h4>Access Key 排行</h4>
+        <div class="usage-details-list">
+          ${renderUsageDetailItems(
+            summary.accessKeys.map((row) => {
+              const key = accessKeysById.get(row.accessKeyId);
+              const consumer = row.consumerId
+                ? accessConsumersById.get(row.consumerId)
+                : undefined;
+              return {
+                title: key?.name || row.accessKeyId,
+                subtitle: [
+                  consumer?.name || row.clientTag,
+                  key ? `${key.keyPrefix}...${key.keySuffix}` : undefined,
+                  key?.status ? formatAccessStatusLabel(key.status) : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+                usage: row.usage,
+              };
+            }),
+            "当前窗口暂无 Access Key 维度的 Token 用量记录。",
           )}
         </div>
       </div>
