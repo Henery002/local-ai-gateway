@@ -43,9 +43,13 @@ export interface RuntimeDiagnosticContext {
   inferenceAuthHasApiKey?: boolean;
   lanAccessEnabled?: boolean;
   lanBaseUrl?: string;
+  gatewayHost?: string;
+  gatewayPort?: number;
+  localNetworkAddressCount?: number;
   sharedLanPoolCount?: number;
   enabledLanConsumerCount?: number;
   enabledLanAccessKeyCount?: number;
+  publicReadyPoolCount?: number;
   recentErrors?: Array<{
     level?: string;
     message: string;
@@ -61,6 +65,15 @@ export function normalizeErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function isLoopbackHost(host: string | undefined): boolean {
+  const normalized = host?.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "localhost" ||
+    normalized === "::1"
+  );
 }
 
 export function classifyLoadFailure(
@@ -164,6 +177,7 @@ export function buildRuntimeDiagnostics(
     const sharedLanPoolCount = context.sharedLanPoolCount ?? 0;
     const enabledLanConsumerCount = context.enabledLanConsumerCount ?? 0;
     const enabledLanAccessKeyCount = context.enabledLanAccessKeyCount ?? 0;
+    const gatewayPort = context.gatewayPort ?? 8787;
 
     if (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey) {
       diagnostics.push({
@@ -204,6 +218,57 @@ export function buildRuntimeDiagnostics(
         severity: "warning",
         suggestion:
           "请在成员详情中创建或轮换 API Key，并把一次性明文分发给对应接入方。",
+      });
+    }
+
+    if (isLoopbackHost(context.gatewayHost)) {
+      diagnostics.push({
+        id: "lan-bind-loopback",
+        title: "LAN 共享仍绑定本机地址",
+        message: `局域网共享已开启，但网关当前监听地址是 ${context.gatewayHost}，其他设备无法直接访问。`,
+        severity: "warning",
+        suggestion:
+          "请保存 LAN 共享配置并重启网关，使推理面监听 0.0.0.0；管理面仍会保持本机访问保护。",
+      });
+    }
+
+    if (context.localNetworkAddressCount === 0) {
+      diagnostics.push({
+        id: "lan-network-address-missing",
+        title: "未检测到局域网 IP",
+        message: "局域网共享已开启，但桌面端暂未枚举到可分发的本机局域网 IPv4 地址。",
+        severity: "warning",
+        suggestion:
+          "请确认本机已连接 Wi-Fi 或有线局域网；如使用 VPN、热点或虚拟网卡，请优先分发同网段设备可访问的地址。",
+      });
+    }
+
+    diagnostics.push({
+      id: "lan-firewall-verification",
+      title: "请从成员设备验证端口连通",
+      message: `桌面端无法稳定自动判断 macOS 防火墙、路由器隔离或公司网络策略；请从成员设备访问 Base URL 或 /v1/models 验证 ${gatewayPort} 端口。`,
+      severity: "info",
+      suggestion:
+        "如果成员设备无法访问，请检查 macOS 防火墙、同网段隔离、路由器 AP isolation，以及当前网关端口是否被安全软件拦截。",
+    });
+
+    diagnostics.push({
+      id: "lan-host-sleep-risk",
+      title: "管理员主机睡眠会中断共享",
+      message: "LAN 共享依赖管理员这台 Mac 持续开机并保持网关运行，主机睡眠或网络切换会让成员请求失败。",
+      severity: "info",
+      suggestion:
+        "小范围共享期间建议连接电源，并在 macOS 设置中临时避免睡眠；长时间共享再考虑独立 server edition 或常驻主机。",
+    });
+
+    if ((context.publicReadyPoolCount ?? 0) > 0) {
+      diagnostics.push({
+        id: "public-ready-placeholder",
+        title: "检测到外网预留号池",
+        message: "当前存在 public-ready 号池配置，但二期桌面版仍不会开放公网共享入口。",
+        severity: "info",
+        suggestion:
+          "请只把 public-ready 当作三期治理预留标签；真正公网共享需要 HTTPS、域名、反代、审计、滥用防护和独立部署边界。",
       });
     }
 

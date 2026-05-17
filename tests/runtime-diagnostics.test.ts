@@ -227,4 +227,58 @@ describe("runtime diagnostics", () => {
       ]),
     );
   });
+
+  it("reports LAN exposure diagnostics for binding, firewall, sleep, and public-ready placeholders", () => {
+    const diagnostics = buildRuntimeDiagnostics({
+      gatewayOk: true,
+      activeSessionId: "session-1",
+      sessions: [
+        {
+          id: "session-1",
+          status: "available",
+          activity: {
+            requestCount: 1,
+          },
+        },
+      ],
+      loadFailures: [],
+      inferenceAuthEnabled: true,
+      inferenceAuthHasApiKey: true,
+      lanAccessEnabled: true,
+      lanBaseUrl: "http://192.168.1.20:8787/v1",
+      gatewayHost: "127.0.0.1",
+      gatewayPort: 8787,
+      localNetworkAddressCount: 0,
+      sharedLanPoolCount: 1,
+      enabledLanConsumerCount: 1,
+      enabledLanAccessKeyCount: 1,
+      publicReadyPoolCount: 1,
+    });
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "lan-bind-loopback",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          id: "lan-network-address-missing",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          id: "lan-firewall-verification",
+          message: expect.stringContaining("8787"),
+          severity: "info",
+        }),
+        expect.objectContaining({
+          id: "lan-host-sleep-risk",
+          severity: "info",
+        }),
+        expect.objectContaining({
+          id: "public-ready-placeholder",
+          severity: "info",
+        }),
+      ]),
+    );
+  });
 });

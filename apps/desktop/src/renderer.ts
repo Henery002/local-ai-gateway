@@ -312,6 +312,8 @@ type DashboardHealth = {
   ok: boolean;
   managed: boolean;
   version: string;
+  host?: string;
+  port?: number;
   desktopNetwork?: {
     localNetworkAddresses?: string[];
     lanBaseUrl?: string;
@@ -6887,6 +6889,9 @@ function updateRuntimeDiagnostics(
   const sharedLanPoolCount = (state.poolSettings?.pools ?? []).filter(
     (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "shared-lan",
   ).length;
+  const publicReadyPoolCount = (state.poolSettings?.pools ?? []).filter(
+    (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "public-ready",
+  ).length;
   state.runtimeDiagnostics = buildRuntimeDiagnostics({
     gatewayOk: state.health?.ok,
     activeSessionId: state.sessions?.activeSessionId,
@@ -6898,9 +6903,14 @@ function updateRuntimeDiagnostics(
     inferenceAuthHasApiKey: security?.hasApiKey,
     lanAccessEnabled: Boolean(security?.lanAccess?.enabled),
     lanBaseUrl: state.health?.desktopNetwork?.lanBaseUrl,
+    gatewayHost: state.health?.host,
+    gatewayPort: state.health?.port,
+    localNetworkAddressCount:
+      state.health?.desktopNetwork?.localNetworkAddresses?.length,
     sharedLanPoolCount,
     enabledLanConsumerCount: enabledLanConsumerIds.size,
     enabledLanAccessKeyCount,
+    publicReadyPoolCount,
     recentErrors: state.health?.recentErrors ?? [],
   });
 }

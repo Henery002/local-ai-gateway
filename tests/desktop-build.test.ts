@@ -436,8 +436,14 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("diagnostic-fact-grid");
     expect(rendererSource).toContain("recent-error-card");
     expect(runtimeDiagnosticsSource).toContain("lan-sharing-ready");
+    expect(runtimeDiagnosticsSource).toContain("lan-bind-loopback");
+    expect(runtimeDiagnosticsSource).toContain("lan-firewall-verification");
+    expect(runtimeDiagnosticsSource).toContain("lan-host-sleep-risk");
+    expect(runtimeDiagnosticsSource).toContain("public-ready-placeholder");
     expect(rendererSource).toContain("sharedLanPoolCount");
     expect(rendererSource).toContain("enabledLanAccessKeyCount");
+    expect(rendererSource).toContain("publicReadyPoolCount");
+    expect(rendererSource).toContain("localNetworkAddressCount");
     expect(rendererSource).toContain("lanBaseUrl");
     expect(styles).toContain(".system-diagnostics-workbench {");
     expect(styles).toContain(".system-config-panel {");
