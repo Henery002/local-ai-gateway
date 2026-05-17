@@ -90,6 +90,10 @@ describe("desktop build output", () => {
     expect(styles).toContain(".secret-inline-row .input-field");
     expect(styles).toContain(".detail-drawer-panel,");
     expect(styles).toContain("overflow: hidden;");
+    expect(styles).toContain("max-height: min(86vh, 920px);");
+    expect(styles).toContain(".modal-tabs {");
+    expect(styles).toContain("overflow-x: auto;");
+    expect(styles).toContain(".modal-content {\n    max-height: calc(100vh - 24px);");
   });
 
   it("uses Figma stat-card hooks for usage and overview metrics", () => {

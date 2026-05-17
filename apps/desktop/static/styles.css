@@ -2165,10 +2165,13 @@ button, input, select {
 .modal-content {
   width: 100%;
   max-width: 520px;
+  max-height: min(86vh, 920px);
   background: var(--bg-main);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-floating);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .figma-modal {
@@ -2193,6 +2196,8 @@ button, input, select {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
 }
 
 .modal-header h3 {
@@ -2207,12 +2212,15 @@ button, input, select {
   border-bottom: 1px solid var(--border-light);
   gap: 24px;
   background: var(--bg-main);
+  flex: 0 0 auto;
+  overflow-x: auto;
 }
 
 .figma-tabs {
   gap: 6px;
   padding: 0 var(--space-5);
   background: var(--color-bg-elevated);
+  scrollbar-width: thin;
 }
 
 .modal-tab {
@@ -2254,6 +2262,7 @@ button, input, select {
   padding: 24px;
   overflow-y: auto;
   min-height: 0;
+  flex: 1 1 auto;
 }
 
 .modal-body p {
@@ -2269,6 +2278,7 @@ button, input, select {
   justify-content: flex-end;
   gap: 12px;
   background: var(--bg-surface);
+  flex: 0 0 auto;
 }
 
 /* Account Cards */
@@ -4025,6 +4035,33 @@ button, input, select {
 
 @media (max-width: 760px) {
   .accounts-grid { grid-template-columns: 1fr; }
+  .modal-overlay {
+    align-items: stretch;
+    padding: 12px;
+  }
+  .modal-content {
+    max-height: calc(100vh - 24px);
+  }
+  .modal-header,
+  .modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .modal-header .btn,
+  .modal-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .modal-tabs {
+    padding: 0 12px;
+    gap: 4px;
+  }
+  .figma-tabs .modal-tab {
+    flex: 0 0 auto;
+  }
+  .modal-body {
+    padding: 16px;
+  }
   .card-header,
   .dashboard-panel-head,
   .account-assets-shell-head,
