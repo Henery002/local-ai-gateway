@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildAccessPolicyUsageSnapshot } from "../apps/desktop/src/access-policy-usage.js";
+import {
+  buildAccessPolicyRuntimeSnapshot,
+  buildAccessPolicyUsageSnapshot,
+} from "../apps/desktop/src/access-policy-usage.js";
 
 describe("desktop access policy usage snapshot", () => {
   it("aggregates daily consumer token usage and computes remaining quota", () => {
@@ -86,6 +89,65 @@ describe("desktop access policy usage snapshot", () => {
     expect(snapshot).toMatchObject({
       configured: false,
       usedTokens: 0,
+      tone: "neutral",
+    });
+  });
+});
+
+describe("desktop access policy runtime snapshot", () => {
+  it("computes remaining request and concurrency capacity for configured policy limits", () => {
+    const snapshot = buildAccessPolicyRuntimeSnapshot({
+      requestsPerMinute: 10,
+      maxConcurrentRequests: 3,
+      recentRequestCount1m: 7,
+      inFlightRequests: 1,
+      updatedAt: 2_000,
+    });
+
+    expect(snapshot).toMatchObject({
+      requestLimitConfigured: true,
+      requestLimit: 10,
+      recentRequestCount1m: 7,
+      remainingRequests1m: 3,
+      requestUsageRatio: 0.7,
+      concurrencyLimitConfigured: true,
+      concurrencyLimit: 3,
+      inFlightRequests: 1,
+      remainingConcurrency: 2,
+      concurrencyUsageRatio: 1 / 3,
+      tone: "active",
+      updatedAt: 2_000,
+    });
+  });
+
+  it("marks runtime limits as warning when either request or concurrency capacity is exhausted", () => {
+    const snapshot = buildAccessPolicyRuntimeSnapshot({
+      requestsPerMinute: 5,
+      maxConcurrentRequests: 2,
+      recentRequestCount1m: 5,
+      inFlightRequests: 2,
+    });
+
+    expect(snapshot).toMatchObject({
+      remainingRequests1m: 0,
+      requestUsageRatio: 1,
+      remainingConcurrency: 0,
+      concurrencyUsageRatio: 1,
+      tone: "warning",
+    });
+  });
+
+  it("keeps runtime snapshot neutral when no request or concurrency limit is configured", () => {
+    const snapshot = buildAccessPolicyRuntimeSnapshot({
+      recentRequestCount1m: 4,
+      inFlightRequests: 2,
+    });
+
+    expect(snapshot).toMatchObject({
+      requestLimitConfigured: false,
+      recentRequestCount1m: 4,
+      concurrencyLimitConfigured: false,
+      inFlightRequests: 2,
       tone: "neutral",
     });
   });

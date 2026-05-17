@@ -3004,6 +3004,88 @@ describe("gateway app", () => {
     }
   });
 
+  it("reports access policy runtime usage for admin observability", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            limits: {
+              requestsPerMinute: 3,
+              maxConcurrentRequests: 2,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      success: true,
+      stream: false,
+      latencyMs: 12,
+      inputTokens: 1,
+      outputTokens: 2,
+      totalTokens: 3,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const inFlightId = runtime.beginInferenceActivity({
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      requestedModelAlias: "fake-default",
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().inferenceObservability.accessConsumers).toEqual([
+        {
+          consumerId: "consumer-alice",
+          recentRequestCount1m: 1,
+          inFlightCount: 1,
+          requestsPerMinute: 3,
+          maxConcurrentRequests: 2,
+        },
+      ]);
+    } finally {
+      runtime.finishInferenceActivity(inFlightId);
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects access consumers routed to an unauthorized dynamic pool", async () => {
     const { rootDir, runtime, database, adapter } = createTestRuntime();
     cleanupDirs.push(rootDir);

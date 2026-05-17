@@ -93,6 +93,13 @@ type ClientCircuitState = {
   lastFailureClass?: GatewayPoolFailureClass;
 };
 
+function normalizeRuntimePolicyLimit(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
 export class GatewayRuntime {
   readonly startedAt = new Date();
   readonly sessionSource: SessionSource;
@@ -776,6 +783,35 @@ export class GatewayRuntime {
       (left, right) => right.startedAt - left.startedAt,
     )[0];
     const now = Date.now();
+    const authSettings = this.configStore.getInferenceAuthSettings();
+    const policies = authSettings.accessControl?.policies ?? [];
+    const accessConsumers = (authSettings.accessControl?.consumers ?? [])
+      .map((consumer) => {
+        const policy = policies.find((item) => item.consumerId === consumer.id);
+        const requestsPerMinute = normalizeRuntimePolicyLimit(
+          policy?.limits?.requestsPerMinute,
+        );
+        const maxConcurrentRequests = normalizeRuntimePolicyLimit(
+          policy?.limits?.maxConcurrentRequests,
+        );
+        return {
+          consumerId: consumer.id,
+          recentRequestCount1m: this.database.getUsageTotalsForAccessConsumer({
+            consumerId: consumer.id,
+            sinceTimestamp: now - 60_000,
+          }).requestCount,
+          inFlightCount: this.countInFlightRequestsForAccessConsumer(consumer.id),
+          requestsPerMinute,
+          maxConcurrentRequests,
+        };
+      })
+      .filter(
+        (item) =>
+          item.recentRequestCount1m > 0 ||
+          item.inFlightCount > 0 ||
+          typeof item.requestsPerMinute === "number" ||
+          typeof item.maxConcurrentRequests === "number",
+      );
     const blockedClients = Array.from(this.clientCircuitState.entries())
       .filter(([, state]) => typeof state.openUntil === "number" && state.openUntil > now)
       .map(([clientTag, state]) => ({
@@ -798,6 +834,8 @@ export class GatewayRuntime {
       currentPoolId: latestActive?.poolId,
       currentClientTag: latestActive?.clientTag,
       currentModelAlias: latestActive?.requestedModelAlias,
+      accessConsumers:
+        accessConsumers.length > 0 ? accessConsumers : undefined,
       blockedClients: blockedClients.length > 0 ? blockedClients : undefined,
     };
   }

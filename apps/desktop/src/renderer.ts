@@ -30,7 +30,10 @@ import {
   deleteSelectedPools,
   normalizePoolSelection,
 } from "./pool-bulk-actions.js";
-import { buildAccessPolicyUsageSnapshot } from "./access-policy-usage.js";
+import {
+  buildAccessPolicyRuntimeSnapshot,
+  buildAccessPolicyUsageSnapshot,
+} from "./access-policy-usage.js";
 
 const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
@@ -277,6 +280,22 @@ type DashboardHealth = {
     lanAccess?: {
       enabled: boolean;
     };
+  };
+  inferenceObservability?: {
+    inFlightCount: number;
+    lastStartedAt?: number;
+    lastFinishedAt?: number;
+    currentSessionId?: string;
+    currentPoolId?: string;
+    currentClientTag?: string;
+    currentModelAlias?: string;
+    accessConsumers?: Array<{
+      consumerId: string;
+      recentRequestCount1m: number;
+      inFlightCount: number;
+      requestsPerMinute?: number;
+      maxConcurrentRequests?: number;
+    }>;
   };
   usageObservability?: UsageObservability;
   routingObservability?: {
@@ -2286,6 +2305,94 @@ function renderAccessPolicyUsageSnapshot(
   `;
 }
 
+function getAccessPolicyRuntimeEntry(consumerId: string):
+  | NonNullable<
+      NonNullable<DashboardHealth["inferenceObservability"]>["accessConsumers"]
+    >[number]
+  | undefined {
+  return state.health?.inferenceObservability?.accessConsumers?.find(
+    (item) => item.consumerId === consumerId,
+  );
+}
+
+function formatAccessPolicyRuntimeLimit(
+  used: number,
+  limit: number | undefined,
+  unit: string,
+): string {
+  return typeof limit === "number" && limit > 0
+    ? `${formatCompactCount(used)} / ${formatCompactCount(limit)} ${unit}`
+    : `${formatCompactCount(used)} ${unit} · 未限制`;
+}
+
+function renderAccessPolicyRuntimeSnapshot(
+  consumerId: string,
+  policy: SecurityAccessPolicy | undefined,
+): string {
+  const runtime = getAccessPolicyRuntimeEntry(consumerId);
+  const snapshot = buildAccessPolicyRuntimeSnapshot({
+    requestsPerMinute:
+      runtime?.requestsPerMinute ?? policy?.limits?.requestsPerMinute,
+    maxConcurrentRequests:
+      runtime?.maxConcurrentRequests ?? policy?.limits?.maxConcurrentRequests,
+    recentRequestCount1m: runtime?.recentRequestCount1m,
+    inFlightRequests: runtime?.inFlightCount,
+    updatedAt: state.health ? Date.now() : undefined,
+  });
+  const requestPercent =
+    typeof snapshot.requestUsageRatio === "number"
+      ? Math.round(snapshot.requestUsageRatio * 100)
+      : 0;
+  const concurrencyPercent =
+    typeof snapshot.concurrencyUsageRatio === "number"
+      ? Math.round(snapshot.concurrencyUsageRatio * 100)
+      : 0;
+  const requestDetail = snapshot.requestLimitConfigured
+    ? `近 60 秒请求 ${formatAccessPolicyRuntimeLimit(
+        snapshot.recentRequestCount1m,
+        snapshot.requestLimit,
+        "次",
+      )}，剩余 ${formatCompactCount(snapshot.remainingRequests1m ?? 0)} 次`
+    : `近 60 秒请求 ${formatCompactCount(snapshot.recentRequestCount1m)} 次，当前未限制`;
+  const concurrencyDetail = snapshot.concurrencyLimitConfigured
+    ? `当前并发 ${formatAccessPolicyRuntimeLimit(
+        snapshot.inFlightRequests,
+        snapshot.concurrencyLimit,
+        "路",
+      )}，剩余 ${formatCompactCount(snapshot.remainingConcurrency ?? 0)} 路`
+    : `当前并发 ${formatCompactCount(snapshot.inFlightRequests)} 路，当前未限制`;
+  const updatedLabel = snapshot.updatedAt
+    ? `运行态更新：${formatDate(snapshot.updatedAt)}`
+    : "运行态更新：暂无";
+
+  return `
+    <div class="access-policy-runtime-snapshot ${snapshot.tone}">
+      <div class="access-policy-usage-head">
+        <div>
+          <strong>QPS / 并发状态</strong>
+          <span>${escapeHtml(requestDetail)}</span>
+          <span>${escapeHtml(concurrencyDetail)}</span>
+        </div>
+        <span class="badge ${snapshot.tone === "warning" ? "warning" : snapshot.tone === "active" ? "active" : "neutral"}">${snapshot.tone === "warning" ? "接近上限" : snapshot.tone === "active" ? "正常" : "未限制"}</span>
+      </div>
+      <div class="access-policy-runtime-bars" aria-hidden="true">
+        <div class="access-policy-runtime-bar">
+          <small>请求</small>
+          <span><i style="width: ${Math.min(100, Math.max(0, requestPercent))}%"></i></span>
+        </div>
+        <div class="access-policy-runtime-bar">
+          <small>并发</small>
+          <span><i style="width: ${Math.min(100, Math.max(0, concurrencyPercent))}%"></i></span>
+        </div>
+      </div>
+      <div class="access-policy-usage-meta">
+        <span>${escapeHtml(updatedLabel)}</span>
+        <span>限流窗口：滚动 60 秒；并发：当前请求中</span>
+      </div>
+    </div>
+  `;
+}
+
 function accessKeyBadgeClass(key: SecurityAccessKey): string {
   if (key.status === "enabled" && !isPastIsoDate(key.expiresAt)) {
     return "active";
@@ -2440,6 +2547,7 @@ function renderAccessMemberDrawer(
       </div>
     </div>
     ${renderAccessPolicyUsageSnapshot(selectedConsumer.id, policy)}
+    ${renderAccessPolicyRuntimeSnapshot(selectedConsumer.id, policy)}
     <div class="access-member-note">${escapeHtml(selectedConsumer.note || "暂无备注。")}</div>
     <div class="access-policy-panel mt-3">
       <div class="access-policy-panel-head">

@@ -753,6 +753,13 @@ export interface GatewayInferenceObservability {
   currentPoolId?: string;
   currentClientTag?: string;
   currentModelAlias?: string;
+  accessConsumers?: Array<{
+    consumerId: string;
+    recentRequestCount1m: number;
+    inFlightCount: number;
+    requestsPerMinute?: number;
+    maxConcurrentRequests?: number;
+  }>;
   blockedClients?: Array<{
     clientTag: string;
     retryAfterSeconds: number;

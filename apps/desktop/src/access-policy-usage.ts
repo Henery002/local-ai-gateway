@@ -24,6 +24,21 @@ export type AccessPolicyUsageSnapshot = {
   tone: "active" | "warning" | "neutral";
 };
 
+export type AccessPolicyRuntimeSnapshot = {
+  requestLimitConfigured: boolean;
+  requestLimit?: number;
+  recentRequestCount1m: number;
+  remainingRequests1m?: number;
+  requestUsageRatio?: number;
+  concurrencyLimitConfigured: boolean;
+  concurrencyLimit?: number;
+  inFlightRequests: number;
+  remainingConcurrency?: number;
+  concurrencyUsageRatio?: number;
+  updatedAt?: number;
+  tone: "active" | "warning" | "neutral";
+};
+
 function normalizePositiveInteger(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return undefined;
@@ -73,5 +88,54 @@ export function buildAccessPolicyUsageSnapshot(input: {
         : undefined,
     updatedAt: input.dailyUsageSummary?.updatedAt,
     tone: usageRatio >= 0.9 ? "warning" : "active",
+  };
+}
+
+export function buildAccessPolicyRuntimeSnapshot(input: {
+  requestsPerMinute?: number;
+  maxConcurrentRequests?: number;
+  recentRequestCount1m?: number;
+  inFlightRequests?: number;
+  updatedAt?: number;
+}): AccessPolicyRuntimeSnapshot {
+  const requestLimit = normalizePositiveInteger(input.requestsPerMinute);
+  const concurrencyLimit = normalizePositiveInteger(input.maxConcurrentRequests);
+  const recentRequestCount1m = normalizeUsageCounter(input.recentRequestCount1m);
+  const inFlightRequests = normalizeUsageCounter(input.inFlightRequests);
+
+  const requestUsageRatio =
+    typeof requestLimit === "number"
+      ? Math.min(1, recentRequestCount1m / requestLimit)
+      : undefined;
+  const concurrencyUsageRatio =
+    typeof concurrencyLimit === "number"
+      ? Math.min(1, inFlightRequests / concurrencyLimit)
+      : undefined;
+  const tone =
+    requestUsageRatio === undefined && concurrencyUsageRatio === undefined
+      ? "neutral"
+      : (requestUsageRatio ?? 0) >= 0.9 || (concurrencyUsageRatio ?? 0) >= 0.9
+        ? "warning"
+        : "active";
+
+  return {
+    requestLimitConfigured: typeof requestLimit === "number",
+    requestLimit,
+    recentRequestCount1m,
+    remainingRequests1m:
+      typeof requestLimit === "number"
+        ? Math.max(0, requestLimit - recentRequestCount1m)
+        : undefined,
+    requestUsageRatio,
+    concurrencyLimitConfigured: typeof concurrencyLimit === "number",
+    concurrencyLimit,
+    inFlightRequests,
+    remainingConcurrency:
+      typeof concurrencyLimit === "number"
+        ? Math.max(0, concurrencyLimit - inFlightRequests)
+        : undefined,
+    concurrencyUsageRatio,
+    updatedAt: input.updatedAt,
+    tone,
   };
 }
