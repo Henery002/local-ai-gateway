@@ -6,6 +6,8 @@ const api = {
   getUsageSummary: (clientFilter?: string) =>
     ipcRenderer.invoke("gateway:get-usage-summary", clientFilter),
   getAccessAlerts: () => ipcRenderer.invoke("gateway:get-access-alerts"),
+  acknowledgeAccessAlert: (id: number) =>
+    ipcRenderer.invoke("gateway:acknowledge-access-alert", id),
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),

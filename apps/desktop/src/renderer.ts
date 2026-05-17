@@ -52,6 +52,9 @@ declare global {
         clientFilter?: UsageClientFilter,
       ) => Promise<UsageSummaryResponse>;
       getAccessAlerts: () => Promise<AccessAlertListResponse>;
+      acknowledgeAccessAlert: (
+        id: number,
+      ) => Promise<{ ok: boolean; data: AccessAlertEvent }>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -274,6 +277,8 @@ type AccessAlertEvent = {
   type: string;
   message: string;
   details?: Record<string, unknown>;
+  acknowledgedAt?: number;
+  acknowledgedBy?: string;
 };
 
 type AccessAlertListResponse = {
@@ -3322,14 +3327,42 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     state.health?.recentErrors ?? [],
   );
   const recentAccessAlertEvents = state.accessAlerts ?? [];
-  const latestAccessAlert = recentAccessAlertEvents[0];
+  const unacknowledgedAccessAlerts = recentAccessAlertEvents.filter(
+    (event) => !event.acknowledgedAt,
+  );
+  const latestAccessAlert =
+    unacknowledgedAccessAlerts[0] ?? recentAccessAlertEvents[0];
+  type UsageAlertRule = {
+    title: string;
+    detail: string;
+    status: string;
+    tone: string;
+    action?: string;
+    actionLabel?: string;
+    eventId?: number;
+  };
   const accessAlertEventRule = latestAccessAlert
     ? {
         title: "正式告警事件",
-        detail: `${latestAccessAlert.type} · ${latestAccessAlert.message}`,
-        status: `${formatCompactCount(recentAccessAlertEvents.length)} 条`,
+        detail: latestAccessAlert.acknowledgedAt
+          ? `${latestAccessAlert.type} · 已于 ${formatDate(latestAccessAlert.acknowledgedAt)} 确认`
+          : `${latestAccessAlert.type} · ${latestAccessAlert.message}`,
+        status:
+          unacknowledgedAccessAlerts.length > 0
+            ? `${formatCompactCount(unacknowledgedAccessAlerts.length)} 条未确认`
+            : "已确认",
         tone:
-          latestAccessAlert.severity === "critical" ? "danger" : "warning",
+          latestAccessAlert.acknowledgedAt
+            ? "active"
+            : latestAccessAlert.severity === "critical"
+              ? "danger"
+              : "warning",
+        action:
+          latestAccessAlert.id && !latestAccessAlert.acknowledgedAt
+            ? "ack-access-alert"
+            : undefined,
+        actionLabel: "确认",
+        eventId: latestAccessAlert.id,
       }
     : {
         title: "正式告警事件",
@@ -3337,7 +3370,7 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
         status: "正常",
         tone: "active",
       };
-  const rules = [
+  const rules: UsageAlertRule[] = [
     ...accessPolicyRules,
     accessAlertEventRule,
     policyErrorRule,
@@ -3370,15 +3403,20 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   ];
 
   node.innerHTML = rules
-    .map(
-      (rule) => `
+    .map((rule) => {
+      const actionMarkup =
+        rule.action === "ack-access-alert" && rule.eventId
+          ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(rule.eventId))}">${escapeHtml(rule.actionLabel ?? "处理")}</button>`
+          : "";
+      return `
         <div class="usage-alert-rule">
           <strong>${escapeHtml(rule.title)}</strong>
           <span>${escapeHtml(rule.detail)}</span>
           <em class="badge ${escapeHtml(rule.tone)}">${escapeHtml(rule.status)}</em>
+          ${actionMarkup}
         </div>
-      `,
-    )
+      `;
+    })
     .join("");
 }
 
@@ -9202,6 +9240,25 @@ function bindActions(): void {
 
     if (action === "reset-telemetry") {
       await resetTelemetryWithFeedback(button as HTMLButtonElement);
+      return;
+    }
+
+    if (action === "ack-access-alert" && button.dataset.alertId) {
+      const alertId = Number.parseInt(button.dataset.alertId, 10);
+      if (!Number.isFinite(alertId) || alertId <= 0) {
+        setBanner("告警事件 ID 无效，无法确认。", "error");
+        return;
+      }
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "确认中");
+        await getGatewayApi().acknowledgeAccessAlert(alertId);
+        await refreshUsageSummaryOnly();
+        setBanner("告警事件已确认。", "success");
+      } catch (error) {
+        setBanner(`确认告警失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
       return;
     }
 

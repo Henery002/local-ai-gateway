@@ -1694,6 +1694,18 @@ ipcMain.handle("gateway:get-access-alerts", async () => {
   return callAdmin("/admin/access/alerts");
 });
 
+ipcMain.handle("gateway:acknowledge-access-alert", async (_event, id: number) => {
+  await gatewayManager.ensureRunning();
+  const normalizedId = Number.isFinite(id) ? Math.floor(id) : 0;
+  if (normalizedId <= 0) {
+    throw new Error("Access alert id is invalid.");
+  }
+  return callAdmin(`/admin/access/alerts/${normalizedId}/acknowledge`, {
+    method: "POST",
+    body: JSON.stringify({ acknowledgedBy: "desktop-admin" }),
+  });
+});
+
 ipcMain.handle("gateway:get-provider-settings", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/providers");

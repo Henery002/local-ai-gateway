@@ -451,6 +451,14 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
       "utf8",
     );
+    const preloadSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/preload.ts"),
+      "utf8",
+    );
+    const mainSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/main.ts"),
+      "utf8",
+    );
 
     const usageView = indexHtml.match(
       /<div class="view" data-view="usage" hidden>([\s\S]*?)<!-- View: Routing -->/,
@@ -472,6 +480,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("consumerTimeline");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
+    expect(rendererSource).toContain("acknowledgeAccessAlert");
+    expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
+    expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("正式告警事件");
     expect(rendererSource).toContain("访问成员排行");
     expect(rendererSource).toContain("Access Key 排行");
@@ -480,6 +491,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("summary.accessKeys.map");
     expect(rendererSource).toContain("(summary.pools ?? []).map");
     expect(rendererSource).toContain("class=\"usage-insight-card\"");
+    expect(preloadSource).toContain("acknowledgeAccessAlert");
+    expect(mainSource).toContain("gateway:acknowledge-access-alert");
+    expect(mainSource).toContain("/admin/access/alerts/");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");
     expect(styles).toContain(".usage-chart-frame {");

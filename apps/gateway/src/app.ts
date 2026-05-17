@@ -1815,6 +1815,40 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.post("/admin/access/alerts/:id/acknowledge", async (request) => {
+    requireAdminAuth(runtime, request);
+    const rawId = (request.params as { id?: string } | undefined)?.id;
+    const id = typeof rawId === "string" ? Number.parseInt(rawId, 10) : NaN;
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new GatewayError(
+        400,
+        "access_alert_invalid_id",
+        "Access alert id is invalid.",
+      );
+    }
+
+    const body = request.body as { acknowledgedBy?: unknown } | undefined;
+    const acknowledgedBy =
+      typeof body?.acknowledgedBy === "string"
+        ? body.acknowledgedBy.trim()
+        : undefined;
+    const event = runtime.database.acknowledgeAccessAlertEvent(id, {
+      acknowledgedBy: acknowledgedBy || "admin",
+    });
+    if (!event) {
+      throw new GatewayError(
+        404,
+        "access_alert_not_found",
+        "Access alert event was not found.",
+      );
+    }
+
+    return {
+      ok: true,
+      data: event,
+    };
+  });
+
   app.get("/admin/providers", async (request) => {
     requireAdminAuth(runtime, request);
     return {

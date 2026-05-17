@@ -84,6 +84,36 @@ function ensureColumnIfMissing(
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${definitionSql};`);
 }
 
+type AccessAlertEventRow = {
+  id: number;
+  timestamp: number;
+  severity: GatewayAccessAlertEvent["severity"];
+  consumer_id: string | null;
+  access_key_id: string | null;
+  type: string;
+  message: string;
+  details_json: string | null;
+  acknowledged_at: number | null;
+  acknowledged_by: string | null;
+};
+
+function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEvent {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    severity: row.severity,
+    consumerId: row.consumer_id ?? undefined,
+    accessKeyId: row.access_key_id ?? undefined,
+    type: row.type,
+    message: row.message,
+    details: row.details_json
+      ? (JSON.parse(row.details_json) as Record<string, unknown>)
+      : undefined,
+    acknowledgedAt: row.acknowledged_at ?? undefined,
+    acknowledgedBy: row.acknowledged_by ?? undefined,
+  };
+}
+
 export class GatewayDatabase {
   private readonly db: BetterSqliteDatabase;
 
@@ -168,7 +198,9 @@ export class GatewayDatabase {
         access_key_id TEXT,
         type TEXT NOT NULL,
         message TEXT NOT NULL,
-        details_json TEXT
+        details_json TEXT,
+        acknowledged_at INTEGER,
+        acknowledged_by TEXT
       );
     `);
     ensureColumnIfMissing(
@@ -212,6 +244,18 @@ export class GatewayDatabase {
       "inference_usage_events",
       "pool_id",
       "pool_id TEXT",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "acknowledged_at",
+      "acknowledged_at INTEGER",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "acknowledged_by",
+      "acknowledged_by TEXT",
     );
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inference_usage_events_timestamp
@@ -364,9 +408,11 @@ export class GatewayDatabase {
             access_key_id,
             type,
             message,
-            details_json
+            details_json,
+            acknowledged_at,
+            acknowledged_by
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -377,6 +423,8 @@ export class GatewayDatabase {
         event.type,
         event.message,
         event.details ? JSON.stringify(event.details) : null,
+        event.acknowledgedAt ?? null,
+        event.acknowledgedBy ?? null,
       );
   }
 
@@ -384,35 +432,72 @@ export class GatewayDatabase {
     const rows = this.db
       .prepare(
         `
-          SELECT id, timestamp, severity, consumer_id, access_key_id, type, message, details_json
+          SELECT
+            id,
+            timestamp,
+            severity,
+            consumer_id,
+            access_key_id,
+            type,
+            message,
+            details_json,
+            acknowledged_at,
+            acknowledged_by
           FROM access_alert_events
           ORDER BY id DESC
           LIMIT ?
         `,
       )
-      .all(Math.max(1, Math.min(200, Math.floor(limit)))) as Array<{
-      id: number;
-      timestamp: number;
-      severity: GatewayAccessAlertEvent["severity"];
-      consumer_id: string | null;
-      access_key_id: string | null;
-      type: string;
-      message: string;
-      details_json: string | null;
-    }>;
+      .all(Math.max(1, Math.min(200, Math.floor(limit)))) as AccessAlertEventRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      severity: row.severity,
-      consumerId: row.consumer_id ?? undefined,
-      accessKeyId: row.access_key_id ?? undefined,
-      type: row.type,
-      message: row.message,
-      details: row.details_json
-        ? (JSON.parse(row.details_json) as Record<string, unknown>)
-        : undefined,
-    }));
+    return rows.map(mapAccessAlertEventRow);
+  }
+
+  getAccessAlertEvent(id: number): GatewayAccessAlertEvent | undefined {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            timestamp,
+            severity,
+            consumer_id,
+            access_key_id,
+            type,
+            message,
+            details_json,
+            acknowledged_at,
+            acknowledged_by
+          FROM access_alert_events
+          WHERE id = ?
+        `,
+      )
+      .get(id) as AccessAlertEventRow | undefined;
+
+    return row ? mapAccessAlertEventRow(row) : undefined;
+  }
+
+  acknowledgeAccessAlertEvent(
+    id: number,
+    input: { acknowledgedAt?: number; acknowledgedBy?: string } = {},
+  ): GatewayAccessAlertEvent | undefined {
+    const acknowledgedAt = input.acknowledgedAt ?? Date.now();
+    const acknowledgedBy = input.acknowledgedBy?.trim() || "admin";
+    const result = this.db
+      .prepare(
+        `
+          UPDATE access_alert_events
+          SET acknowledged_at = ?, acknowledged_by = ?
+          WHERE id = ?
+        `,
+      )
+      .run(acknowledgedAt, acknowledgedBy, id);
+
+    if (result.changes === 0) {
+      return undefined;
+    }
+
+    return this.getAccessAlertEvent(id);
   }
 
   getUsageTotalsForAccessConsumer(options: {

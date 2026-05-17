@@ -603,6 +603,8 @@ export interface GatewayAccessAlertEvent {
   type: string;
   message: string;
   details?: Record<string, unknown>;
+  acknowledgedAt?: number;
+  acknowledgedBy?: string;
 }
 
 export interface GatewayAccessAlertList {

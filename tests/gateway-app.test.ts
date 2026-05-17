@@ -2453,6 +2453,64 @@ describe("gateway app", () => {
     }
   });
 
+  it("acknowledges persisted access alert events by admin endpoint", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      database.insertAccessAlertEvent({
+        timestamp: Date.now() - 1_000,
+        severity: "warning",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        type: "access_policy_daily_quota_exceeded",
+        message: "quota exceeded",
+      });
+      const eventId = database.getRecentAccessAlertEvents(1)[0]?.id;
+      expect(eventId).toEqual(expect.any(Number));
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "POST",
+        url: `/admin/access/alerts/${eventId}/acknowledge`,
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+        body: {
+          acknowledgedBy: "desktop-admin",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          id: eventId,
+          acknowledgedBy: "desktop-admin",
+        },
+      });
+      expect(response.json().data.acknowledgedAt).toEqual(expect.any(Number));
+
+      const alerts = await app.inject({
+        method: "GET",
+        url: "/admin/access/alerts?limit=5",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(alerts.statusCode).toBe(200);
+      expect(alerts.json().data.events[0]).toMatchObject({
+        id: eventId,
+        acknowledgedAt: response.json().data.acknowledgedAt,
+        acknowledgedBy: "desktop-admin",
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("returns streaming SSE and tool calls", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
