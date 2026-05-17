@@ -4217,6 +4217,74 @@ function renderProviderRegistry(): void {
   `;
 }
 
+function getLanAccessBaseUrl(): string {
+  const configuredPort = normalizeGatewayPort(state.systemSettings?.gatewayPort);
+  return (
+    state.health?.desktopNetwork?.lanBaseUrl?.trim() ||
+    `http://<本机局域网IP>:${configuredPort}/v1`
+  );
+}
+
+function buildLanAccessTemplateText(): string {
+  const baseUrl = getLanAccessBaseUrl();
+  return [
+    "Local AI Gateway LAN 接入模板",
+    "",
+    `base_url: ${baseUrl}`,
+    "api_key: <分发给该成员的一次性 API Key 明文>",
+    "",
+    "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
+    `- Base URL：${baseUrl}`,
+    "- API Key：粘贴该成员的专属 API Key",
+    "- Model：使用本项目已暴露的模型别名",
+    "",
+    "cURL 验证：",
+    `curl ${baseUrl}/models \\`,
+    "  -H \"Authorization: Bearer <成员 API Key>\"",
+  ].join("\n");
+}
+
+function renderLanAccessTemplate(): void {
+  const container = document.getElementById("lan-access-template");
+  if (!container) {
+    return;
+  }
+
+  const security = state.securitySettings ?? state.health?.inferenceAuth;
+  const lanEnabled = Boolean(security?.lanAccess?.enabled);
+  const hasApiKey = Boolean(security?.hasApiKey);
+  const baseUrl = getLanAccessBaseUrl();
+  const status = lanEnabled
+    ? hasApiKey
+      ? "可分发模板"
+      : "缺少 API Key"
+    : "未启用";
+  const detail = lanEnabled
+    ? "将下面模板发给可信成员；真实 API Key 请从“访问与密钥”的成员 Key 创建或轮换结果中单独分发。"
+    : "启用 LAN 共享并配置 API Key 后，这里会生成可分发给成员的接入模板。";
+
+  container.innerHTML = `
+    <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>LAN 成员接入模板</strong>
+          <span>${escapeHtml(detail)}</span>
+        </div>
+        <span class="badge ${lanEnabled && hasApiKey ? "active" : "neutral"}">${escapeHtml(status)}</span>
+      </div>
+      <div class="diagnostic-fact-grid">
+        <div class="diagnostic-fact"><span>Base URL</span><strong>${escapeHtml(baseUrl)}</strong></div>
+        <div class="diagnostic-fact"><span>适用工具</span><strong>cc_switch / Codex / 自定义 Provider</strong></div>
+      </div>
+      <pre class="template-preview">${escapeHtml(buildLanAccessTemplateText())}</pre>
+      <div class="usage-alert-actions">
+        <button class="btn secondary mini" data-action="copy-lan-access-template">复制 LAN 模板</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderDiagnostics(): void {
   const serviceContainer = document.getElementById("service-diagnostics");
   const container = document.getElementById("provider-diagnostics");
@@ -4226,6 +4294,7 @@ function renderDiagnostics(): void {
 
   renderStartupChecklist();
   renderAppDataStatus();
+  renderLanAccessTemplate();
 
   const runtimeDiagnostics = state.runtimeDiagnostics;
   if (!runtimeDiagnostics.length) {
@@ -9510,6 +9579,15 @@ function bindActions(): void {
         await copyTemplateWithFeedback(templateKey);
       } catch (error) {
         setBanner(`模板复制失败：${String(error)}`, "error");
+      }
+    }
+
+    if (action === "copy-lan-access-template") {
+      try {
+        await copyTextWithFallback(buildLanAccessTemplateText());
+        setBanner("LAN 成员接入模板已复制。", "success");
+      } catch (error) {
+        setBanner(`复制 LAN 模板失败：${String(error)}`, "error");
       }
     }
 

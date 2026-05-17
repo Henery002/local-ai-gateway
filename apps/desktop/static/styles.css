@@ -1834,6 +1834,29 @@ button, input, select {
   gap: var(--space-4);
 }
 
+.lan-access-template {
+  min-width: 0;
+}
+
+.lan-access-template-card {
+  border-color: var(--color-border);
+}
+
+.template-preview {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .diagnostics-shell-header {
   margin: 0;
   padding-bottom: var(--space-3);

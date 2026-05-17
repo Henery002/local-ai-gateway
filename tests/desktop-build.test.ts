@@ -431,9 +431,14 @@ describe("desktop build output", () => {
     expect(systemView).toContain("id=\"service-diagnostics\"");
     expect(systemView).toContain("id=\"provider-diagnostics\"");
     expect(systemView).toContain("id=\"recent-errors\"");
+    expect(systemView).toContain("id=\"lan-access-template\"");
     expect(rendererSource).toContain("diagnostic-card detail-drawer-panel");
     expect(rendererSource).toContain("diagnostic-card-header");
     expect(rendererSource).toContain("diagnostic-fact-grid");
+    expect(rendererSource).toContain("renderLanAccessTemplate");
+    expect(rendererSource).toContain("copy-lan-access-template");
+    expect(rendererSource).toContain("cc_switch");
+    expect(rendererSource).toContain("自定义 Provider");
     expect(rendererSource).toContain("recent-error-card");
     expect(runtimeDiagnosticsSource).toContain("lan-sharing-ready");
     expect(runtimeDiagnosticsSource).toContain("lan-bind-loopback");
