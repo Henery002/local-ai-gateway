@@ -1046,6 +1046,8 @@ const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
 const selectedAccountKeys = new Set<string>();
 const selectedPoolIds = new Set<string>();
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
+let usageTooltipElement: HTMLDivElement | undefined;
+let usageTooltipInteractionsBound = false;
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -3349,6 +3351,126 @@ function renderUsageTrendEmptyState(title: string, message: string): string {
       <span>${escapeHtml(message)}</span>
     </div>
   `;
+}
+
+function ensureUsageTooltip(): HTMLDivElement {
+  if (usageTooltipElement) {
+    return usageTooltipElement;
+  }
+  const tooltip = document.createElement("div");
+  tooltip.className = "usage-tooltip-popover";
+  tooltip.dataset.visible = "false";
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.setAttribute("aria-hidden", "true");
+  document.body.appendChild(tooltip);
+  usageTooltipElement = tooltip;
+  return tooltip;
+}
+
+function positionUsageTooltip(
+  tooltip: HTMLDivElement,
+  target: HTMLElement,
+  pointer?: { clientX: number; clientY: number },
+): void {
+  const rect = target.getBoundingClientRect();
+  const margin = 10;
+  const preferredX = pointer?.clientX ?? rect.left + rect.width / 2;
+  const preferredTop = rect.top - tooltip.offsetHeight - margin;
+  const top =
+    preferredTop >= margin
+      ? preferredTop
+      : Math.min(window.innerHeight - tooltip.offsetHeight - margin, rect.bottom + margin);
+  const left = Math.min(
+    window.innerWidth - tooltip.offsetWidth - margin,
+    Math.max(margin, preferredX - tooltip.offsetWidth / 2),
+  );
+  tooltip.style.left = `${Math.round(left)}px`;
+  tooltip.style.top = `${Math.round(Math.max(margin, top))}px`;
+}
+
+function showUsageTooltip(
+  target: HTMLElement,
+  pointer?: { clientX: number; clientY: number },
+): void {
+  const text = target.dataset.usageTooltip?.trim();
+  if (!text) {
+    hideUsageTooltip();
+    return;
+  }
+  const tooltip = ensureUsageTooltip();
+  tooltip.textContent = text;
+  tooltip.dataset.visible = "true";
+  tooltip.setAttribute("aria-hidden", "false");
+  positionUsageTooltip(tooltip, target, pointer);
+}
+
+function hideUsageTooltip(): void {
+  if (!usageTooltipElement) {
+    return;
+  }
+  usageTooltipElement.dataset.visible = "false";
+  usageTooltipElement.setAttribute("aria-hidden", "true");
+}
+
+function findUsageTooltipTarget(target: EventTarget | null): HTMLElement | undefined {
+  return target instanceof HTMLElement
+    ? target.closest<HTMLElement>("[data-usage-tooltip]") ?? undefined
+    : undefined;
+}
+
+function bindUsageTooltipInteractions(): void {
+  if (usageTooltipInteractionsBound) {
+    return;
+  }
+  usageTooltipInteractionsBound = true;
+
+  document.addEventListener("pointerover", (event) => {
+    const target = findUsageTooltipTarget(event.target);
+    if (!target) {
+      return;
+    }
+    showUsageTooltip(target, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  });
+  document.addEventListener("pointermove", (event) => {
+    const target = findUsageTooltipTarget(event.target);
+    if (!target || usageTooltipElement?.dataset.visible !== "true") {
+      return;
+    }
+    positionUsageTooltip(ensureUsageTooltip(), target, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+  });
+  document.addEventListener("pointerout", (event) => {
+    const target = findUsageTooltipTarget(event.target);
+    if (!target) {
+      return;
+    }
+    const related = event.relatedTarget;
+    if (related instanceof Node && target.contains(related)) {
+      return;
+    }
+    hideUsageTooltip();
+  });
+  document.addEventListener("focusin", (event) => {
+    const target = findUsageTooltipTarget(event.target);
+    if (target) {
+      showUsageTooltip(target);
+    }
+  });
+  document.addEventListener("focusout", (event) => {
+    if (findUsageTooltipTarget(event.target)) {
+      hideUsageTooltip();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideUsageTooltip();
+    }
+  });
 }
 
 function renderUsageConsumerTimelineChart(
@@ -11040,6 +11162,7 @@ void (async () => {
     setActiveView(state.activeView);
     initCollapsibleSettingsGroups();
     bindActions();
+    bindUsageTooltipInteractions();
     setOAuthStatus(
       "浏览器授权已准备就绪。点击下方按钮后将自动打开授权页面。",
       "info",

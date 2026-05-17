@@ -3225,6 +3225,29 @@ button, input, select {
   transform: translateX(-50%) translateY(0);
 }
 
+.usage-tooltip-popover {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(320px, calc(100vw - 20px));
+  padding: 7px 10px;
+  border: 1px solid color-mix(in oklab, var(--color-bg-elevated) 36%, transparent);
+  border-radius: var(--radius-sm);
+  background: rgba(17, 24, 39, 0.92);
+  box-shadow: var(--shadow-lg);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.usage-tooltip-popover[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* Provider & Routing Cards */
 .model-provider-workbench {
   display: grid;
@@ -4671,6 +4694,9 @@ button, input, select {
   .system-section-head,
   .system-config-row { align-items: flex-start; flex-direction: column; }
   .usage-chart-bars { grid-template-columns: 1fr; }
+  .usage-timeline-bars { grid-template-columns: repeat(12, minmax(8px, 1fr)); min-height: 132px; }
+  .usage-timeline-bar-track { min-height: 56px; }
+  .usage-timeline-bar-wrap { grid-template-rows: minmax(56px, 1fr) auto; }
   .usage-model-timeline-header,
   .usage-model-timeline-meta { align-items: flex-start; flex-direction: column; }
   .usage-model-timeline-header span { text-align: left; }

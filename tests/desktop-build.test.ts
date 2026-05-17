@@ -527,6 +527,14 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageTrendEmptyState");
     expect(rendererSource).toContain("data-usage-tooltip");
     expect(rendererSource).toContain("当前筛选维度暂无 24h 趋势数据");
+    expect(rendererSource).toContain("ensureUsageTooltip");
+    expect(rendererSource).toContain("showUsageTooltip");
+    expect(rendererSource).toContain("hideUsageTooltip");
+    expect(rendererSource).toContain("bindUsageTooltipInteractions");
+    expect(rendererSource).toContain("usage-tooltip-popover");
+    expect(styles).toContain(".usage-tooltip-popover");
+    expect(styles).toContain(".usage-tooltip-popover[data-visible=\"true\"]");
+    expect(styles).toContain(".usage-timeline-bars { grid-template-columns: repeat(12");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("acknowledgeAccessAlert");
