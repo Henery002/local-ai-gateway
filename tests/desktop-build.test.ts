@@ -142,6 +142,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".account-assets-table .account-assets-table-row {");
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
     expect(styles).toContain(".access-consumer-table {");
+    expect(styles).toContain("min-width: 620px;");
+    expect(styles).toContain(".figma-table-cell strong");
     expect(styles).not.toContain(".access-consumer-row {\n    grid-template-columns: 1fr;");
   });
 
@@ -301,6 +303,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".pool-card-header {");
     expect(styles).toContain(".pool-config-form-grid {");
     expect(styles).toContain(".pool-member-table-shell {");
+    expect(styles).toContain(".pool-card-header,");
   });
 
   it("uses Figma hooks for the models and providers workbench", () => {
@@ -427,6 +430,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".usage-chart-panel {");
     expect(styles).toContain(".usage-chart-frame {");
     expect(styles).toContain(".usage-chart-bars {");
+    expect(styles).toContain(".usage-alert-rule em {");
+    expect(styles).toContain("justify-self: end;");
     expect(styles).toContain(".usage-dimension-grid {");
     expect(styles).toContain(".usage-alert-rule-list {");
   });

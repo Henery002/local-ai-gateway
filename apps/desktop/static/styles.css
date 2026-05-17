@@ -678,6 +678,19 @@ button, input, select {
   padding: 10px 12px;
 }
 
+.figma-table-cell {
+  display: grid;
+  gap: 3px;
+  line-height: 1.45;
+}
+
+.figma-table-cell strong,
+.figma-table-cell span,
+.figma-table-cell small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .figma-table-row {
   border-bottom: 1px solid var(--color-border-subtle);
   transition:
@@ -1120,7 +1133,8 @@ button, input, select {
 
 .access-consumer-table-head,
 .access-consumer-row {
-  grid-template-columns: minmax(0, 1.4fr) minmax(100px, 0.6fr) minmax(100px, 0.6fr) minmax(120px, auto);
+  grid-template-columns: minmax(180px, 1.3fr) minmax(112px, 0.55fr) minmax(120px, 0.65fr) minmax(132px, auto);
+  min-width: 620px;
 }
 
 .access-consumer-row {
@@ -1159,6 +1173,7 @@ button, input, select {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  align-items: flex-start;
   padding: 12px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
@@ -1201,10 +1216,16 @@ button, input, select {
 .access-member-summary div {
   display: grid;
   gap: 4px;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
+}
+
+.access-member-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .access-member-summary small,
@@ -1822,6 +1843,11 @@ button, input, select {
   align-items: center;
 }
 
+.usage-chart-header > div,
+.usage-alert-header > div {
+  min-width: 0;
+}
+
 .usage-chart-frame {
   position: relative;
   display: grid;
@@ -1929,6 +1955,8 @@ button, input, select {
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .usage-insight-card span {
@@ -1970,6 +1998,7 @@ button, input, select {
   grid-row: 1 / span 2;
   grid-column: 2;
   align-self: center;
+  justify-self: end;
   color: var(--text-tertiary);
   font-size: 12px;
   font-style: normal;
@@ -2552,6 +2581,7 @@ button, input, select {
   .access-consumer-row,
   .account-assets-table .account-assets-table-row {
     grid-template-columns: 1fr;
+    min-width: 0;
   }
 
   .account-assets-actions-cell {
@@ -3960,6 +3990,29 @@ button, input, select {
 
 @media (max-width: 760px) {
   .accounts-grid { grid-template-columns: 1fr; }
+  .card-header,
+  .dashboard-panel-head,
+  .account-assets-shell-head,
+  .pool-card-header,
+  .usage-chart-header,
+  .usage-alert-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .card-header > .badge,
+  .dashboard-panel-head > .badge,
+  .pool-card-actions,
+  .usage-chart-header > .badge,
+  .usage-alert-header > .badge {
+    align-self: flex-start;
+  }
+  .access-policy-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .access-policy-item > .badge {
+    align-self: flex-start;
+  }
   .provider-config-panel > .settings-header { align-items: flex-start; flex-direction: column; }
   .provider-enable-switch { margin-left: 0; }
   .provider-registry-table-head { display: none; }
