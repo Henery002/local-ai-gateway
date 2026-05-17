@@ -31,6 +31,7 @@ import {
   normalizePoolSelection,
 } from "./pool-bulk-actions.js";
 import {
+  buildAccessPolicyAlertRules,
   buildAccessPolicyRuntimeSnapshot,
   buildAccessPolicyUsageSnapshot,
 } from "./access-policy-usage.js";
@@ -3130,16 +3131,13 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   const policiesWithoutPools = policies.filter(
     (policy) => (policy.allowedPoolIds ?? []).length === 0,
   ).length;
+  const accessPolicyRules = buildAccessPolicyAlertRules({
+    policies,
+    dailyUsageSummary: state.usageSummary?.daily,
+    runtimeConsumers: state.health?.inferenceObservability?.accessConsumers,
+  });
   const rules = [
-    {
-      title: "成员日限额余量低",
-      detail:
-        policies.length > 0
-          ? `已有 ${formatCompactCount(policies.length)} 个成员策略，后续会接入日限额余量计算。`
-          : "尚未配置成员策略；LAN 共享前建议先配置成员限额。",
-      status: policies.length > 0 ? "预览" : "待配置",
-      tone: policies.length > 0 ? "neutral" : "warning",
-    },
+    ...accessPolicyRules,
     {
       title: "共享号池可用账号过低",
       detail:

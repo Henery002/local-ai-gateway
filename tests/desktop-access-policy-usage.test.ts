@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAccessPolicyAlertRules,
   buildAccessPolicyRuntimeSnapshot,
   buildAccessPolicyUsageSnapshot,
 } from "../apps/desktop/src/access-policy-usage.js";
@@ -150,5 +151,95 @@ describe("desktop access policy runtime snapshot", () => {
       inFlightRequests: 2,
       tone: "neutral",
     });
+  });
+});
+
+describe("desktop access policy alert rules", () => {
+  it("warns when a daily quota is near exhausted and runtime limits are saturated", () => {
+    const rules = buildAccessPolicyAlertRules({
+      policies: [
+        {
+          consumerId: "consumer-alice",
+          quota: { dailyTokenLimit: 100 },
+          limits: {
+            requestsPerMinute: 10,
+            maxConcurrentRequests: 2,
+          },
+        },
+      ],
+      dailyUsageSummary: {
+        consumers: [
+          {
+            consumerId: "consumer-alice",
+            usage: { totalTokens: 95 },
+          },
+        ],
+      },
+      runtimeConsumers: [
+        {
+          consumerId: "consumer-alice",
+          recentRequestCount1m: 10,
+          inFlightCount: 2,
+          requestsPerMinute: 10,
+          maxConcurrentRequests: 2,
+        },
+      ],
+    });
+
+    expect(rules).toEqual([
+      expect.objectContaining({
+        id: "daily-quota",
+        status: "接近上限",
+        tone: "warning",
+      }),
+      expect.objectContaining({
+        id: "runtime-pressure",
+        status: "接近上限",
+        tone: "warning",
+      }),
+    ]);
+  });
+
+  it("reports active alert rules when configured policies have remaining capacity", () => {
+    const rules = buildAccessPolicyAlertRules({
+      policies: [
+        {
+          consumerId: "consumer-alice",
+          quota: { dailyTokenLimit: 1_000 },
+          limits: {
+            requestsPerMinute: 10,
+            maxConcurrentRequests: 4,
+          },
+        },
+      ],
+      dailyUsageSummary: {
+        consumers: [
+          {
+            consumerId: "consumer-alice",
+            usage: { totalTokens: 100 },
+          },
+        ],
+      },
+      runtimeConsumers: [
+        {
+          consumerId: "consumer-alice",
+          recentRequestCount1m: 2,
+          inFlightCount: 1,
+        },
+      ],
+    });
+
+    expect(rules).toEqual([
+      expect.objectContaining({
+        id: "daily-quota",
+        status: "正常",
+        tone: "active",
+      }),
+      expect.objectContaining({
+        id: "runtime-pressure",
+        status: "正常",
+        tone: "active",
+      }),
+    ]);
   });
 });

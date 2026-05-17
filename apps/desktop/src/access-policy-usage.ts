@@ -13,6 +13,25 @@ type DailyUsageSummaryLike = {
   consumers?: ConsumerUsageLike[];
 };
 
+type AccessPolicyLike = {
+  consumerId: string;
+  quota?: {
+    dailyTokenLimit?: number;
+  };
+  limits?: {
+    requestsPerMinute?: number;
+    maxConcurrentRequests?: number;
+  };
+};
+
+type RuntimeConsumerLike = {
+  consumerId: string;
+  recentRequestCount1m?: number;
+  inFlightCount?: number;
+  requestsPerMinute?: number;
+  maxConcurrentRequests?: number;
+};
+
 export type AccessPolicyUsageSnapshot = {
   configured: boolean;
   usedTokens: number;
@@ -21,6 +40,14 @@ export type AccessPolicyUsageSnapshot = {
   usageRatio?: number;
   resetAt?: number;
   updatedAt?: number;
+  tone: "active" | "warning" | "neutral";
+};
+
+export type AccessPolicyAlertRule = {
+  id: "daily-quota" | "runtime-pressure";
+  title: string;
+  detail: string;
+  status: string;
   tone: "active" | "warning" | "neutral";
 };
 
@@ -138,4 +165,105 @@ export function buildAccessPolicyRuntimeSnapshot(input: {
     updatedAt: input.updatedAt,
     tone,
   };
+}
+
+export function buildAccessPolicyAlertRules(input: {
+  policies: AccessPolicyLike[];
+  dailyUsageSummary?: DailyUsageSummaryLike;
+  runtimeConsumers?: RuntimeConsumerLike[];
+}): AccessPolicyAlertRule[] {
+  const dailySnapshots = input.policies
+    .map((policy) =>
+      buildAccessPolicyUsageSnapshot({
+        consumerId: policy.consumerId,
+        dailyTokenLimit: policy.quota?.dailyTokenLimit,
+        dailyUsageSummary: input.dailyUsageSummary,
+      }),
+    )
+    .filter((snapshot) => snapshot.configured);
+  const warningDailyCount = dailySnapshots.filter(
+    (snapshot) => snapshot.tone === "warning",
+  ).length;
+  const exhaustedDailyCount = dailySnapshots.filter(
+    (snapshot) => (snapshot.remainingTokens ?? 1) <= 0,
+  ).length;
+
+  const runtimeSnapshots = input.policies
+    .map((policy) => {
+      const runtime = input.runtimeConsumers?.find(
+        (item) => item.consumerId === policy.consumerId,
+      );
+      return buildAccessPolicyRuntimeSnapshot({
+        requestsPerMinute:
+          runtime?.requestsPerMinute ?? policy.limits?.requestsPerMinute,
+        maxConcurrentRequests:
+          runtime?.maxConcurrentRequests ?? policy.limits?.maxConcurrentRequests,
+        recentRequestCount1m: runtime?.recentRequestCount1m,
+        inFlightRequests: runtime?.inFlightCount,
+      });
+    })
+    .filter(
+      (snapshot) =>
+        snapshot.requestLimitConfigured ||
+        snapshot.concurrencyLimitConfigured,
+    );
+  const warningRuntimeCount = runtimeSnapshots.filter(
+    (snapshot) => snapshot.tone === "warning",
+  ).length;
+
+  const dailyRule: AccessPolicyAlertRule =
+    dailySnapshots.length === 0
+      ? {
+          id: "daily-quota",
+          title: "成员日限额余量低",
+          detail: "尚未配置成员日限额；LAN 共享前建议先配置额度边界。",
+          status: "待配置",
+          tone: "warning",
+        }
+      : warningDailyCount > 0
+        ? {
+            id: "daily-quota",
+            title: "成员日限额余量低",
+            detail: `${warningDailyCount} 个成员日额度达到 90% 以上${
+              exhaustedDailyCount > 0
+                ? `，其中 ${exhaustedDailyCount} 个已用尽`
+                : ""
+            }。`,
+            status: exhaustedDailyCount > 0 ? "已用尽" : "接近上限",
+            tone: "warning",
+          }
+        : {
+            id: "daily-quota",
+            title: "成员日限额余量低",
+            detail: `已配置 ${dailySnapshots.length} 个成员日限额，当前未发现低余量成员。`,
+            status: "正常",
+            tone: "active",
+          };
+
+  const runtimeRule: AccessPolicyAlertRule =
+    runtimeSnapshots.length === 0
+      ? {
+          id: "runtime-pressure",
+          title: "QPS / 并发接近上限",
+          detail: "尚未配置 QPS 或最大并发限制；共享前建议为成员设置节流边界。",
+          status: "未限制",
+          tone: "neutral",
+        }
+      : warningRuntimeCount > 0
+        ? {
+            id: "runtime-pressure",
+            title: "QPS / 并发接近上限",
+            detail: `${warningRuntimeCount} 个成员近 60 秒请求或当前并发达到 90% 以上。`,
+            status: "接近上限",
+            tone: "warning",
+          }
+        : {
+            id: "runtime-pressure",
+            title: "QPS / 并发接近上限",
+            detail: `已配置 ${runtimeSnapshots.length} 个成员限流策略，当前请求窗口和并发容量正常。`,
+            status: "正常",
+            tone: "active",
+          };
+
+  return [dailyRule, runtimeRule];
 }
