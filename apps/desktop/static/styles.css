@@ -1194,7 +1194,7 @@ button, input, select {
 
 .access-member-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
 }
 
@@ -1824,8 +1824,11 @@ button, input, select {
 
 .usage-chart-frame {
   position: relative;
+  display: grid;
+  align-items: end;
   min-height: 220px;
   overflow: hidden;
+  padding: 18px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-subtle);
   background:
@@ -1834,39 +1837,71 @@ button, input, select {
     var(--color-bg-elevated);
 }
 
-.usage-chart-axis {
-  position: absolute;
-  inset: auto 18px 34px 18px;
-  height: 1px;
-  background: var(--color-border-default);
+.usage-chart-bars {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 14px;
+  min-height: 170px;
 }
 
-.usage-chart-line {
-  position: absolute;
-  left: 22px;
-  right: 22px;
-  height: 3px;
-  border-radius: 999px;
-  opacity: 0.86;
-  transform-origin: left center;
+.usage-chart-bar-wrap {
+  display: grid;
+  grid-template-rows: minmax(120px, 1fr) auto auto;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
 }
 
-.usage-chart-line.primary {
-  bottom: 88px;
+.usage-chart-bar-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 120px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-bg-card) 70%, transparent);
+  border: 1px solid var(--color-border-subtle);
+  overflow: hidden;
+}
+
+.usage-chart-bar {
+  width: 100%;
+  min-height: 8px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.usage-chart-bar.primary {
   background: var(--accent-color);
-  transform: rotate(-6deg);
 }
 
-.usage-chart-line.secondary {
-  bottom: 124px;
+.usage-chart-bar.secondary {
   background: var(--success);
-  transform: rotate(3deg);
 }
 
-.usage-chart-line.tertiary {
-  bottom: 58px;
+.usage-chart-bar.tertiary {
   background: var(--warning);
-  transform: rotate(8deg);
+}
+
+.usage-chart-bar.quaternary {
+  background: var(--color-chart-4);
+}
+
+.usage-chart-bar-wrap strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.usage-chart-bar-wrap span,
+.usage-chart-legend span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.usage-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 12px;
 }
 
 .usage-dimension-grid {
@@ -3888,6 +3923,7 @@ button, input, select {
   .provider-registry-row { grid-template-columns: minmax(170px, 0.7fr) minmax(190px, 0.75fr) minmax(260px, 1.3fr); }
   .system-config-form-grid { grid-template-columns: 1fr; }
   .diagnostics-grid { grid-template-columns: 1fr; }
+  .usage-chart-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .brand-area { padding: 0; margin-right: 20px; flex-direction: row; text-align: left; gap: 12px; }
@@ -3931,6 +3967,7 @@ button, input, select {
   .system-config-header,
   .system-section-head,
   .system-config-row { align-items: flex-start; flex-direction: column; }
+  .usage-chart-bars { grid-template-columns: 1fr; }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: 1fr; }
   .routing-observe-grid { grid-template-columns: 1fr; }

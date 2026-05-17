@@ -420,10 +420,10 @@
                 <div class="card routing-observe-panel">
                   <div class="dashboard-panel-head">
                     <div>
-                      <strong>策略预览</strong>
-                      <span>成员级额度、模型权限和号池授权将在后续切片接入。</span>
+                      <strong>访问策略摘要</strong>
+                      <span>汇总成员额度、QPS、并发、模型权限和号池授权的当前配置状态。</span>
                     </div>
-                    <span class="badge neutral">预留</span>
+                    <span class="badge active">执行层已接入</span>
                   </div>
                   <div id="access-policy-preview" class="access-policy-preview"></div>
                 </div>
@@ -492,7 +492,7 @@
 
               <div class="card routing-rule-guide mt-4">
                 <strong>当前兼容能力</strong>
-                <span>现有“第三方客户端接入鉴权”和客户端密钥映射能力暂保留在“系统与诊断”中；后续切片会迁移到本页，并升级为 AccessConsumer / AccessKey / AccessPolicy。</span>
+                <span>现有“第三方客户端接入鉴权”和客户端密钥映射已兼容展示为访问成员；新建成员使用 AccessConsumer / AccessKey / AccessPolicy，旧配置入口暂保留在“系统与诊断”。</span>
               </div>
             </section>
           </div>
@@ -695,71 +695,30 @@
                 <div class="usage-chart-panel">
                   <div class="card-header usage-chart-header">
                     <div>
-                      <span class="card-title">24 小时用量趋势</span>
-                      <p class="card-description">后续会按本机自用、OpenClaw、Hermes 和共享成员分线展示；当前先复用顶部 Token 用量总览作为真实统计入口。</p>
+                      <span class="card-title">窗口用量结构</span>
+                      <p class="card-description">当前按所选时间窗口展示已记录 Token 事件的消耗结构；后续接入逐小时事件桶后升级为真实趋势图。</p>
                     </div>
-                    <span class="badge neutral">P2 接入图表</span>
+                    <span class="badge active">真实统计</span>
                   </div>
-                  <div class="usage-chart-frame" aria-label="24 小时 Token 趋势占位">
-                    <div class="usage-chart-axis"></div>
-                    <div class="usage-chart-line primary"></div>
-                    <div class="usage-chart-line secondary"></div>
-                    <div class="usage-chart-line tertiary"></div>
+                  <div id="usage-trend-chart" class="usage-chart-frame" aria-label="Token 消耗结构">
+                    <div class="empty-card">正在等待用量统计。</div>
                   </div>
                 </div>
 
-                <div class="usage-dimension-grid">
-                  <div class="usage-insight-card">
-                    <small>成员用量</small>
-                    <strong>consumerId / key</strong>
-                    <span>已具备用量归因底座，后续展示成员 24h 消耗、日限额和余量。</span>
-                  </div>
-                  <div class="usage-insight-card">
-                    <small>账号与号池</small>
-                    <strong>账号 / pool</strong>
-                    <span>后续展示账号消耗排行、shared 号池命中量和可用账号告警。</span>
-                  </div>
-                  <div class="usage-insight-card">
-                    <small>模型分布</small>
-                    <strong>model alias</strong>
-                    <span>后续按 `codex-default`、多 Codex 别名、Ollama 或兼容 Provider 聚合。</span>
-                  </div>
-                  <div class="usage-insight-card">
-                    <small>失败与限流</small>
-                    <strong>401 / 403 / 429</strong>
-                    <span>后续汇总 key 错误、成员超限、上游限流和外部只读账号鉴权失效。</span>
-                  </div>
+                <div id="usage-dimension-insights" class="usage-dimension-grid">
+                  <div class="empty-card">正在等待维度统计。</div>
                 </div>
 
                 <div class="card usage-alert-panel">
                   <div class="card-header usage-alert-header">
                     <div>
-                      <span class="card-title">告警策略预留</span>
-                      <p class="card-description">先保留策略位，避免二期后续接额度、QPS、并发和号池授权时再次大改页面。</p>
+                      <span class="card-title">告警与治理摘要</span>
+                      <p class="card-description">按当前配置和用量推导需要关注的共享网关风险点，正式告警事件仍在 P2 接入。</p>
                     </div>
-                    <span class="badge incomplete">待接入规则执行</span>
+                    <span class="badge neutral">策略预览</span>
                   </div>
-                  <div class="usage-alert-rule-list">
-                    <div class="usage-alert-rule">
-                      <strong>成员日限额余量低</strong>
-                      <span>当某成员 Token 余量低于阈值时提示管理员。</span>
-                      <em>预留</em>
-                    </div>
-                    <div class="usage-alert-rule">
-                      <strong>共享号池可用账号过低</strong>
-                      <span>当 shared-lan 号池候选账号不足或大面积冷却时触发。</span>
-                      <em>预留</em>
-                    </div>
-                    <div class="usage-alert-rule">
-                      <strong>外部只读账号鉴权失效</strong>
-                      <span>只提示重新导入或外部源同步，不主动刷新 refresh token。</span>
-                      <em>预留</em>
-                    </div>
-                    <div class="usage-alert-rule">
-                      <strong>失败率异常</strong>
-                      <span>按成员、key、模型或客户端观察 401 / 403 / 429 激增。</span>
-                      <em>预留</em>
-                    </div>
+                  <div id="usage-alert-rule-list" class="usage-alert-rule-list">
+                    <div class="empty-card">正在等待告警摘要。</div>
                   </div>
                 </div>
               </div>

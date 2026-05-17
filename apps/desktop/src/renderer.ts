@@ -713,6 +713,23 @@ type SecurityAccessPolicy = {
   consumerId: string;
   allowedModelAliases?: string[];
   allowedPoolIds?: string[];
+  quota?: {
+    dailyTokenLimit?: number;
+    monthlyTokenLimit?: number;
+    totalTokenLimit?: number;
+    resetTimezone?: string;
+  };
+  limits?: {
+    requestsPerMinute?: number;
+    maxConcurrentRequests?: number;
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+    speedMultiplier?: number;
+  };
+  modelSwitching?: {
+    enabled: boolean;
+    defaultModelAlias?: string;
+  };
   expiresAt?: string;
 };
 
@@ -1530,6 +1547,7 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
   }
 
   if (state.activeView === "usage") {
+    renderUsageWorkbench();
     return;
   }
 
@@ -2159,6 +2177,18 @@ function parseAccessDateTimeLocalValue(value: string): string | undefined {
   return date.toISOString();
 }
 
+function formatAccessPolicyTokenLimit(value?: number): string {
+  return typeof value === "number" && value > 0
+    ? `${formatCompactCount(value)} Token`
+    : "未限制";
+}
+
+function formatAccessPolicyNumberLimit(value?: number, unit = ""): string {
+  return typeof value === "number" && value > 0
+    ? `${formatCompactCount(value)}${unit}`
+    : "未限制";
+}
+
 function accessKeyBadgeClass(key: SecurityAccessKey): string {
   if (key.status === "enabled" && !isPastIsoDate(key.expiresAt)) {
     return "active";
@@ -2300,12 +2330,16 @@ function renderAccessMemberDrawer(
         <strong>${formatCompactCount(keys.length)}</strong>
       </div>
       <div>
-        <small>模型权限</small>
-        <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 个模型` : "未限制"}</strong>
+        <small>日限额</small>
+        <strong>${escapeHtml(formatAccessPolicyTokenLimit(policy?.quota?.dailyTokenLimit))}</strong>
       </div>
       <div>
-        <small>号池授权</small>
-        <strong>${policy?.allowedPoolIds?.length ? `${policy.allowedPoolIds.length} 个号池` : "未限制"}</strong>
+        <small>QPS / 并发</small>
+        <strong>${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.requestsPerMinute, "/min"))} / ${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.maxConcurrentRequests))}</strong>
+      </div>
+      <div>
+        <small>模型 / 号池</small>
+        <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 模型` : "模型不限"} / ${policy?.allowedPoolIds?.length ? `${policy.allowedPoolIds.length} 号池` : "号池不限"}</strong>
       </div>
     </div>
     <div class="access-member-note">${escapeHtml(selectedConsumer.note || "暂无备注。")}</div>
@@ -2354,6 +2388,24 @@ function renderAccessPolicyPreview(): void {
     state.securitySettings?.enabledMappingCount ??
     state.health?.inferenceAuth?.enabledMappingCount ??
     0;
+  const accessControl = state.securitySettings?.accessControl;
+  const policies = accessControl?.policies ?? [];
+  const policiesWithQuota = policies.filter(
+    (policy) => typeof policy.quota?.dailyTokenLimit === "number",
+  ).length;
+  const policiesWithRateLimit = policies.filter(
+    (policy) =>
+      typeof policy.limits?.requestsPerMinute === "number" ||
+      typeof policy.limits?.maxConcurrentRequests === "number",
+  ).length;
+  const allowedPoolCount = policies.reduce(
+    (sum, policy) => sum + (policy.allowedPoolIds?.length ?? 0),
+    0,
+  );
+  const allowedModelCount = policies.reduce(
+    (sum, policy) => sum + (policy.allowedModelAliases?.length ?? 0),
+    0,
+  );
 
   node.innerHTML = [
     {
@@ -2365,13 +2417,24 @@ function renderAccessPolicyPreview(): void {
     },
     {
       title: "成员级额度",
-      detail: "AccessPolicy 尚未落地，LAN 成员限额后续接入。",
-      value: "预留",
+      detail:
+        policiesWithQuota > 0
+          ? `${formatCompactCount(policiesWithQuota)} 个成员已配置日 Token 限额。`
+          : "服务端已支持成员日限额；可在后续策略编辑 UI 中配置。",
+      value: policiesWithQuota > 0 ? "已接入" : "待配置",
+    },
+    {
+      title: "QPS / 并发限制",
+      detail:
+        policiesWithRateLimit > 0
+          ? `${formatCompactCount(policiesWithRateLimit)} 个成员已配置请求频率或并发限制。`
+          : "服务端已支持 QPS 与并发前置拦截；UI 编辑仍待补齐。",
+      value: policiesWithRateLimit > 0 ? "已配置" : "待配置",
     },
     {
       title: "模型与号池授权",
-      detail: "后续会把 allowedModelAliases / allowedPoolIds 映射到本页。",
-      value: "预留",
+      detail: `当前策略合计 ${formatCompactCount(allowedModelCount)} 个模型授权、${formatCompactCount(allowedPoolCount)} 个号池授权。`,
+      value: allowedPoolCount > 0 || allowedModelCount > 0 ? "已接入" : "未限制",
     },
     {
       title: "兼容客户端 key",
@@ -2575,7 +2638,7 @@ function renderUsageOverview(): void {
   const cachedAndReasoningLabel =
     hasReasoningSignal
       ? `${formatCompactCount(usage.cachedTokens)} / ${formatCompactCount(usage.reasoningTokens)}`
-      : `${formatCompactCount(usage.cachedTokens)} / 待接入`;
+      : `${formatCompactCount(usage.cachedTokens)} / --`;
   const coverageLabel = `${hasCachedSignal ? "缓存已接入" : "缓存待接入"} / ${
     hasReasoningSignal ? "思考已接入" : "思考待接入"
   }`;
@@ -2649,6 +2712,219 @@ function renderUsageOverview(): void {
     </div>
     </section>
   `;
+}
+
+function renderUsageWorkbench(): void {
+  const summary = getActiveUsageWindowSummary();
+  renderUsageTrendChart(summary);
+  renderUsageDimensionInsights(summary);
+  renderUsageAlertRules(summary);
+}
+
+function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
+  const node = document.getElementById("usage-trend-chart");
+  if (!node) {
+    return;
+  }
+  if (!summary || summary.totals.totalTokens <= 0) {
+    node.innerHTML = `
+      <div class="empty-card">当前窗口暂无 Token 用量统计。发起请求后这里会展示输入、输出、缓存与思考 Token 的结构。</div>
+    `;
+    return;
+  }
+
+  const bars = [
+    {
+      label: "输入",
+      value: summary.totals.inputTokens,
+      className: "primary",
+    },
+    {
+      label: "输出",
+      value: summary.totals.outputTokens,
+      className: "secondary",
+    },
+    {
+      label: "缓存",
+      value: summary.totals.cachedTokens,
+      className: "tertiary",
+    },
+    {
+      label: "思考",
+      value: summary.totals.reasoningTokens,
+      className: "quaternary",
+    },
+  ];
+  const maxValue = Math.max(...bars.map((item) => item.value), 1);
+
+  node.innerHTML = `
+    <div class="usage-chart-bars">
+      ${bars
+        .map((item) => {
+          const height = Math.max(10, Math.round((item.value / maxValue) * 100));
+          return `
+            <div class="usage-chart-bar-wrap">
+              <div class="usage-chart-bar-track">
+                <div
+                  class="usage-chart-bar ${item.className}"
+                  style="height: ${height}%"
+                  title="${escapeHtml(item.label)} ${escapeHtml(formatCompactCount(item.value))} Token"
+                ></div>
+              </div>
+              <strong>${escapeHtml(formatCompactCount(item.value))}</strong>
+              <span>${escapeHtml(item.label)}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+    <div class="usage-chart-legend">
+      <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
+      <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
+      <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
+      <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
+    </div>
+  `;
+}
+
+function renderUsageDimensionInsights(
+  summary: UsageWindowSummary | undefined,
+): void {
+  const node = document.getElementById("usage-dimension-insights");
+  if (!node) {
+    return;
+  }
+
+  if (!summary) {
+    node.innerHTML = "<div class='empty-card'>当前尚无维度统计。</div>";
+    return;
+  }
+
+  const topConsumer = summary.consumers[0];
+  const topAccount = summary.accounts[0];
+  const topModel = summary.models[0];
+  const failureRate =
+    summary.totals.requestCount > 0
+      ? summary.totals.failureCount / summary.totals.requestCount
+      : 0;
+  const sharedPoolCount = (state.poolSettings?.pools ?? []).filter(
+    (pool) => normalizePoolVisibility(pool.visibility) === "shared-lan",
+  ).length;
+
+  const cards = [
+    {
+      label: "成员用量",
+      value: topConsumer
+        ? topConsumer.clientTag || topConsumer.consumerId
+        : "暂无成员请求",
+      detail: topConsumer
+        ? `${formatCompactCount(topConsumer.usage.totalTokens)} Token · ${formatCompactCount(topConsumer.usage.requestCount)} 次请求`
+        : "创建 LAN 成员并使用独立 API key 后，会按 consumerId / accessKeyId 聚合。",
+    },
+    {
+      label: "账号与号池",
+      value: topAccount ? topAccount.email ?? topAccount.accountId : "暂无账号消耗",
+      detail: topAccount
+        ? `${formatCompactCount(topAccount.usage.totalTokens)} Token · shared 号池 ${formatCompactCount(sharedPoolCount)} 个`
+        : `当前配置 shared 号池 ${formatCompactCount(sharedPoolCount)} 个。`,
+    },
+    {
+      label: "模型分布",
+      value: topModel ? topModel.modelAlias : "暂无模型请求",
+      detail: topModel
+        ? `${formatCompactCount(topModel.usage.totalTokens)} Token · ${formatCompactCount(topModel.usage.requestCount)} 次请求`
+        : "模型别名统计会随 /v1/chat/completions 请求自动积累。",
+    },
+    {
+      label: "失败与限流",
+      value:
+        summary.totals.failureCount > 0
+          ? `${formatCompactCount(summary.totals.failureCount)} 次失败`
+          : "暂无失败",
+      detail: `成功率 ${formatUsageSuccessRate(summary.totals)} · 失败率 ${Math.round(failureRate * 100)}%`,
+    },
+  ];
+
+  node.innerHTML = cards
+    .map(
+      (card) => `
+        <div class="usage-insight-card">
+          <small>${escapeHtml(card.label)}</small>
+          <strong>${escapeHtml(card.value)}</strong>
+          <span>${escapeHtml(card.detail)}</span>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
+  const node = document.getElementById("usage-alert-rule-list");
+  if (!node) {
+    return;
+  }
+
+  const consumers = state.securitySettings?.accessControl?.consumers ?? [];
+  const policies = state.securitySettings?.accessControl?.policies ?? [];
+  const sharedPools = (state.poolSettings?.pools ?? []).filter(
+    (pool) => normalizePoolVisibility(pool.visibility) === "shared-lan",
+  );
+  const failureRate =
+    summary && summary.totals.requestCount > 0
+      ? summary.totals.failureCount / summary.totals.requestCount
+      : 0;
+  const policiesWithoutPools = policies.filter(
+    (policy) => (policy.allowedPoolIds ?? []).length === 0,
+  ).length;
+  const rules = [
+    {
+      title: "成员日限额余量低",
+      detail:
+        policies.length > 0
+          ? `已有 ${formatCompactCount(policies.length)} 个成员策略，后续会接入日限额余量计算。`
+          : "尚未配置成员策略；LAN 共享前建议先配置成员限额。",
+      status: policies.length > 0 ? "预览" : "待配置",
+      tone: policies.length > 0 ? "neutral" : "warning",
+    },
+    {
+      title: "共享号池可用账号过低",
+      detail:
+        sharedPools.length > 0
+          ? `当前 shared-lan 号池 ${formatCompactCount(sharedPools.length)} 个。`
+          : "尚无 shared-lan 号池；共享成员不应直接使用 private 号池。",
+      status: sharedPools.length > 0 ? "正常" : "待配置",
+      tone: sharedPools.length > 0 ? "active" : "warning",
+    },
+    {
+      title: "成员号池授权缺口",
+      detail:
+        consumers.length > 0
+          ? `${formatCompactCount(policiesWithoutPools)} 个成员策略尚未配置允许号池。`
+          : "创建访问成员后，这里会提示 allowedPoolIds 配置缺口。",
+      status: policiesWithoutPools > 0 ? "需检查" : "正常",
+      tone: policiesWithoutPools > 0 ? "warning" : "active",
+    },
+    {
+      title: "失败率异常",
+      detail: summary
+        ? `当前窗口失败 ${formatCompactCount(summary.totals.failureCount)} 次，成功率 ${formatUsageSuccessRate(summary.totals)}。`
+        : "暂无请求统计。",
+      status: failureRate > 0.1 ? "偏高" : "正常",
+      tone: failureRate > 0.1 ? "warning" : "active",
+    },
+  ];
+
+  node.innerHTML = rules
+    .map(
+      (rule) => `
+        <div class="usage-alert-rule">
+          <strong>${escapeHtml(rule.title)}</strong>
+          <span>${escapeHtml(rule.detail)}</span>
+          <em class="badge ${escapeHtml(rule.tone)}">${escapeHtml(rule.status)}</em>
+        </div>
+      `,
+    )
+    .join("");
 }
 
 function buildAccountUsageRankingMarkup(): string {
@@ -2740,6 +3016,9 @@ function renderAccountUsageRankingPanel(): void {
 
 function renderUsagePanelsForWindowChange(): void {
   renderUsageOverview();
+  if (state.activeView === "usage") {
+    renderUsageWorkbench();
+  }
   if (state.activeView === "accounts") {
     renderAccountUsageRankingPanel();
   }

@@ -180,6 +180,8 @@ describe("desktop build output", () => {
     expect(accessView).toContain("data-access-surface=\"public\"");
     expect(accessView).toContain("id=\"access-consumer-list\"");
     expect(accessView).toContain("id=\"access-policy-preview\"");
+    expect(accessView).toContain("访问策略摘要");
+    expect(accessView).not.toContain("成员级额度、模型权限和号池授权将在后续切片接入。");
     expect(accessView).toContain("id=\"access-member-drawer\"");
     expect(accessView).toContain("id=\"access-create-member-modal\"");
   });
@@ -239,6 +241,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("rotateAccessKey");
     expect(rendererSource).toContain("saveAccessKeyExpiry");
     expect(rendererSource).toContain("saveAccessPolicyPools");
+    expect(rendererSource).toContain("dailyTokenLimit");
+    expect(rendererSource).toContain("requestsPerMinute");
+    expect(rendererSource).toContain("maxConcurrentRequests");
   });
 
   it("renders the phase two account assets ownership skeleton", () => {
@@ -395,6 +400,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/styles.css"),
       "utf8",
     );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
 
     const usageView = indexHtml.match(
       /<div class="view" data-view="usage" hidden>([\s\S]*?)<!-- View: Routing -->/,
@@ -404,12 +413,20 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-alerts-workbench\"");
     expect(usageView).toContain("class=\"usage-chart-panel\"");
     expect(usageView).toContain("class=\"usage-chart-frame\"");
+    expect(usageView).toContain("窗口用量结构");
+    expect(usageView).toContain("id=\"usage-trend-chart\"");
+    expect(usageView).toContain("id=\"usage-dimension-insights\"");
+    expect(usageView).toContain("id=\"usage-alert-rule-list\"");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(usageView).toContain("class=\"usage-alert-rule-list\"");
-    expect(usageView).toContain("class=\"usage-insight-card\"");
+    expect(rendererSource).toContain("renderUsageWorkbench");
+    expect(rendererSource).toContain("renderUsageTrendChart");
+    expect(rendererSource).toContain("renderUsageDimensionInsights");
+    expect(rendererSource).toContain("class=\"usage-insight-card\"");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");
     expect(styles).toContain(".usage-chart-frame {");
+    expect(styles).toContain(".usage-chart-bars {");
     expect(styles).toContain(".usage-dimension-grid {");
     expect(styles).toContain(".usage-alert-rule-list {");
   });
