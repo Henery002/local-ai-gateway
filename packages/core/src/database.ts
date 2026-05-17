@@ -20,6 +20,7 @@ import {
   GatewayUsageCounters,
   GatewayUsageEvent,
   GatewayUsageModelSummary,
+  GatewayUsageModelTimelinePoint,
   GatewayUsagePoolSummary,
   GatewayUsageWindowSummary,
   SessionActivitySnapshot,
@@ -1748,6 +1749,48 @@ export class GatewayDatabase {
           reasoning_tokens: number | null;
         }>)
       : [];
+    const modelTimeline = timelineBucketMs
+      ? (this.db
+          .prepare(
+            `
+              SELECT
+                CAST(timestamp / ? AS INTEGER) * ? AS bucket_start,
+                model_alias,
+                COUNT(1) AS request_count,
+                SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+                SUM(latency_ms) AS total_latency_ms,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(total_tokens) AS total_tokens,
+                SUM(cached_tokens) AS cached_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens
+              FROM inference_usage_events
+              ${filter.sql}
+              GROUP BY bucket_start, model_alias
+              ORDER BY bucket_start ASC, total_tokens DESC, request_count DESC
+              LIMIT ?
+            `,
+          )
+          .all(
+            timelineBucketMs,
+            timelineBucketMs,
+            ...filter.params,
+            timelineLimit,
+          ) as Array<{
+          bucket_start: number;
+          model_alias: string;
+          request_count: number | null;
+          success_count: number | null;
+          failure_count: number | null;
+          total_latency_ms: number | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cached_tokens: number | null;
+          reasoning_tokens: number | null;
+        }>)
+      : [];
 
     return {
       since,
@@ -1763,6 +1806,9 @@ export class GatewayDatabase {
         ? {
             consumerTimeline: consumerTimeline.map((row) =>
               this.mapUsageConsumerTimelinePoint(row, timelineBucketMs),
+            ),
+            modelTimeline: modelTimeline.map((row) =>
+              this.mapUsageModelTimelinePoint(row, timelineBucketMs),
             ),
           }
         : {}),
@@ -2169,6 +2215,40 @@ export class GatewayDatabase {
       consumerId: row.consumer_id,
       accessKeyId: row.access_key_id ?? undefined,
       clientTag: row.normalized_client_tag,
+      usage: {
+        requestCount: normalizeUsageCounterValue(row.request_count),
+        successCount: normalizeUsageCounterValue(row.success_count),
+        failureCount: normalizeUsageCounterValue(row.failure_count),
+        totalLatencyMs: normalizeUsageCounterValue(row.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(row.input_tokens),
+        outputTokens: normalizeUsageCounterValue(row.output_tokens),
+        totalTokens: normalizeUsageCounterValue(row.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(row.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(row.reasoning_tokens),
+      },
+    };
+  }
+
+  private mapUsageModelTimelinePoint(
+    row: {
+      bucket_start: number;
+      model_alias: string;
+      request_count: number | null;
+      success_count: number | null;
+      failure_count: number | null;
+      total_latency_ms: number | null;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+      cached_tokens: number | null;
+      reasoning_tokens: number | null;
+    },
+    bucketMs: number,
+  ): GatewayUsageModelTimelinePoint {
+    return {
+      bucketStart: row.bucket_start,
+      bucketEnd: row.bucket_start + bucketMs,
+      modelAlias: row.model_alias,
       usage: {
         requestCount: normalizeUsageCounterValue(row.request_count),
         successCount: normalizeUsageCounterValue(row.success_count),

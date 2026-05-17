@@ -2183,6 +2183,103 @@ button, input, select {
   margin-top: 12px;
 }
 
+.usage-model-timeline-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-bg-card) 82%, var(--color-bg-elevated));
+}
+
+.usage-model-timeline-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-model-timeline-header strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.usage-model-timeline-header span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
+}
+
+.usage-model-timeline-list {
+  display: grid;
+  gap: 10px;
+}
+
+.usage-model-timeline-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-model-timeline-rank {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--color-bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.usage-model-timeline-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.usage-model-timeline-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.usage-model-timeline-meta strong,
+.usage-model-timeline-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-model-timeline-meta strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.usage-model-timeline-meta span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.usage-model-timeline-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-bg-elevated);
+}
+
+.usage-model-timeline-bar {
+  height: 100%;
+  min-width: 8px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-color), var(--success));
+}
+
 .usage-dimension-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4509,6 +4606,11 @@ button, input, select {
   .system-section-head,
   .system-config-row { align-items: flex-start; flex-direction: column; }
   .usage-chart-bars { grid-template-columns: 1fr; }
+  .usage-model-timeline-header,
+  .usage-model-timeline-meta { align-items: flex-start; flex-direction: column; }
+  .usage-model-timeline-header span { text-align: left; }
+  .usage-model-timeline-meta strong,
+  .usage-model-timeline-meta span { white-space: normal; }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: 1fr; }
   .routing-observe-grid { grid-template-columns: 1fr; }

@@ -511,7 +511,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
+    expect(rendererSource).toContain("renderUsageModelTimelinePanel");
     expect(rendererSource).toContain("consumerTimeline");
+    expect(rendererSource).toContain("modelTimeline");
+    expect(rendererSource).toContain("模型 24h 趋势");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("acknowledgeAccessAlert");

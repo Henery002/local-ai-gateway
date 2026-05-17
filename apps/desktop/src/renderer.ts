@@ -221,6 +221,13 @@ type UsageConsumerTimelinePoint = {
   usage: UsageCounters;
 };
 
+type UsageModelTimelinePoint = {
+  bucketStart: number;
+  bucketEnd: number;
+  modelAlias: string;
+  usage: UsageCounters;
+};
+
 type UsageAccessKeySummary = {
   accessKeyId: string;
   consumerId?: string;
@@ -253,6 +260,7 @@ type UsageWindowSummary = {
   clients: UsageClientSummary[];
   consumers: UsageConsumerSummary[];
   consumerTimeline?: UsageConsumerTimelinePoint[];
+  modelTimeline?: UsageModelTimelinePoint[];
   accessKeys: UsageAccessKeySummary[];
   pools: UsagePoolSummary[];
   models: UsageModelSummary[];
@@ -3163,8 +3171,10 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
 
   const consumerTimeline =
     state.usageObserveWindow === "daily" ? summary.consumerTimeline ?? [] : [];
+  const modelTimeline =
+    state.usageObserveWindow === "daily" ? summary.modelTimeline ?? [] : [];
   if (consumerTimeline.length > 0) {
-    renderUsageConsumerTimelineChart(node, summary, consumerTimeline);
+    renderUsageConsumerTimelineChart(node, summary, consumerTimeline, modelTimeline);
     return;
   }
 
@@ -3219,6 +3229,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
     </div>
+    ${renderUsageModelTimelinePanel(modelTimeline)}
   `;
 }
 
@@ -3226,6 +3237,7 @@ function renderUsageConsumerTimelineChart(
   node: HTMLElement,
   summary: UsageWindowSummary,
   timeline: UsageConsumerTimelinePoint[],
+  modelTimeline: UsageModelTimelinePoint[],
 ): void {
   const hourMs = 60 * 60 * 1000;
   const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
@@ -3335,6 +3347,90 @@ function renderUsageConsumerTimelineChart(
       <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
       <span>峰值小时：${escapeHtml(formatCompactCount(maxValue))} Token</span>
       <span>Top 成员：${escapeHtml(topConsumers.length > 0 ? topConsumers.map((item) => `${item.label} ${formatCompactCount(item.totalTokens)}`).join(" / ") : "暂无")}</span>
+    </div>
+    ${renderUsageModelTimelinePanel(modelTimeline)}
+  `;
+}
+
+function renderUsageModelTimelinePanel(timeline: UsageModelTimelinePoint[]): string {
+  if (timeline.length === 0) {
+    return "";
+  }
+
+  const hourMs = 60 * 60 * 1000;
+  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+  const firstBucketStart = currentHour - 23 * hourMs;
+  const byModel = new Map<
+    string,
+    {
+      totalTokens: number;
+      requestCount: number;
+      failureCount: number;
+      peakHourTokens: number;
+    }
+  >();
+
+  for (const point of timeline) {
+    if (point.bucketStart < firstBucketStart || point.bucketStart > currentHour) {
+      continue;
+    }
+    const model = byModel.get(point.modelAlias) ?? {
+      totalTokens: 0,
+      requestCount: 0,
+      failureCount: 0,
+      peakHourTokens: 0,
+    };
+    model.totalTokens += point.usage.totalTokens;
+    model.requestCount += point.usage.requestCount;
+    model.failureCount += point.usage.failureCount;
+    model.peakHourTokens = Math.max(model.peakHourTokens, point.usage.totalTokens);
+    byModel.set(point.modelAlias, model);
+  }
+
+  const topModels = Array.from(byModel.entries())
+    .map(([modelAlias, usage]) => ({ modelAlias, ...usage }))
+    .sort((left, right) => right.totalTokens - left.totalTokens)
+    .slice(0, 4);
+  if (topModels.length === 0) {
+    return "";
+  }
+
+  const maxValue = Math.max(...topModels.map((item) => item.totalTokens), 1);
+  return `
+    <div class="usage-model-timeline-panel">
+      <div class="usage-model-timeline-header">
+        <strong>模型 24h 趋势</strong>
+        <span>按模型别名聚合最近 24 小时 Token 与请求分布</span>
+      </div>
+      <div class="usage-model-timeline-list">
+        ${topModels
+          .map((item, index) => {
+            const width = Math.max(8, Math.round((item.totalTokens / maxValue) * 100));
+            const failureLabel =
+              item.requestCount > 0
+                ? `${Math.round((item.failureCount / item.requestCount) * 100)}%`
+                : "0%";
+            return `
+              <div class="usage-model-timeline-row">
+                <div class="usage-model-timeline-rank">${escapeHtml(String(index + 1))}</div>
+                <div class="usage-model-timeline-main">
+                  <div class="usage-model-timeline-meta">
+                    <strong>${escapeHtml(item.modelAlias)}</strong>
+                    <span>${escapeHtml(formatCompactCount(item.totalTokens))} Token · ${escapeHtml(formatCompactCount(item.requestCount))} 次请求 · 失败 ${escapeHtml(failureLabel)}</span>
+                  </div>
+                  <div class="usage-model-timeline-track">
+                    <div
+                      class="usage-model-timeline-bar"
+                      style="width: ${width}%"
+                      title="${escapeHtml(`${item.modelAlias} · ${formatCompactCount(item.totalTokens)} Token · 峰值小时 ${formatCompactCount(item.peakHourTokens)}`)}"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
     </div>
   `;
 }
