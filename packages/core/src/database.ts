@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
 
 import {
+  GatewayAccessAlertEvent,
   GatewayLogRecord,
   GatewayPaths,
   GatewayPoolSelectionEvent,
@@ -157,6 +158,18 @@ export class GatewayDatabase {
         source_event_key TEXT
       );
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS access_alert_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        severity TEXT NOT NULL,
+        consumer_id TEXT,
+        access_key_id TEXT,
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details_json TEXT
+      );
+    `);
     ensureColumnIfMissing(
       this.db,
       "inference_usage_events",
@@ -227,6 +240,14 @@ export class GatewayDatabase {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_inference_usage_events_source_event_key
       ON inference_usage_events (source_event_key)
       WHERE source_event_key IS NOT NULL;
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_access_alert_events_timestamp
+      ON access_alert_events (timestamp);
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_access_alert_events_consumer_id
+      ON access_alert_events (consumer_id, timestamp);
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS pool_selection_events (
@@ -329,6 +350,68 @@ export class GatewayDatabase {
         event.sourceEventKey ?? null,
       );
     return result.changes > 0;
+  }
+
+  insertAccessAlertEvent(event: GatewayAccessAlertEvent): void {
+    this.db
+      .prepare(
+        `
+          INSERT INTO access_alert_events (
+            timestamp,
+            severity,
+            consumer_id,
+            access_key_id,
+            type,
+            message,
+            details_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        event.timestamp,
+        event.severity,
+        event.consumerId ?? null,
+        event.accessKeyId ?? null,
+        event.type,
+        event.message,
+        event.details ? JSON.stringify(event.details) : null,
+      );
+  }
+
+  getRecentAccessAlertEvents(limit = 50): GatewayAccessAlertEvent[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, timestamp, severity, consumer_id, access_key_id, type, message, details_json
+          FROM access_alert_events
+          ORDER BY id DESC
+          LIMIT ?
+        `,
+      )
+      .all(Math.max(1, Math.min(200, Math.floor(limit)))) as Array<{
+      id: number;
+      timestamp: number;
+      severity: GatewayAccessAlertEvent["severity"];
+      consumer_id: string | null;
+      access_key_id: string | null;
+      type: string;
+      message: string;
+      details_json: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      severity: row.severity,
+      consumerId: row.consumer_id ?? undefined,
+      accessKeyId: row.access_key_id ?? undefined,
+      type: row.type,
+      message: row.message,
+      details: row.details_json
+        ? (JSON.parse(row.details_json) as Record<string, unknown>)
+        : undefined,
+    }));
   }
 
   getUsageTotalsForAccessConsumer(options: {
@@ -1420,6 +1503,13 @@ export class GatewayDatabase {
       .prepare(
         `
           DELETE FROM inference_usage_events
+        `,
+      )
+      .run();
+    this.db
+      .prepare(
+        `
+          DELETE FROM access_alert_events
         `,
       )
       .run();

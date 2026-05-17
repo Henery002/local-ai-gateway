@@ -19,7 +19,8 @@ export interface RuntimeDiagnosticLoadFailure {
     | "security-settings"
     | "system-settings"
     | "app-data-status"
-    | "usage-summary";
+    | "usage-summary"
+    | "access-alerts";
   message: string;
 }
 
@@ -123,6 +124,7 @@ export function classifyLoadFailure(
     "system-settings": "系统配置加载失败",
     "app-data-status": "应用数据概况加载失败",
     "usage-summary": "Token 用量统计加载失败",
+    "access-alerts": "访问告警事件加载失败",
   } as const;
 
   return {

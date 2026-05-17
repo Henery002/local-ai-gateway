@@ -12,6 +12,7 @@ import {
   APP_VERSION,
   DEFAULT_HOST,
   DEFAULT_PORT,
+  GatewayAccessAlertEvent,
   GatewayHealth,
   GatewayInferenceObservability,
   GatewayInferenceAuthPublicSettings,
@@ -291,6 +292,10 @@ export class GatewayRuntime {
         retainDays: 365,
       });
     }
+  }
+
+  recordAccessAlertEvent(event: GatewayAccessAlertEvent): void {
+    this.database.insertAccessAlertEvent(event);
   }
 
   getActiveSessionId(): string | undefined {

@@ -469,6 +469,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
+    expect(rendererSource).toContain("getAccessAlerts");
+    expect(rendererSource).toContain("正式告警事件");
     expect(rendererSource).toContain("访问成员排行");
     expect(rendererSource).toContain("Access Key 排行");
     expect(rendererSource).toContain("号池排行");

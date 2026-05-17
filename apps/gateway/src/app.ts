@@ -12,6 +12,7 @@ import {
 } from "@local-ai-gateway/openai-compat";
 import {
   GatewayError,
+  GatewayAccessAlertSeverity,
   GatewayAccessControlSettings,
   GatewayAccessConsumer,
   GatewayAccessKey,
@@ -66,6 +67,40 @@ function buildErrorLogDetails(error: GatewayError | Error): Record<string, unkno
   return {
     message: error.message,
   };
+}
+
+function isAccessAlertError(error: GatewayError | Error): error is GatewayError {
+  return (
+    error instanceof GatewayError &&
+    (error.code.startsWith("access_policy_") ||
+      error.code.startsWith("access_key_") ||
+      error.code.startsWith("access_consumer_"))
+  );
+}
+
+function resolveAccessAlertSeverity(error: GatewayError): GatewayAccessAlertSeverity {
+  return error.statusCode >= 500 ? "critical" : "warning";
+}
+
+function recordAccessAlertForError(
+  runtime: GatewayRuntime,
+  error: GatewayError | Error,
+): void {
+  if (!isAccessAlertError(error)) {
+    return;
+  }
+  const details = buildErrorLogDetails(error);
+  runtime.recordAccessAlertEvent({
+    timestamp: Date.now(),
+    severity: resolveAccessAlertSeverity(error),
+    consumerId:
+      typeof details.consumerId === "string" ? details.consumerId : undefined,
+    accessKeyId:
+      typeof details.accessKeyId === "string" ? details.accessKeyId : undefined,
+    type: error.code,
+    message: error.message,
+    details,
+  });
 }
 
 function requireAdminAuth(
@@ -1083,6 +1118,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.setErrorHandler((error, _request, reply) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
+    recordAccessAlertForError(runtime, normalized);
     if (
       normalized instanceof GatewayError &&
       normalized.code === "client_temporarily_blocked"
@@ -1759,6 +1795,23 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     return {
       ok: true,
       data: runtime.getUsageObservability(clientFilter),
+    };
+  });
+
+  app.get("/admin/access/alerts", async (request) => {
+    requireAdminAuth(runtime, request);
+    const rawLimit = (request.query as { limit?: string } | undefined)?.limit;
+    const parsedLimit =
+      typeof rawLimit === "string" ? Number.parseInt(rawLimit, 10) : undefined;
+    const limit =
+      typeof parsedLimit === "number" && Number.isFinite(parsedLimit)
+        ? parsedLimit
+        : 50;
+    return {
+      ok: true,
+      data: {
+        events: runtime.database.getRecentAccessAlertEvents(limit),
+      },
     };
   });
 

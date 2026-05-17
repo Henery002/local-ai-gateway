@@ -582,6 +582,23 @@ export interface GatewayUsageObservability {
   monthly: GatewayUsageWindowSummary;
 }
 
+export type GatewayAccessAlertSeverity = "info" | "warning" | "critical";
+
+export interface GatewayAccessAlertEvent {
+  id?: number;
+  timestamp: number;
+  severity: GatewayAccessAlertSeverity;
+  consumerId?: string;
+  accessKeyId?: string;
+  type: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface GatewayAccessAlertList {
+  events: GatewayAccessAlertEvent[];
+}
+
 export interface DesktopSystemSettings {
   launchAtLogin?: boolean;
   autoRefreshIntervalSeconds?: number;

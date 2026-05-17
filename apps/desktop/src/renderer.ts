@@ -51,6 +51,7 @@ declare global {
       getUsageSummary: (
         clientFilter?: UsageClientFilter,
       ) => Promise<UsageSummaryResponse>;
+      getAccessAlerts: () => Promise<AccessAlertListResponse>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -252,6 +253,24 @@ type UsageObservability = {
 type UsageSummaryResponse = {
   ok: boolean;
   data: UsageObservability;
+};
+
+type AccessAlertEvent = {
+  id?: number;
+  timestamp: number;
+  severity: "info" | "warning" | "critical";
+  consumerId?: string;
+  accessKeyId?: string;
+  type: string;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+type AccessAlertListResponse = {
+  ok: boolean;
+  data: {
+    events: AccessAlertEvent[];
+  };
 };
 
 type DashboardHealth = {
@@ -882,6 +901,7 @@ const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
   usageSummary?: UsageObservability;
+  accessAlerts?: AccessAlertEvent[];
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
   routingSettings?: RoutingSettings;
@@ -3156,8 +3176,25 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
   const policyErrorRule = buildAccessPolicyErrorSummaryRule(
     state.health?.recentErrors ?? [],
   );
+  const recentAccessAlertEvents = state.accessAlerts ?? [];
+  const latestAccessAlert = recentAccessAlertEvents[0];
+  const accessAlertEventRule = latestAccessAlert
+    ? {
+        title: "正式告警事件",
+        detail: `${latestAccessAlert.type} · ${latestAccessAlert.message}`,
+        status: `${formatCompactCount(recentAccessAlertEvents.length)} 条`,
+        tone:
+          latestAccessAlert.severity === "critical" ? "danger" : "warning",
+      }
+    : {
+        title: "正式告警事件",
+        detail: "暂无持久化访问策略告警事件。",
+        status: "正常",
+        tone: "active",
+      };
   const rules = [
     ...accessPolicyRules,
+    accessAlertEventRule,
     policyErrorRule,
     {
       title: "共享号池可用账号过低",
@@ -9435,6 +9472,7 @@ async function refresh(): Promise<void> {
     healthResult,
     providersResult,
     usageSummaryResult,
+    accessAlertsResult,
     sessionsResult,
     settingsResult,
     routingSettingsResult,
@@ -9446,6 +9484,7 @@ async function refresh(): Promise<void> {
     api.getHealth(),
     api.getProviders(),
     api.getUsageSummary(state.usageClientFilter),
+    api.getAccessAlerts(),
     api.getSessions(),
     api.getProviderSettings(),
     api.getRoutingSettings(),
@@ -9488,6 +9527,16 @@ async function refresh(): Promise<void> {
       message: normalizeErrorMessage(usageSummaryResult.reason),
     });
     state.usageSummary = state.health?.usageObservability;
+  }
+
+  if (accessAlertsResult.status === "fulfilled") {
+    state.accessAlerts = accessAlertsResult.value.data.events;
+  } else {
+    loadFailures.push({
+      scope: "access-alerts",
+      message: normalizeErrorMessage(accessAlertsResult.reason),
+    });
+    state.accessAlerts = [];
   }
 
   if (providersResult.status === "fulfilled") {
@@ -9605,12 +9654,22 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     state.activeView === "accounts" ||
     state.activeView === "pools";
 
-  const [healthResult, usageSummaryResult, sessionsResult] = await Promise.allSettled([
+  const [
+    healthResult,
+    usageSummaryResult,
+    accessAlertsResult,
+    sessionsResult,
+  ] = await Promise.allSettled([
     api.getHealth(),
     shouldFetchUsage
       ? api.getUsageSummary(state.usageClientFilter)
       : Promise.resolve(
           state.usageSummary ? { data: state.usageSummary } : undefined,
+        ),
+    shouldFetchUsage
+      ? api.getAccessAlerts()
+      : Promise.resolve(
+          state.accessAlerts ? { data: { events: state.accessAlerts } } : undefined,
         ),
     shouldFetchSessions
       ? api.getSessions()
@@ -9620,11 +9679,13 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   if (
     healthResult.status !== "fulfilled" &&
     usageSummaryResult.status !== "fulfilled" &&
+    accessAlertsResult.status !== "fulfilled" &&
     sessionsResult.status !== "fulfilled"
   ) {
     throw (
       healthResult.reason ??
       usageSummaryResult.reason ??
+      accessAlertsResult.reason ??
       sessionsResult.reason ??
       new Error("无法刷新桌面端运行态数据。")
     );
@@ -9642,6 +9703,13 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   } else if (healthResult.status === "fulfilled") {
     state.usageSummary = healthResult.value.usageObservability;
   }
+  if (
+    accessAlertsResult.status === "fulfilled" &&
+    accessAlertsResult.value &&
+    "data" in accessAlertsResult.value
+  ) {
+    state.accessAlerts = accessAlertsResult.value.data.events;
+  }
   if (sessionsResult.status === "fulfilled" && sessionsResult.value) {
     state.sessions = sessionsResult.value;
   }
@@ -9653,8 +9721,12 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
 
 async function refreshUsageSummaryOnly(): Promise<void> {
   const api = getGatewayApi();
-  const response = await api.getUsageSummary(state.usageClientFilter);
+  const [response, alerts] = await Promise.all([
+    api.getUsageSummary(state.usageClientFilter),
+    api.getAccessAlerts(),
+  ]);
   state.usageSummary = response.data;
+  state.accessAlerts = alerts.data.events;
   scheduleVisibleRefresh();
 }
 

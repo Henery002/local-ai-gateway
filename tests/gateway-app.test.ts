@@ -2854,6 +2854,28 @@ describe("gateway app", () => {
           accessKeyId: "key-alice",
         },
       });
+
+      const alerts = await app.inject({
+        method: "GET",
+        url: "/admin/access/alerts?limit=5",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(alerts.statusCode).toBe(200);
+      expect(alerts.json().data.events[0]).toMatchObject({
+        severity: "warning",
+        type: "access_policy_daily_quota_exceeded",
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        message: "Access consumer daily token quota has been exceeded.",
+        details: {
+          errorCode: "access_policy_daily_quota_exceeded",
+          statusCode: 429,
+          limit: 10,
+          usedTokens: 12,
+        },
+      });
     } finally {
       await app.close();
       database.close();

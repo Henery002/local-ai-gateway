@@ -1689,6 +1689,11 @@ ipcMain.handle("gateway:get-usage-summary", async (_event, clientFilter?: string
   return callAdmin(`/admin/usage/summary${query}`);
 });
 
+ipcMain.handle("gateway:get-access-alerts", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdmin("/admin/access/alerts");
+});
+
 ipcMain.handle("gateway:get-provider-settings", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/config/providers");
