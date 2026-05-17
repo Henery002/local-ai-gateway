@@ -16,10 +16,12 @@
 - P3 前置公网边界第一段：`public-user` 访问者类型在二期推理面返回 `403 access_policy_public_user_disabled`，路由预演同步展示拒绝原因。
 - LAN 成员命中 `public-ready` 等非 `shared-lan` 动态号池时，拒绝详情新增 `requiredVisibility: shared-lan` 与 `phase: phase-two`，明确该号池仅为三期预留。
 - 系统诊断的 `public-ready` 提示补充二期不会开放公网入口、不会分配给 LAN 成员使用，以及 `public-user` 当前处于拒绝态。
+- 用量趋势区新增统一空态说明：当前窗口无 Token，或所选成员 / 模型 / Key / 号池维度暂无最近 24 小时趋势桶时，会展示明确原因和下一步提示。
+- 趋势柱体和排行条新增 `data-usage-tooltip` hook，并保留原生 `title` 提示，便于后续接入更完整的 tooltip 浮层。
 
 ### 文档
 
-- 同步更新二期 / 三期开发进度清单、重构技术方案、桌面控制台说明和项目答疑清单，清理 `public-ready / public-user` 边界状态的过时表述。
+- 同步更新二期 / 三期开发进度清单、重构技术方案、桌面控制台说明和项目答疑清单，清理 `public-ready / public-user` 边界状态的过时表述，并记录 P2-A 趋势空态收口进度。
 
 ## [2026-05-17 19:24 CST]
 

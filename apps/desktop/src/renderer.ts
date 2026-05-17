@@ -3210,9 +3210,10 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     return;
   }
   if (!summary || summary.totals.totalTokens <= 0) {
-    node.innerHTML = `
-      <div class="empty-card">当前窗口暂无 Token 用量统计。发起请求后这里会展示输入、输出、缓存与思考 Token 的结构。</div>
-    `;
+    node.innerHTML = renderUsageTrendEmptyState(
+      "当前窗口暂无 Token 用量统计",
+      "发起请求后这里会展示输入、输出、缓存、思考 Token 以及成员、模型、Key 和号池归因趋势。",
+    );
     return;
   }
 
@@ -3233,6 +3234,40 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
   const shouldShowAttribution =
     state.usageTrendDimension === "all" ||
     state.usageTrendDimension === "attribution";
+  if (
+    state.usageObserveWindow === "daily" &&
+    state.usageTrendDimension === "members" &&
+    consumerTimeline.length === 0
+  ) {
+    node.innerHTML = renderUsageTrendEmptyState(
+      "当前筛选维度暂无 24h 趋势数据",
+      "已存在窗口用量，但最近 24 小时还没有可归因到访问成员的请求。可切换到“全部”查看 Token 结构。",
+    );
+    return;
+  }
+  if (
+    state.usageObserveWindow === "daily" &&
+    state.usageTrendDimension === "models" &&
+    modelTimeline.length === 0
+  ) {
+    node.innerHTML = renderUsageTrendEmptyState(
+      "当前筛选维度暂无 24h 趋势数据",
+      "已存在窗口用量，但最近 24 小时还没有可聚合的模型维度记录。可切换到“全部”查看 Token 结构。",
+    );
+    return;
+  }
+  if (
+    state.usageObserveWindow === "daily" &&
+    state.usageTrendDimension === "attribution" &&
+    accessKeyTimeline.length === 0 &&
+    poolTimeline.length === 0
+  ) {
+    node.innerHTML = renderUsageTrendEmptyState(
+      "当前筛选维度暂无 24h 趋势数据",
+      "已存在窗口用量，但最近 24 小时还没有 Access Key 或号池归因记录。新成员 Key 请求经过后会自动出现在这里。",
+    );
+    return;
+  }
   if (shouldShowMembers && consumerTimeline.length > 0) {
     renderUsageConsumerTimelineChart(
       node,
@@ -3280,6 +3315,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
                 <div
                   class="usage-chart-bar ${item.className}"
                   style="height: ${height}%"
+                  data-usage-tooltip="${escapeHtml(item.label)}"
                   title="${escapeHtml(item.label)} ${escapeHtml(formatCompactCount(item.value))} Token"
                 ></div>
               </div>
@@ -3299,6 +3335,19 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     </div>
     ${shouldShowModels ? renderUsageModelTimelinePanel(modelTimeline) : ""}
     ${shouldShowAttribution ? renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline) : ""}
+  `;
+}
+
+function renderUsageTrendEmptyState(title: string, message: string): string {
+  return `
+    <div
+      class="usage-trend-empty-state"
+      data-usage-tooltip="${escapeHtml(title)}"
+      title="${escapeHtml(message)}"
+    >
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>
   `;
 }
 
@@ -3403,6 +3452,7 @@ function renderUsageConsumerTimelineChart(
                 <div
                   class="usage-chart-bar primary"
                   style="height: ${height}%; min-height: ${totalTokens > 0 ? "8px" : "0"}"
+                  data-usage-tooltip="${escapeHtml(formatUsageHourLabel(bucket.bucketStart))}"
                   title="${escapeHtml(titleParts.join(" · "))}"
                 ></div>
               </div>
@@ -3426,7 +3476,10 @@ function renderUsageConsumerTimelineChart(
 
 function renderUsageModelTimelinePanel(timeline: UsageModelTimelinePoint[]): string {
   if (timeline.length === 0) {
-    return "";
+    return renderUsageTrendEmptyState(
+      "模型 24h 趋势暂无数据",
+      "最近 24 小时还没有可按模型别名聚合的请求；当 OpenAI-compatible 请求经过后会自动生成模型排行。",
+    );
   }
 
   const hourMs = 60 * 60 * 1000;
@@ -3464,7 +3517,10 @@ function renderUsageModelTimelinePanel(timeline: UsageModelTimelinePoint[]): str
     .sort((left, right) => right.totalTokens - left.totalTokens)
     .slice(0, 4);
   if (topModels.length === 0) {
-    return "";
+    return renderUsageTrendEmptyState(
+      "模型 24h 趋势暂无数据",
+      "当前筛选窗口内没有落在最近 24 小时的模型用量桶。",
+    );
   }
 
   const maxValue = Math.max(...topModels.map((item) => item.totalTokens), 1);
@@ -3494,6 +3550,7 @@ function renderUsageModelTimelinePanel(timeline: UsageModelTimelinePoint[]): str
                     <div
                       class="usage-model-timeline-bar"
                       style="width: ${width}%"
+                      data-usage-tooltip="${escapeHtml(item.modelAlias)}"
                       title="${escapeHtml(`${item.modelAlias} · ${formatCompactCount(item.totalTokens)} Token · 峰值小时 ${formatCompactCount(item.peakHourTokens)}`)}"
                     ></div>
                   </div>
@@ -3512,7 +3569,10 @@ function renderUsageAttributionTimelinePanel(
   poolTimeline: UsagePoolTimelinePoint[],
 ): string {
   if (accessKeyTimeline.length === 0 && poolTimeline.length === 0) {
-    return "";
+    return renderUsageTrendEmptyState(
+      "Key / 号池 24h 趋势暂无数据",
+      "最近 24 小时还没有 Access Key 或动态号池归因请求；成员 Key 请求或号池路由命中后会自动展示。",
+    );
   }
 
   const hourMs = 60 * 60 * 1000;
@@ -3641,6 +3701,7 @@ function renderUsageAttributionTimelinePanel(
                 <div
                   class="usage-model-timeline-bar"
                   style="width: ${width}%"
+                  data-usage-tooltip="${escapeHtml(item.label)}"
                   title="${escapeHtml(`${item.label} · ${formatCompactCount(item.totalTokens)} Token`)}"
                 ></div>
               </div>

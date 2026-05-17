@@ -523,6 +523,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("poolTimeline");
     expect(rendererSource).toContain("模型 24h 趋势");
     expect(rendererSource).toContain("Key / 号池 24h 趋势");
+    expect(rendererSource).toContain("class=\"usage-trend-empty-state\"");
+    expect(rendererSource).toContain("renderUsageTrendEmptyState");
+    expect(rendererSource).toContain("data-usage-tooltip");
+    expect(rendererSource).toContain("当前筛选维度暂无 24h 趋势数据");
     expect(rendererSource).toContain("renderUsageDimensionInsights");
     expect(rendererSource).toContain("getAccessAlerts");
     expect(rendererSource).toContain("acknowledgeAccessAlert");

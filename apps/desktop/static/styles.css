@@ -2183,6 +2183,29 @@ button, input, select {
   margin-top: 12px;
 }
 
+.usage-trend-empty-state {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 170px;
+  padding: 20px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.usage-trend-empty-state strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.usage-trend-empty-state span {
+  max-width: 560px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .usage-model-timeline-panel {
   display: grid;
   gap: 12px;
