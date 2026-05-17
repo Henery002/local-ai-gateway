@@ -698,7 +698,15 @@
                       <span class="card-title">窗口用量结构</span>
                       <p class="card-description">当前按所选时间窗口展示已记录 Token 事件；日窗口优先展示访问成员 24h 小时趋势。</p>
                     </div>
-                    <span class="badge active">真实统计</span>
+                    <div class="usage-chart-header-actions">
+                      <div id="usage-trend-dimension" class="usage-window-group usage-trend-dimension-group" role="tablist" aria-label="趋势维度">
+                        <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="true">全部</button>
+                        <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="members" data-active="false">成员</button>
+                        <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="models" data-active="false">模型</button>
+                        <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="attribution" data-active="false">Key / 号池</button>
+                      </div>
+                      <span class="badge active">真实统计</span>
+                    </div>
                   </div>
                   <div id="usage-trend-chart" class="usage-chart-frame" aria-label="Token 消耗结构">
                     <div class="empty-card">正在等待用量统计。</div>

@@ -493,6 +493,8 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-chart-panel\"");
     expect(usageView).toContain("class=\"usage-chart-frame\"");
     expect(usageView).toContain("窗口用量结构");
+    expect(usageView).toContain("id=\"usage-trend-dimension\"");
+    expect(usageView).toContain("data-action=\"usage-trend-dimension\"");
     expect(usageView).toContain("id=\"usage-trend-chart\"");
     expect(usageView).toContain("id=\"usage-dimension-insights\"");
     expect(usageView).toContain("id=\"usage-alert-rule-list\"");
@@ -510,6 +512,8 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-alert-event-toolbar\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("renderUsageTrendChart");
+    expect(rendererSource).toContain("UsageTrendDimension");
+    expect(rendererSource).toContain("usageTrendDimension");
     expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
     expect(rendererSource).toContain("renderUsageModelTimelinePanel");
     expect(rendererSource).toContain("renderUsageAttributionTimelinePanel");

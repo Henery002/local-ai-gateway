@@ -15,6 +15,7 @@
 
 - 用量摘要新增 Access Key 与号池 24h 小时趋势：`usageSummary.daily.accessKeyTimeline / poolTimeline` 按小时聚合 Token、请求、失败、缓存和思考 Token。
 - 用量与告警页日窗口新增“Key / 号池 24h 趋势”面板，展示 Top Access Key 与 Top 号池的 Token、请求数和失败率。
+- 用量与告警页新增趋势维度选择：支持在全部、成员、模型、Key / 号池之间切换日窗口趋势视图。
 
 ## [2026-05-17 19:07 CST]
 

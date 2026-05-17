@@ -178,6 +178,7 @@ declare global {
 type ProviderConfigurationStatus = "active" | "disabled" | "incomplete";
 type UsageClientFilter = "all" | "openclaw" | "hermes" | "other";
 type UsageObserveWindow = "history" | "daily" | "weekly" | "monthly";
+type UsageTrendDimension = "all" | "members" | "models" | "attribution";
 
 type UsageCounters = {
   requestCount: number;
@@ -1005,6 +1006,7 @@ const state: {
   runtimeDiagnostics: RuntimeDiagnostic[];
   usageClientFilter: UsageClientFilter;
   usageObserveWindow: UsageObserveWindow;
+  usageTrendDimension: UsageTrendDimension;
   usageAlertStatusFilter: UsageAlertStatusFilter;
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
   routingClientFilter: string;
@@ -1020,6 +1022,7 @@ const state: {
   runtimeDiagnostics: [],
   usageClientFilter: "all",
   usageObserveWindow: "daily",
+  usageTrendDimension: "all",
   usageAlertStatusFilter: "all",
   usageAlertSeverityFilter: "all",
   routingClientFilter: "all",
@@ -1175,6 +1178,19 @@ function usageClientFilterLabel(filter: UsageClientFilter): string {
     return "其他客户端";
   }
   return "全部客户端";
+}
+
+function formatUsageTrendDimensionLabel(dimension: UsageTrendDimension): string {
+  if (dimension === "members") {
+    return "成员";
+  }
+  if (dimension === "models") {
+    return "模型";
+  }
+  if (dimension === "attribution") {
+    return "Key / 号池";
+  }
+  return "全部";
 }
 
 function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
@@ -3170,10 +3186,22 @@ function renderUsageOverview(): void {
 
 function renderUsageWorkbench(): void {
   const summary = getActiveUsageWindowSummary();
+  syncUsageTrendDimensionControls();
   renderUsageTrendChart(summary);
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
   renderUsageAlertEvents();
+}
+
+function syncUsageTrendDimensionControls(): void {
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-usage-trend-dimension]")
+    .forEach((button) => {
+      button.dataset.active =
+        button.dataset.usageTrendDimension === state.usageTrendDimension
+          ? "true"
+          : "false";
+    });
 }
 
 function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
@@ -3196,14 +3224,23 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     state.usageObserveWindow === "daily" ? summary.accessKeyTimeline ?? [] : [];
   const poolTimeline =
     state.usageObserveWindow === "daily" ? summary.poolTimeline ?? [] : [];
-  if (consumerTimeline.length > 0) {
+  const shouldShowMembers =
+    state.usageTrendDimension === "all" ||
+    state.usageTrendDimension === "members";
+  const shouldShowModels =
+    state.usageTrendDimension === "all" ||
+    state.usageTrendDimension === "models";
+  const shouldShowAttribution =
+    state.usageTrendDimension === "all" ||
+    state.usageTrendDimension === "attribution";
+  if (shouldShowMembers && consumerTimeline.length > 0) {
     renderUsageConsumerTimelineChart(
       node,
       summary,
       consumerTimeline,
-      modelTimeline,
-      accessKeyTimeline,
-      poolTimeline,
+      shouldShowModels ? modelTimeline : [],
+      shouldShowAttribution ? accessKeyTimeline : [],
+      shouldShowAttribution ? poolTimeline : [],
     );
     return;
   }
@@ -3255,12 +3292,13 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     </div>
     <div class="usage-chart-legend">
       <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
+      <span>趋势维度：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
       <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
     </div>
-    ${renderUsageModelTimelinePanel(modelTimeline)}
-    ${renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline)}
+    ${shouldShowModels ? renderUsageModelTimelinePanel(modelTimeline) : ""}
+    ${shouldShowAttribution ? renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline) : ""}
   `;
 }
 
@@ -10021,6 +10059,26 @@ function bindActions(): void {
       }
       state.usageObserveWindow = normalizedWindow;
       renderUsagePanelsForWindowChange();
+      return;
+    }
+
+    if (
+      action === "usage-trend-dimension" &&
+      button.dataset.usageTrendDimension
+    ) {
+      const nextDimension = button.dataset.usageTrendDimension;
+      const normalizedDimension: UsageTrendDimension =
+        nextDimension === "members" ||
+        nextDimension === "models" ||
+        nextDimension === "attribution"
+          ? nextDimension
+          : "all";
+      if (state.usageTrendDimension === normalizedDimension) {
+        return;
+      }
+      state.usageTrendDimension = normalizedDimension;
+      syncUsageTrendDimensionControls();
+      renderUsageTrendChart(getActiveUsageWindowSummary());
       return;
     }
 

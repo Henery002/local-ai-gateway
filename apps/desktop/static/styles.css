@@ -3817,6 +3817,14 @@ button, input, select {
   justify-content: flex-end;
 }
 
+.usage-chart-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .usage-filter-group {
   display: flex;
   align-items: center;
@@ -3864,6 +3872,11 @@ button, input, select {
   background: var(--bg-main);
   color: var(--accent-color);
   box-shadow: var(--shadow-sm);
+}
+
+.usage-trend-dimension-group .usage-window-chip {
+  min-width: 56px;
+  padding: 0 10px;
 }
 
 .usage-observe-grid {
@@ -4603,6 +4616,7 @@ button, input, select {
   .card-header > .badge,
   .dashboard-panel-head > .badge,
   .pool-card-actions,
+  .usage-chart-header-actions,
   .usage-chart-header > .badge,
   .usage-alert-header > .badge {
     align-self: flex-start;
