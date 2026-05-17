@@ -41,6 +41,11 @@ export interface RuntimeDiagnosticContext {
   routingMatchedTotal?: number;
   inferenceAuthEnabled?: boolean;
   inferenceAuthHasApiKey?: boolean;
+  lanAccessEnabled?: boolean;
+  lanBaseUrl?: string;
+  sharedLanPoolCount?: number;
+  enabledLanConsumerCount?: number;
+  enabledLanAccessKeyCount?: number;
   recentErrors?: Array<{
     level?: string;
     message: string;
@@ -153,6 +158,73 @@ export function buildRuntimeDiagnostics(
       severity: "warning",
       suggestion: "请在“诊断与系统 -> 第三方客户端接入鉴权”中填写并保存 Gateway API Key。",
     });
+  }
+
+  if (context.lanAccessEnabled) {
+    const sharedLanPoolCount = context.sharedLanPoolCount ?? 0;
+    const enabledLanConsumerCount = context.enabledLanConsumerCount ?? 0;
+    const enabledLanAccessKeyCount = context.enabledLanAccessKeyCount ?? 0;
+
+    if (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey) {
+      diagnostics.push({
+        id: "lan-api-key-required",
+        title: "LAN 共享缺少 API Key 保护",
+        message: "局域网共享已开启，但推理面还没有可用的 API Key 保护。",
+        severity: "warning",
+        suggestion:
+          "请启用第三方接入鉴权并保存 Gateway API Key，避免局域网内未授权设备直接访问推理接口。",
+      });
+    }
+
+    if (sharedLanPoolCount === 0) {
+      diagnostics.push({
+        id: "lan-shared-pool-missing",
+        title: "缺少 shared-lan 号池",
+        message: "局域网共享已开启，但当前没有可供 LAN 成员使用的 shared-lan 动态号池。",
+        severity: "warning",
+        suggestion:
+          "请在“号池与路由”中将至少一个共享号池的可见性设为“局域网共享”，并确认池内账号可用。",
+      });
+    }
+
+    if (enabledLanConsumerCount === 0) {
+      diagnostics.push({
+        id: "lan-member-missing",
+        title: "缺少启用中的 LAN 成员",
+        message: "局域网共享已开启，但当前没有启用中的 LAN 访问成员。",
+        severity: "warning",
+        suggestion:
+          "请在“访问与密钥”中新增或启用 LAN 成员，并为成员分配模型、额度和允许号池。",
+      });
+    } else if (enabledLanAccessKeyCount === 0) {
+      diagnostics.push({
+        id: "lan-member-key-missing",
+        title: "LAN 成员缺少可用 Key",
+        message: "当前已有启用中的 LAN 成员，但没有可用的成员 API Key。",
+        severity: "warning",
+        suggestion:
+          "请在成员详情中创建或轮换 API Key，并把一次性明文分发给对应接入方。",
+      });
+    }
+
+    if (
+      context.gatewayOk &&
+      context.inferenceAuthEnabled &&
+      context.inferenceAuthHasApiKey &&
+      sharedLanPoolCount > 0 &&
+      enabledLanConsumerCount > 0 &&
+      enabledLanAccessKeyCount > 0
+    ) {
+      const lanBaseUrl = context.lanBaseUrl?.trim() || "请使用本机局域网 IP + 网关端口";
+      diagnostics.push({
+        id: "lan-sharing-ready",
+        title: "LAN 共享入口已就绪",
+        message: `局域网共享的关键条件已满足，可将 Base URL 分发为 ${lanBaseUrl}。`,
+        severity: "success",
+        suggestion:
+          "请只把成员 API Key 分发给可信接入方，并优先在同一局域网内做一次 /v1/models 或对话请求验证。",
+      });
+    }
   }
 
   if (!context.sessions.length) {

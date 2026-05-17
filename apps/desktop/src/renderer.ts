@@ -304,6 +304,10 @@ type DashboardHealth = {
   ok: boolean;
   managed: boolean;
   version: string;
+  desktopNetwork?: {
+    localNetworkAddresses?: string[];
+    lanBaseUrl?: string;
+  };
   defaultModel?: string;
   openclaw?: { baseUrl?: string; provider?: string; model?: string };
   recentErrors?: Array<{
@@ -6845,6 +6849,22 @@ function buildEmptySessions(): DashboardSessions {
 function updateRuntimeDiagnostics(
   loadFailures: RuntimeDiagnosticLoadFailure[],
 ): void {
+  const security = state.securitySettings ?? state.health?.inferenceAuth;
+  const accessControl = state.securitySettings?.accessControl;
+  const enabledLanConsumerIds = new Set(
+    (accessControl?.consumers ?? [])
+      .filter((consumer) => consumer.type === "lan-member" && consumer.status === "enabled")
+      .map((consumer) => consumer.id),
+  );
+  const enabledLanAccessKeyCount = (accessControl?.keys ?? []).filter(
+    (key) =>
+      key.status === "enabled" &&
+      key.hasKey &&
+      enabledLanConsumerIds.has(key.consumerId),
+  ).length;
+  const sharedLanPoolCount = (state.poolSettings?.pools ?? []).filter(
+    (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "shared-lan",
+  ).length;
   state.runtimeDiagnostics = buildRuntimeDiagnostics({
     gatewayOk: state.health?.ok,
     activeSessionId: state.sessions?.activeSessionId,
@@ -6852,11 +6872,13 @@ function updateRuntimeDiagnostics(
     loadFailures,
     routingEnabled: state.routingSettings?.enabled,
     routingMatchedTotal: state.health?.routingObservability?.totalMatched,
-    inferenceAuthEnabled:
-      state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled,
-    inferenceAuthHasApiKey:
-      state.securitySettings?.hasApiKey ??
-      state.health?.inferenceAuth?.hasApiKey,
+    inferenceAuthEnabled: security?.enabled,
+    inferenceAuthHasApiKey: security?.hasApiKey,
+    lanAccessEnabled: Boolean(security?.lanAccess?.enabled),
+    lanBaseUrl: state.health?.desktopNetwork?.lanBaseUrl,
+    sharedLanPoolCount,
+    enabledLanConsumerCount: enabledLanConsumerIds.size,
+    enabledLanAccessKeyCount,
     recentErrors: state.health?.recentErrors ?? [],
   });
 }

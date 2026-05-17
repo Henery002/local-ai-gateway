@@ -36,11 +36,13 @@
 - 新增正式访问告警事件第一段：SQLite 新增 `access_alert_events`，访问 key / 成员 / 策略类拒绝会写入持久化事件；管理端新增 `/admin/access/alerts`，桌面端“用量与告警”展示最近正式告警事件，并按 90 天 / 5 万行做轻量清理。
 - 新增正式访问告警确认状态第一段：`access_alert_events` 兼容新增 `acknowledged_at / acknowledged_by`，管理端新增 `/admin/access/alerts/:id/acknowledge` 和 `/admin/access/alerts/acknowledge-all`，桌面端“用量与告警”可确认最近未确认告警或一次确认全部未确认告警；确认只作用于本项目本地告警事件，不影响账号、号池或 Cockpit / OpenClaw 原始配置。
 - 新增正式访问告警事件去重第一段：`access_alert_events` 兼容新增 `dedupe_key / occurrence_count / last_seen_at`，同一访问策略拒绝类告警会合并未确认事件，保留首次发生时间、更新最近发生时间和重复次数；桌面端“用量与告警”展示重复次数和最近发生时间。
+- 新增 P2-B LAN 共享诊断第一段：桌面主进程会向健康状态补充本机局域网地址和 LAN Base URL，运行诊断会检查 LAN 开关、Gateway API Key、`shared-lan` 号池、启用中的 LAN 成员和成员 API Key，并在条件齐全时展示可分发的 LAN Base URL。
 - 新增成员 24h 用量趋势第一段：`usageSummary.daily` 输出按小时聚合的 `consumerTimeline`，桌面端“用量与告警”日窗口优先展示访问成员 24 小时 Token 趋势。
 - 新增 `desktop-access-policy-usage` 纯函数回归测试，覆盖成员多 key 用量聚合、超额状态、未配置日限额、QPS 余量、并发余量、成员策略告警摘要和访问策略错误聚合场景。
 - 新增 gateway 回归测试，覆盖动态号池请求写入 `usageSummary.daily.pools` 的号池维度统计。
 - 新增 gateway 回归测试，覆盖成员日额度拒绝写入 `access_alert_events`、通过 `/admin/access/alerts` 查询、告警事件按行数裁剪、管理员确认单条告警，以及批量确认所有未确认告警。
-- 新增 gateway 与桌面构建回归测试，覆盖成员小时趋势聚合、用量页趋势图 hook、桌面端单条告警确认入口、全部确认入口、重复告警合并和重复次数展示。
+- 新增 gateway 与桌面构建回归测试，覆盖成员小时趋势聚合、用量页趋势图 hook、桌面端单条告警确认入口、全部确认入口、重复告警合并、重复次数展示和 LAN 共享诊断卡片接线。
+- 新增运行诊断纯函数回归测试，覆盖 LAN 共享缺少 `shared-lan` 号池 / 成员 Key 时的 warning，以及条件齐全时展示 LAN Base URL 的 ready 状态。
 - 新增 gateway 回归测试，覆盖 `access_policy_daily_quota_exceeded` 被写入结构化 recent errors，便于桌面端后续聚合策略拒绝。
 - 新增 gateway 回归测试，覆盖管理端 health 输出按访问成员归因的 QPS / 并发运行态数据。
 - 新增桌面构建回归测试，覆盖访问成员号池授权 UI hook 与保存动作绑定。
@@ -53,6 +55,7 @@
 
 ### 调整
 
+- 校准二期 / 三期共享网关开发进度清单：P1-B / P1-C 从笼统“进行中”调整为“已完成（二期核心闭环）”，P2-A 调整为“进行中（增强收口）”，并清理 QPS / 并发状态解释、策略余量展示、告警事件去重等已过时待办口径。
 - 推进 UI/UX Phase 9 精修：用量与告警页从静态占位线升级为基于当前 `usage summary` 渲染的 Token 结构图、成员/账号/模型/失败维度洞察和治理告警摘要，不引入新图表库。
 - 访问与密钥页策略摘要同步到最新 AccessPolicy 能力：成员详情展示日 Token 限额、QPS、并发、模型与号池授权，策略摘要按当前 policy 统计真实配置状态，并清理旧的“预留”说明。
 - 用量与告警页标题从固定“24 小时趋势”调整为“窗口用量结构”，与日 / 周 / 月 / 总统计窗口保持一致。

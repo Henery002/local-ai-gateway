@@ -410,6 +410,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
       "utf8",
     );
+    const runtimeDiagnosticsSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/runtime-diagnostics.ts"),
+      "utf8",
+    );
     const styles = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/styles.css"),
       "utf8",
@@ -431,6 +435,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("diagnostic-card-header");
     expect(rendererSource).toContain("diagnostic-fact-grid");
     expect(rendererSource).toContain("recent-error-card");
+    expect(runtimeDiagnosticsSource).toContain("lan-sharing-ready");
+    expect(rendererSource).toContain("sharedLanPoolCount");
+    expect(rendererSource).toContain("enabledLanAccessKeyCount");
+    expect(rendererSource).toContain("lanBaseUrl");
     expect(styles).toContain(".system-diagnostics-workbench {");
     expect(styles).toContain(".system-config-panel {");
     expect(styles).toContain(".system-config-form-grid {");

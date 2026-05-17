@@ -1,6 +1,7 @@
 import { basename, dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { networkInterfaces } from "node:os";
 import {
   appendFileSync,
   existsSync,
@@ -589,6 +590,24 @@ function normalizeGatewayPort(value?: number): number {
 
 function buildGatewayBaseUrl(port: number): string {
   return `http://${DEFAULT_HOST}:${port}`;
+}
+
+function getLocalNetworkAddresses(): string[] {
+  const addresses: string[] = [];
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== "IPv4" || entry.internal) {
+        continue;
+      }
+      addresses.push(entry.address);
+    }
+  }
+  return Array.from(new Set(addresses)).sort();
+}
+
+function buildLanBaseUrl(port: number): string | undefined {
+  const [address] = getLocalNetworkAddresses();
+  return address ? `http://${address}:${port}/v1` : undefined;
 }
 
 function readGatewayConfig(): Partial<GatewayStoredConfig> {
@@ -1668,8 +1687,14 @@ function getLatestBackupSnapshot(): {
 ipcMain.handle("gateway:get-health", async () => {
   const running = await gatewayManager.ensureRunning();
   const payload = (await callAdmin("/admin/health")) as Record<string, unknown>;
+  const gatewayPort = getConfiguredGatewayPort();
+  const localNetworkAddresses = getLocalNetworkAddresses();
   return {
     managed: running.managed,
+    desktopNetwork: {
+      localNetworkAddresses,
+      lanBaseUrl: buildLanBaseUrl(gatewayPort),
+    },
     ...payload,
   };
 });

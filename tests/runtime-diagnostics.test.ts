@@ -158,4 +158,73 @@ describe("runtime diagnostics", () => {
       ]),
     );
   });
+
+  it("reports LAN sharing readiness and missing shared resources", () => {
+    const incompleteDiagnostics = buildRuntimeDiagnostics({
+      gatewayOk: true,
+      activeSessionId: "session-1",
+      sessions: [
+        {
+          id: "session-1",
+          status: "available",
+          activity: {
+            requestCount: 1,
+          },
+        },
+      ],
+      loadFailures: [],
+      inferenceAuthEnabled: true,
+      inferenceAuthHasApiKey: true,
+      lanAccessEnabled: true,
+      lanBaseUrl: "http://192.168.1.20:8787/v1",
+      sharedLanPoolCount: 0,
+      enabledLanConsumerCount: 1,
+      enabledLanAccessKeyCount: 0,
+    });
+
+    expect(incompleteDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "lan-shared-pool-missing",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          id: "lan-member-key-missing",
+          severity: "warning",
+        }),
+      ]),
+    );
+
+    const readyDiagnostics = buildRuntimeDiagnostics({
+      gatewayOk: true,
+      activeSessionId: "session-1",
+      sessions: [
+        {
+          id: "session-1",
+          status: "available",
+          activity: {
+            requestCount: 1,
+          },
+        },
+      ],
+      loadFailures: [],
+      inferenceAuthEnabled: true,
+      inferenceAuthHasApiKey: true,
+      lanAccessEnabled: true,
+      lanBaseUrl: "http://192.168.1.20:8787/v1",
+      sharedLanPoolCount: 1,
+      enabledLanConsumerCount: 1,
+      enabledLanAccessKeyCount: 1,
+    });
+
+    expect(readyDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "lan-sharing-ready",
+          severity: "success",
+          message: expect.stringContaining("http://192.168.1.20:8787/v1"),
+        }),
+      ]),
+    );
+  });
 });
