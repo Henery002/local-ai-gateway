@@ -32,6 +32,7 @@ import {
 } from "./pool-bulk-actions.js";
 import {
   buildAccessPolicyAlertRules,
+  buildAccessPolicyErrorSummaryRule,
   buildAccessPolicyRuntimeSnapshot,
   buildAccessPolicyUsageSnapshot,
 } from "./access-policy-usage.js";
@@ -251,7 +252,12 @@ type DashboardHealth = {
   version: string;
   defaultModel?: string;
   openclaw?: { baseUrl?: string; provider?: string; model?: string };
-  recentErrors?: Array<{ level: string; message: string; createdAt: string }>;
+  recentErrors?: Array<{
+    level: string;
+    message: string;
+    details?: Record<string, unknown>;
+    createdAt: string;
+  }>;
   providerConfigurations?: Array<{
     id: string;
     label: string;
@@ -3136,8 +3142,12 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     dailyUsageSummary: state.usageSummary?.daily,
     runtimeConsumers: state.health?.inferenceObservability?.accessConsumers,
   });
+  const policyErrorRule = buildAccessPolicyErrorSummaryRule(
+    state.health?.recentErrors ?? [],
+  );
   const rules = [
     ...accessPolicyRules,
+    policyErrorRule,
     {
       title: "共享号池可用账号过低",
       detail:

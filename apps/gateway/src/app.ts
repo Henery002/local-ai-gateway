@@ -54,6 +54,20 @@ function getStatusCode(error: GatewayError | Error): number {
   return error instanceof GatewayError ? error.statusCode : 500;
 }
 
+function buildErrorLogDetails(error: GatewayError | Error): Record<string, unknown> {
+  if (error instanceof GatewayError) {
+    return {
+      message: error.message,
+      errorCode: error.code,
+      statusCode: error.statusCode,
+      ...(error.details ?? {}),
+    };
+  }
+  return {
+    message: error.message,
+  };
+}
+
 function requireAdminAuth(
   runtime: GatewayRuntime,
   request: FastifyRequest,
@@ -1074,10 +1088,10 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       normalized.code === "client_temporarily_blocked"
     ) {
       runtime.logger.warn("request_client_circuit_blocked", {
-        message: normalized.message,
+        ...buildErrorLogDetails(normalized),
       });
     } else {
-      runtime.logger.error("request_failed", { message: normalized.message });
+      runtime.logger.error("request_failed", buildErrorLogDetails(normalized));
     }
     if (
       normalized instanceof GatewayError &&

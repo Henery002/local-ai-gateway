@@ -32,6 +32,13 @@ type RuntimeConsumerLike = {
   maxConcurrentRequests?: number;
 };
 
+type RecentErrorLike = {
+  level?: string;
+  message?: string;
+  createdAt?: string;
+  details?: Record<string, unknown>;
+};
+
 export type AccessPolicyUsageSnapshot = {
   configured: boolean;
   usedTokens: number;
@@ -44,7 +51,7 @@ export type AccessPolicyUsageSnapshot = {
 };
 
 export type AccessPolicyAlertRule = {
-  id: "daily-quota" | "runtime-pressure";
+  id: "daily-quota" | "runtime-pressure" | "policy-errors";
   title: string;
   detail: string;
   status: string;
@@ -266,4 +273,58 @@ export function buildAccessPolicyAlertRules(input: {
           };
 
   return [dailyRule, runtimeRule];
+}
+
+function getAccessPolicyErrorCode(error: RecentErrorLike): string | undefined {
+  const value =
+    error.details?.errorCode ??
+    error.details?.code ??
+    error.details?.type;
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const code = value.trim();
+  return code.startsWith("access_policy_") ||
+    code.startsWith("access_key_") ||
+    code.startsWith("access_consumer_")
+    ? code
+    : undefined;
+}
+
+export function buildAccessPolicyErrorSummaryRule(
+  recentErrors: RecentErrorLike[],
+): AccessPolicyAlertRule {
+  const counts = new Map<string, number>();
+  for (const error of recentErrors) {
+    const code = getAccessPolicyErrorCode(error);
+    if (!code) {
+      continue;
+    }
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+
+  const entries = Array.from(counts.entries()).sort(
+    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+  );
+  if (entries.length === 0) {
+    return {
+      id: "policy-errors",
+      title: "访问策略拒绝",
+      detail: "最近错误中未发现访问策略拒绝。",
+      status: "正常",
+      tone: "active",
+    };
+  }
+
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  return {
+    id: "policy-errors",
+    title: "访问策略拒绝",
+    detail: entries
+      .slice(0, 3)
+      .map(([code, count]) => `${code} ${count} 次`)
+      .join("；"),
+    status: `${total} 次`,
+    tone: "warning",
+  };
 }

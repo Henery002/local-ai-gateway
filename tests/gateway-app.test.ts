@@ -2829,6 +2829,15 @@ describe("gateway app", () => {
       });
       expect(response.json().error.details.resetAt).toEqual(expect.any(String));
       expect(response.headers["retry-after"]).toEqual(expect.any(String));
+      expect(database.getRecentErrors(1)[0]).toMatchObject({
+        message: "request_failed",
+        details: {
+          errorCode: "access_policy_daily_quota_exceeded",
+          statusCode: 429,
+          consumerId: "consumer-alice",
+          accessKeyId: "key-alice",
+        },
+      });
     } finally {
       await app.close();
       database.close();

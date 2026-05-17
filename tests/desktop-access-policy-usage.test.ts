@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAccessPolicyAlertRules,
+  buildAccessPolicyErrorSummaryRule,
   buildAccessPolicyRuntimeSnapshot,
   buildAccessPolicyUsageSnapshot,
 } from "../apps/desktop/src/access-policy-usage.js";
@@ -241,5 +242,66 @@ describe("desktop access policy alert rules", () => {
         tone: "active",
       }),
     ]);
+  });
+});
+
+describe("desktop access policy error summary", () => {
+  it("summarizes recent access policy errors by error code", () => {
+    const rule = buildAccessPolicyErrorSummaryRule([
+      {
+        level: "error",
+        message: "request_failed",
+        createdAt: "2026-05-17T04:00:00.000Z",
+        details: {
+          errorCode: "access_policy_daily_quota_exceeded",
+          consumerId: "consumer-alice",
+        },
+      },
+      {
+        level: "error",
+        message: "request_failed",
+        createdAt: "2026-05-17T04:01:00.000Z",
+        details: {
+          errorCode: "access_policy_pool_denied",
+          consumerId: "consumer-bob",
+        },
+      },
+      {
+        level: "error",
+        message: "request_failed",
+        createdAt: "2026-05-17T04:02:00.000Z",
+        details: {
+          errorCode: "upstream_error",
+        },
+      },
+    ]);
+
+    expect(rule).toMatchObject({
+      id: "policy-errors",
+      title: "访问策略拒绝",
+      status: "2 次",
+      tone: "warning",
+    });
+    expect(rule.detail).toContain("access_policy_daily_quota_exceeded 1 次");
+    expect(rule.detail).toContain("access_policy_pool_denied 1 次");
+  });
+
+  it("reports a healthy policy error summary when no recent policy rejection exists", () => {
+    const rule = buildAccessPolicyErrorSummaryRule([
+      {
+        level: "error",
+        message: "request_failed",
+        createdAt: "2026-05-17T04:00:00.000Z",
+        details: {
+          errorCode: "upstream_error",
+        },
+      },
+    ]);
+
+    expect(rule).toMatchObject({
+      id: "policy-errors",
+      status: "正常",
+      tone: "active",
+    });
   });
 });
