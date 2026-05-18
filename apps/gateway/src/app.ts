@@ -163,7 +163,13 @@ function requireInferenceNetworkAccess(
   const hasMappingKey = normalizeInferenceClientMappings(settings).some(
     (item) => item.enabled,
   );
-  if (settings.mode !== "api-key" || (!hasDefaultKey && !hasMappingKey)) {
+  const hasAccessKey = (settings.accessControl?.keys ?? []).some(
+    (item) => item.status === "enabled" && item.keyHash.trim().length > 0,
+  );
+  if (
+    settings.mode !== "api-key" ||
+    (!hasDefaultKey && !hasMappingKey && !hasAccessKey)
+  ) {
     throw new GatewayError(
       503,
       "lan_api_key_required",
@@ -557,6 +563,25 @@ function assertAccessPolicyAllowsModel(
       "Requested model is not allowed for this access consumer.",
     );
   }
+}
+
+function assertAccessPolicyNotExpired(
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  const expiresAt = accessContext?.policy?.expiresAt;
+  if (!accessContext || !isPastIsoDate(expiresAt)) {
+    return;
+  }
+  throw new GatewayError(
+    403,
+    "access_policy_expired",
+    "Access policy is expired.",
+    {
+      consumerId: accessContext.consumerId,
+      accessKeyId: accessContext.accessKeyId,
+      expiresAt,
+    },
+  );
 }
 
 function normalizePolicyLimit(value: unknown): number | undefined {
@@ -1215,7 +1240,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.get("/v1/models", async (request) => {
     requireInferenceNetworkAccess(runtime, request);
-    resolveAuthAndClientTag(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    assertAccessPolicyNotExpired(authContext.accessContext);
     return buildModelsResponse(runtime.modelRegistry.list());
   });
 
@@ -1238,6 +1264,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       );
     }
     const parsed = parseChatCompletionsRequest(request.body);
+    assertAccessPolicyNotExpired(authContext.accessContext);
     assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
     assertAccessPolicyWithinDailyQuota(runtime, authContext.accessContext);
     assertAccessPolicyWithinRequestLimits(runtime, authContext.accessContext);

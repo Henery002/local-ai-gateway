@@ -779,6 +779,7 @@ async function prunePoolsForDeletedAccounts(
 
 async function buildOpenClawSnippet(): Promise<string> {
   const payload = (await callAdmin("/admin/health")) as {
+    defaultModel?: string;
     openclaw?: {
       baseUrl?: string;
       provider?: string;
@@ -791,10 +792,10 @@ async function buildOpenClawSnippet(): Promise<string> {
   const lines = [
     `baseUrl=${payload.openclaw?.baseUrl ?? `${baseUrl}/v1`}`,
     `provider=${payload.openclaw?.provider ?? "openai"}`,
-    `model=${payload.openclaw?.model ?? "codex-default"}`,
+    `model=${payload.openclaw?.model ?? payload.defaultModel ?? "codex-default"}`,
   ];
   if (payload.inferenceAuth?.enabled) {
-    lines.push("apiKey=<你的 Local AI Gateway API Key>");
+    lines.push("apiKey=<你的 Gateway API Key 或成员 API Key>");
   }
   return lines.join("\n");
 }

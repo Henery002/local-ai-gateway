@@ -909,6 +909,12 @@ type SecuritySettings = {
   accessControl: SecurityAccessControl;
 };
 
+type SecuritySettingsLike = {
+  hasApiKey?: boolean;
+  clientMappings?: SecurityClientMapping[];
+  accessControl?: Partial<SecurityAccessControl>;
+};
+
 type SecuritySettingsResponse = {
   ok: boolean;
   data: SecuritySettings;
@@ -1516,6 +1522,62 @@ function setText(id: string, value: string): void {
   if (node) {
     node.textContent = value;
   }
+}
+
+type BadgeTone = "active" | "neutral" | "warning" | "error";
+
+function setModeCardStatus(
+  selector: string,
+  status: "active" | "disabled" | "warning",
+  badgeText: string,
+  badgeTone: BadgeTone,
+): void {
+  const card = document.querySelector<HTMLElement>(selector);
+  if (!card) {
+    return;
+  }
+  card.dataset.status = status;
+  const badge = card.querySelector<HTMLElement>(".badge");
+  if (!badge) {
+    return;
+  }
+  badge.classList.remove("active", "neutral", "warning", "error");
+  badge.classList.add(badgeTone);
+  badge.textContent = badgeText;
+}
+
+function hasEnabledAccessMemberKey(security?: SecuritySettingsLike): boolean {
+  const enabledConsumerIds = new Set(
+    (security?.accessControl?.consumers ?? [])
+      .filter((consumer) => consumer.status === "enabled")
+      .map((consumer) => consumer.id),
+  );
+  return (security?.accessControl?.keys ?? []).some(
+    (key) =>
+      key.status === "enabled" &&
+      key.hasKey &&
+      !isPastIsoDate(key.expiresAt) &&
+      enabledConsumerIds.has(key.consumerId),
+  );
+}
+
+function hasAnyInferenceCredential(security?: SecuritySettingsLike): boolean {
+  return Boolean(
+    security?.hasApiKey ||
+      (security?.clientMappings ?? []).some(
+        (mapping) => mapping.enabled && mapping.hasApiKey,
+      ) ||
+      hasEnabledAccessMemberKey(security),
+  );
+}
+
+function isLoopbackGatewayHost(host?: string): boolean {
+  const normalized = host?.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "localhost" ||
+    normalized === "::1"
+  );
 }
 
 function formatBytes(value?: number): string {
@@ -2161,6 +2223,70 @@ function getCodexAliasPreset(modelId: string): string {
   );
 }
 
+function dedupeNonEmptyStrings(values: Array<string | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim() ?? "")
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
+
+function getConfiguredCodexModelAliases(): string[] {
+  const codex = state.settings?.codex ?? {};
+  const exposedModels =
+    codex.exposedModels === undefined
+      ? [...SUPPORTED_CODEX_UPSTREAM_MODELS]
+      : codex.exposedModels;
+  return exposedModels
+    .map((modelId) => getCodexAliasPreset(modelId))
+    .filter((alias) => alias !== "codex-custom");
+}
+
+function getAvailableModelAliases(): string[] {
+  const aliases = dedupeNonEmptyStrings([
+    state.health?.openclaw?.model,
+    state.health?.defaultModel,
+    state.health?.defaultSelection?.alias,
+    ...(state.providers?.data.flatMap((provider) =>
+      provider.models.map((model) => model.alias),
+    ) ?? []),
+    ...getConfiguredCodexModelAliases(),
+    state.settings?.defaultModelAlias,
+    state.settings?.openAICompatible?.alias,
+    state.settings?.ollama?.alias,
+    "codex-default",
+  ]);
+  const recommended = getRecommendedModelAlias(false);
+  return aliases.sort((left, right) => {
+    if (left === recommended) {
+      return -1;
+    }
+    if (right === recommended) {
+      return 1;
+    }
+    if (left === "codex-default") {
+      return -1;
+    }
+    if (right === "codex-default") {
+      return 1;
+    }
+    return left.localeCompare(right, "zh-CN");
+  });
+}
+
+function getRecommendedModelAlias(includeAvailableFallback = true): string {
+  return (
+    state.health?.openclaw?.model?.trim() ||
+    state.health?.defaultModel?.trim() ||
+    state.health?.defaultSelection?.alias?.trim() ||
+    state.settings?.defaultModelAlias?.trim() ||
+    (includeAvailableFallback ? getAvailableModelAliases()[0] : undefined) ||
+    "codex-default"
+  );
+}
+
 function getAccountGroups() {
   return buildCodexAccountGroups(
     state.sessions?.data ?? [],
@@ -2356,16 +2482,16 @@ function renderDashboardPhaseTwoOverview(): void {
   const authEnabled = Boolean(
     state.securitySettings?.enabled ?? health?.inferenceAuth?.enabled,
   );
-  const hasApiKey = Boolean(
-    state.securitySettings?.hasApiKey ?? health?.inferenceAuth?.hasApiKey,
-  );
+  const security = state.securitySettings ?? health?.inferenceAuth;
+  const hasCredential = hasAnyInferenceCredential(security);
   const lanEnabled = Boolean(
     state.securitySettings?.lanAccess?.enabled ??
       health?.inferenceAuth?.lanAccess?.enabled,
   );
+  const lanBaseUrl = getLanAccessBaseUrl();
   const localStatus = health?.ok
     ? authEnabled
-      ? hasApiKey
+      ? hasCredential
         ? "运行中，API Key 鉴权"
         : "运行中，鉴权缺少密钥"
       : "运行中，无鉴权"
@@ -2379,11 +2505,21 @@ function renderDashboardPhaseTwoOverview(): void {
   );
   setText(
     "dashboard-lan-status",
-    lanEnabled ? "已开启，强制 API Key" : "默认关闭，等待显式开启",
+    lanEnabled
+      ? hasCredential
+        ? "已开启，可用成员 Key 或 Gateway Key 接入"
+        : "已开启，但缺少可用 Key"
+      : "默认关闭，等待显式开启",
   );
   setText(
     "dashboard-lan-url",
-    lanEnabled ? "本机局域网 IP + 端口 /v1" : "未开启",
+    lanEnabled ? lanBaseUrl : "未开启",
+  );
+  setModeCardStatus(
+    '[data-dashboard-mode="lan"]',
+    lanEnabled ? (hasCredential ? "active" : "warning") : "disabled",
+    lanEnabled ? (hasCredential ? "二期可用" : "缺少 Key") : "默认关闭",
+    lanEnabled ? (hasCredential ? "active" : "warning") : "neutral",
   );
   setText("dashboard-lan-tokens", "0 Token");
   setText("dashboard-public-status", "三期预留，当前禁用");
@@ -2402,8 +2538,9 @@ function renderAccessAndKeys(): void {
   const security = state.securitySettings ?? health?.inferenceAuth;
   const baseUrl = health?.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const authEnabled = Boolean(security?.enabled);
-  const hasApiKey = Boolean(security?.hasApiKey);
+  const hasCredential = hasAnyInferenceCredential(security);
   const lanEnabled = Boolean(security?.lanAccess?.enabled);
+  const lanBaseUrl = getLanAccessBaseUrl();
   const mappings = state.securitySettings?.clientMappings ?? [];
   const accessControl = state.securitySettings?.accessControl;
   const accessKeyCount =
@@ -2417,18 +2554,28 @@ function renderAccessAndKeys(): void {
   setText(
     "access-local-auth",
     authEnabled
-      ? hasApiKey
+      ? hasCredential
         ? "API Key 鉴权"
         : "鉴权缺少密钥"
       : "无鉴权",
   );
   setText(
     "access-lan-status",
-    lanEnabled ? "已开启，需重启后监听局域网" : "默认关闭",
+    lanEnabled
+      ? hasCredential
+        ? "已开启，可用成员 Key 或 Gateway Key 接入"
+        : "已开启，但缺少可用 Key"
+      : "默认关闭",
   );
   setText(
     "access-lan-url",
-    lanEnabled ? "本机局域网 IP + 端口 /v1" : "未开启",
+    lanEnabled ? lanBaseUrl : "未开启",
+  );
+  setModeCardStatus(
+    '[data-access-surface="lan"]',
+    lanEnabled ? (hasCredential ? "active" : "warning") : "disabled",
+    lanEnabled ? (hasCredential ? "二期可用" : "缺少 Key") : "默认关闭",
+    lanEnabled ? (hasCredential ? "active" : "warning") : "neutral",
   );
   setText(
     "access-lan-keys",
@@ -2710,6 +2857,32 @@ function parseAccessModelAliasesInput(selector: string): string[] {
         .filter((item) => item.length > 0),
     ),
   );
+}
+
+function getSelectedAccessMemberModelAliases(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLInputElement>(
+      "[data-access-member-model-alias-option]:checked",
+    ),
+  )
+    .map((input) => input.dataset.accessMemberModelAliasOption)
+    .filter((alias): alias is string => Boolean(alias?.trim()));
+}
+
+function getCustomAccessMemberModelAliases(
+  aliases = parseAccessModelAliasesInput("#access-member-model-aliases"),
+): string[] {
+  const availableAliases = new Set(getAvailableModelAliases());
+  return aliases.filter((alias) => !availableAliases.has(alias));
+}
+
+function collectAccessMemberModelAliasesInput(): string[] {
+  return dedupeNonEmptyStrings([
+    ...getSelectedAccessMemberModelAliases(),
+    ...getCustomAccessMemberModelAliases(
+      parseAccessModelAliasesInput("#access-member-model-aliases"),
+    ),
+  ]);
 }
 
 function parseAccessTagsInput(selector: string): string[] {
@@ -3276,12 +3449,18 @@ function renderAccessPolicyPreview(): void {
   const accessControl = state.securitySettings?.accessControl;
   const policies = accessControl?.policies ?? [];
   const policiesWithQuota = policies.filter(
-    (policy) => typeof policy.quota?.dailyTokenLimit === "number",
+    (policy) =>
+      typeof policy.quota?.dailyTokenLimit === "number" ||
+      typeof policy.quota?.monthlyTokenLimit === "number" ||
+      typeof policy.quota?.totalTokenLimit === "number",
   ).length;
   const policiesWithRateLimit = policies.filter(
     (policy) =>
       typeof policy.limits?.requestsPerMinute === "number" ||
       typeof policy.limits?.maxConcurrentRequests === "number",
+  ).length;
+  const policiesWithExpiry = policies.filter((policy) =>
+    Boolean(policy.expiresAt),
   ).length;
   const allowedPoolCount = policies.reduce(
     (sum, policy) => sum + (policy.allowedPoolIds?.length ?? 0),
@@ -3304,8 +3483,8 @@ function renderAccessPolicyPreview(): void {
       title: "成员级额度",
       detail:
         policiesWithQuota > 0
-          ? `${formatCompactCount(policiesWithQuota)} 个成员已配置日 Token 限额。`
-          : "服务端已支持成员日限额；可在后续策略编辑 UI 中配置。",
+          ? `${formatCompactCount(policiesWithQuota)} 个成员已配置日 / 月 / 总 Token 限额。`
+          : "服务端已支持成员日限额；可在成员弹窗中配置额度。",
       value: policiesWithQuota > 0 ? "已接入" : "待配置",
     },
     {
@@ -3313,8 +3492,16 @@ function renderAccessPolicyPreview(): void {
       detail:
         policiesWithRateLimit > 0
           ? `${formatCompactCount(policiesWithRateLimit)} 个成员已配置请求频率或并发限制。`
-          : "服务端已支持 QPS 与并发前置拦截；UI 编辑仍待补齐。",
+          : "服务端已支持 QPS 与并发前置拦截；可在成员弹窗中配置。",
       value: policiesWithRateLimit > 0 ? "已配置" : "待配置",
+    },
+    {
+      title: "策略到期",
+      detail:
+        policiesWithExpiry > 0
+          ? `${formatCompactCount(policiesWithExpiry)} 个成员已配置策略到期时间。`
+          : "未设置策略到期时间；留空表示长期有效。",
+      value: policiesWithExpiry > 0 ? "已配置" : "未限制",
     },
     {
       title: "模型与号池授权",
@@ -5375,17 +5562,24 @@ function getLanAccessBaseUrl(): string {
 
 function buildLanAccessTemplateText(): string {
   const baseUrl = getLanAccessBaseUrl();
+  const recommendedModel = getRecommendedModelAlias();
+  const modelAliases = getAvailableModelAliases();
+  const modelAliasText = modelAliases.length
+    ? modelAliases.join(", ")
+    : recommendedModel;
   return [
     "Local AI Gateway LAN 接入模板",
     "",
     `base_url: ${baseUrl}`,
     "api_key: <分发给该成员的一次性 API Key 明文>",
+    `model: ${recommendedModel}`,
     "",
     "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
     "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
     `- Base URL：${baseUrl}`,
     "- API Key：粘贴该成员的专属 API Key",
-    "- Model：使用本项目已暴露的模型别名",
+    `- Model：${recommendedModel}`,
+    `- 可用模型别名：${modelAliasText}`,
     "",
     "cURL 验证：",
     `curl ${baseUrl}/models \\`,
@@ -5401,16 +5595,18 @@ function renderLanAccessTemplate(): void {
 
   const security = state.securitySettings ?? state.health?.inferenceAuth;
   const lanEnabled = Boolean(security?.lanAccess?.enabled);
-  const hasApiKey = Boolean(security?.hasApiKey);
+  const hasCredential = hasAnyInferenceCredential(security);
   const baseUrl = getLanAccessBaseUrl();
+  const recommendedModel = getRecommendedModelAlias();
+  const availableModelAliases = getAvailableModelAliases();
   const status = lanEnabled
-    ? hasApiKey
+    ? hasCredential
       ? "可分发模板"
-      : "缺少 API Key"
+      : "缺少可用 Key"
     : "未启用";
   const detail = lanEnabled
     ? "将下面模板发给可信成员；真实 API Key 请从“访问与密钥”的成员 Key 创建或轮换结果中单独分发。"
-    : "启用 LAN 共享并配置 API Key 后，这里会生成可分发给成员的接入模板。";
+    : "启用 LAN 共享并配置成员 Key、Gateway API Key 或客户端密钥映射后，这里会生成可分发给成员的接入模板。";
 
   container.innerHTML = `
     <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
@@ -5419,10 +5615,12 @@ function renderLanAccessTemplate(): void {
           <strong>LAN 成员接入模板</strong>
           <span>${escapeHtml(detail)}</span>
         </div>
-        <span class="badge ${lanEnabled && hasApiKey ? "active" : "neutral"}">${escapeHtml(status)}</span>
+        <span class="badge ${lanEnabled && hasCredential ? "active" : "neutral"}">${escapeHtml(status)}</span>
       </div>
       <div class="diagnostic-fact-grid">
         <div class="diagnostic-fact"><span>Base URL</span><strong>${escapeHtml(baseUrl)}</strong></div>
+        <div class="diagnostic-fact"><span>推荐 Model</span><strong>${escapeHtml(recommendedModel)}</strong></div>
+        <div class="diagnostic-fact"><span>可用模型别名</span><strong>${escapeHtml(availableModelAliases.length ? `${availableModelAliases.length} 个` : "待加载")}</strong></div>
         <div class="diagnostic-fact"><span>适用工具</span><strong>cc_switch / Codex / 自定义 Provider</strong></div>
       </div>
       <pre class="template-preview">${escapeHtml(buildLanAccessTemplateText())}</pre>
@@ -5751,18 +5949,18 @@ function buildIntegrationSnippets(
   health: DashboardHealth,
 ): Record<IntegrationTemplateKey, string> {
   const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
-  const model = health.openclaw?.model ?? "codex-default";
+  const model = health.openclaw?.model ?? health.defaultModel ?? getRecommendedModelAlias();
   const provider = health.openclaw?.provider ?? "openai";
   const requiresApiKey =
-    (state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
-    (state.securitySettings?.hasApiKey ?? health.inferenceAuth?.hasApiKey);
+    Boolean(state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
+    hasAnyInferenceCredential(state.securitySettings ?? health.inferenceAuth);
 
   const openclaw = [
     `provider=${provider}`,
     `baseUrl=${baseUrl}`,
     `model=${model}`,
     "clientTag=openclaw",
-    ...(requiresApiKey ? ["apiKey=<你的 Local AI Gateway API Key>"] : []),
+    ...(requiresApiKey ? ["apiKey=<你的 Gateway API Key 或成员 API Key>"] : []),
   ].join("\n");
 
   const hermes = [
@@ -5774,14 +5972,14 @@ function buildIntegrationSnippets(
     `- name: ${model}`,
     `  base_url: ${baseUrl}`,
     `  model: ${model}`,
-    ...(requiresApiKey ? ["  api_key: <你的 Local AI Gateway API Key>"] : []),
+    ...(requiresApiKey ? ["  api_key: <你的 Gateway API Key 或成员 API Key>"] : []),
   ].join("\n");
 
   const curlHeaders = [
     `-H "Content-Type: application/json"`,
     `-H "x-client-tag: hermes"`,
     ...(requiresApiKey
-      ? [`-H "Authorization: Bearer <你的 Local AI Gateway API Key>"`]
+      ? [`-H "Authorization: Bearer <你的 Gateway API Key 或成员 API Key>"`]
       : []),
   ];
   const curl = [
@@ -8050,14 +8248,15 @@ function applySecuritySettingsToForm(): void {
 
   const mode = settings?.mode === "api-key" ? "api-key" : "none";
   const lanEnabled = Boolean(settings?.lanAccess?.enabled);
+  const hasCredential = hasAnyInferenceCredential(settings);
   if (modeNode) {
     modeNode.value = mode;
   }
   if (statusNode) {
     if (mode === "api-key") {
-      statusNode.textContent = settings?.hasApiKey
-        ? "当前已启用 API Key 鉴权，外部请求需携带有效密钥。"
-        : "当前已启用 API Key 鉴权，但尚未保存有效密钥。";
+      statusNode.textContent = hasCredential
+        ? "当前已启用 API Key 鉴权，外部请求可使用 Gateway Key、客户端映射 Key 或访问成员 Key。"
+        : "当前已启用 API Key 鉴权，但尚未保存有效 Gateway Key、客户端映射 Key 或访问成员 Key。";
     } else {
       statusNode.textContent = "当前未启用推理接口鉴权，适合本机单用户场景。";
     }
@@ -8077,10 +8276,12 @@ function applySecuritySettingsToForm(): void {
   if (lanAccessStatusNode) {
     if (lanEnabled) {
       lanAccessStatusNode.textContent =
-        "局域网共享已开启。保存变更后会重启网关，使推理面监听局域网地址；管理面仍只允许本机访问。";
+        hasCredential
+          ? "局域网共享已开启。成员可使用专属 API Key 访问 LAN Base URL；管理面仍只允许本机访问。"
+          : "局域网共享已开启，但还缺少 Gateway Key、客户端映射 Key 或访问成员 Key。";
     } else {
       lanAccessStatusNode.textContent =
-        "LAN 共享必须启用 API Key 鉴权，并配置默认 API Key 或客户端密钥映射。";
+        "LAN 共享必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问成员 Key。";
     }
   }
   renderSecurityClientMappings(settings?.clientMappings ?? []);
@@ -8191,7 +8392,7 @@ function updateRuntimeDiagnostics(
     routingEnabled: state.routingSettings?.enabled,
     routingMatchedTotal: state.health?.routingObservability?.totalMatched,
     inferenceAuthEnabled: security?.enabled,
-    inferenceAuthHasApiKey: security?.hasApiKey,
+    inferenceAuthHasApiKey: hasAnyInferenceCredential(security),
     lanAccessEnabled: Boolean(security?.lanAccess?.enabled),
     lanBaseUrl: state.health?.desktopNetwork?.lanBaseUrl,
     gatewayHost: state.health?.host,
@@ -8366,7 +8567,7 @@ async function togglePinnedSession(sessionId: string): Promise<void> {
   );
 }
 
-async function saveSecuritySettings(): Promise<void> {
+async function saveSecuritySettings(): Promise<SecuritySettings> {
   const api = getGatewayApi();
   const mode =
     (document.getElementById("gateway-auth-mode") as HTMLSelectElement | null)
@@ -8453,11 +8654,23 @@ async function saveSecuritySettings(): Promise<void> {
   const response = await api.saveSecuritySettings(payload);
   state.securitySettings = response.data;
   applySecuritySettingsToForm();
-  if (previousLanEnabled !== Boolean(response.data.lanAccess?.enabled)) {
+  updateRuntimeDiagnostics([]);
+  renderActiveViewContent();
+  const nextLanEnabled = Boolean(response.data.lanAccess?.enabled);
+  const shouldRestartForLan =
+    previousLanEnabled !== nextLanEnabled ||
+    (nextLanEnabled && isLoopbackGatewayHost(state.health?.host));
+  if (shouldRestartForLan) {
     setBanner("局域网共享配置已保存，正在重启网关使监听地址生效...", "info");
     await api.restartGateway();
     await refresh();
   }
+  return response.data;
+}
+
+async function saveSystemAndSecuritySettings(): Promise<void> {
+  await saveSystemSettings();
+  await saveSecuritySettings();
 }
 
 async function exportAppData(): Promise<void> {
@@ -9356,6 +9569,25 @@ function showOneTimeAccessKey(apiKey: string, title: string): void {
   }
 }
 
+function setAccessMemberModalSaveState(
+  message?: string,
+  tone: "success" | "error" | "neutral" = "neutral",
+): void {
+  const node = document.getElementById("access-member-save-state");
+  if (!node) {
+    return;
+  }
+  if (!message) {
+    node.hidden = true;
+    node.textContent = "";
+    node.dataset.tone = "neutral";
+    return;
+  }
+  node.hidden = false;
+  node.textContent = message;
+  node.dataset.tone = tone;
+}
+
 function setAccessInputValue(id: string, value: string): void {
   const input = document.getElementById(id) as
     | HTMLInputElement
@@ -9372,6 +9604,46 @@ function readAccessInputValue(id: string): string {
     | HTMLTextAreaElement
     | null;
   return input?.value.trim() ?? "";
+}
+
+function renderAccessMemberModelAliasOptions(
+  policy?: SecurityAccessPolicy,
+): void {
+  const container = document.getElementById(
+    "access-member-model-alias-options",
+  );
+  if (!container) {
+    return;
+  }
+  const aliases = getAvailableModelAliases();
+  const selectedAliases = new Set(policy?.allowedModelAliases ?? []);
+  const recommendedModel = getRecommendedModelAlias();
+  if (aliases.length === 0) {
+    container.innerHTML =
+      "<div class=\"empty-card\">当前尚未加载到可用模型别名；可先在下方自定义填写。</div>";
+    return;
+  }
+  container.innerHTML = aliases
+    .map((alias) => {
+      const badge =
+        alias === recommendedModel
+          ? "<small>推荐</small>"
+          : alias === "codex-default"
+            ? "<small>默认别名</small>"
+            : "";
+      return `
+        <label class="model-alias-option">
+          <input
+            type="checkbox"
+            data-access-member-model-alias-option="${escapeHtml(alias)}"
+            ${selectedAliases.has(alias) ? "checked" : ""}
+          />
+          <span>${escapeHtml(alias)}</span>
+          ${badge}
+        </label>
+      `;
+    })
+    .join("");
 }
 
 function buildAccessMemberPoolOptions(policy?: SecurityAccessPolicy): string {
@@ -9467,17 +9739,29 @@ function renderAccessMemberModal(): void {
   if (shouldProtectAccessDraftFromLiveRefresh()) {
     return;
   }
-  openAccessMemberModal(state.editingAccessConsumerId, { preserveKeyResult: true });
+  openAccessMemberModal(state.editingAccessConsumerId, {
+    preserveKeyResult: true,
+    preserveScroll: true,
+    focusName: false,
+  });
 }
 
 function openAccessMemberModal(
   consumerId?: string,
-  options: { preserveKeyResult?: boolean } = {},
+  options: {
+    preserveKeyResult?: boolean;
+    preserveScroll?: boolean;
+    focusName?: boolean;
+  } = {},
 ): void {
   const modal = document.getElementById("access-create-member-modal");
   if (!modal) {
     return;
   }
+  const modalBody = modal.querySelector<HTMLElement>(".modal-body");
+  const previousScrollTop = options.preserveScroll
+    ? modalBody?.scrollTop ?? 0
+    : 0;
   clearAccessDraftProtection();
   state.editingAccessConsumerId = consumerId;
   state.selectedAccessConsumerId = consumerId;
@@ -9527,9 +9811,10 @@ function openAccessMemberModal(
     "access-member-policy-expires-at",
     formatAccessDateTimeLocalValue(policy?.expiresAt),
   );
+  renderAccessMemberModelAliasOptions(policy);
   setAccessInputValue(
     "access-member-model-aliases",
-    (policy?.allowedModelAliases ?? []).join("\n"),
+    getCustomAccessMemberModelAliases(policy?.allowedModelAliases ?? []).join("\n"),
   );
   setAccessInputValue("access-member-new-key-name", "");
   setAccessInputValue("access-member-new-key-expires-at", "");
@@ -9554,8 +9839,19 @@ function openAccessMemberModal(
     keyNode.value = "";
     keyNode.type = "password";
   }
+  if (!options.preserveKeyResult) {
+    setAccessMemberModalSaveState();
+  }
   renderAccessMemberModalKeys(consumer?.id);
-  (document.getElementById("access-member-name") as HTMLInputElement | null)?.focus();
+  if (options.preserveScroll && modalBody) {
+    modalBody.scrollTop = previousScrollTop;
+  }
+  if (!isEdit && options.focusName !== false) {
+    const nameInput = document.getElementById(
+      "access-member-name",
+    ) as HTMLInputElement | null;
+    nameInput?.focus({ preventScroll: true });
+  }
 }
 
 function closeAccessMemberModal(): void {
@@ -9650,9 +9946,7 @@ function collectAccessMemberPolicyInput(
   const policy: SecurityAccessPolicy = {
     ...(existing ?? { consumerId }),
     consumerId,
-    allowedModelAliases: parseAccessModelAliasesInput(
-      "#access-member-model-aliases",
-    ),
+    allowedModelAliases: collectAccessMemberModelAliasesInput(),
     allowedPoolIds: selectedPoolIds,
     quota: Object.keys(quota).length > 0 ? quota : undefined,
     limits: Object.keys(limits).length > 0 ? limits : undefined,
@@ -9669,6 +9963,7 @@ function collectAccessMemberPolicyInput(
 }
 
 async function createAccessMember(): Promise<void> {
+  setAccessMemberModalSaveState("正在保存...", "neutral");
   const editingId = readAccessInputValue("access-member-editing-id");
   const name = readAccessInputValue("access-member-name");
   const rawClientTag = readAccessInputValue("access-member-client-tag");
@@ -9738,11 +10033,17 @@ async function createAccessMember(): Promise<void> {
   state.selectedAccessConsumerId = consumerId;
   state.editingAccessConsumerId = consumerId;
   clearAccessDraftProtection();
-  openAccessMemberModal(consumerId, { preserveKeyResult: Boolean(apiKey) });
   if (apiKey) {
+    openAccessMemberModal(consumerId, {
+      preserveKeyResult: true,
+      preserveScroll: true,
+      focusName: false,
+    });
     showOneTimeAccessKey(apiKey, "创建后一次性 API Key");
+    setAccessMemberModalSaveState("成员已创建，请复制一次性 API Key。", "success");
     setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
   } else {
+    closeAccessMemberModal();
     setBanner("访问成员配置已保存。", "success");
   }
 }
@@ -9835,7 +10136,11 @@ async function createAccessKeyForConsumer(consumerId: string): Promise<void> {
 
   await saveAccessControlSettings(nextAccessControl);
   state.editingAccessConsumerId = consumerId;
-  openAccessMemberModal(consumerId, { preserveKeyResult: true });
+  openAccessMemberModal(consumerId, {
+    preserveKeyResult: true,
+    preserveScroll: true,
+    focusName: false,
+  });
   clearAccessDraftProtection();
   showOneTimeAccessKey(apiKey, "新增后一次性 API Key");
   setBanner("访问 Key 已创建。请立即复制一次性 API Key。", "success");
@@ -10170,6 +10475,10 @@ function bindActions(): void {
         );
         await createAccessMember();
       } catch (error) {
+        setAccessMemberModalSaveState(
+          `保存失败：${normalizeErrorMessage(error)}`,
+          "error",
+        );
         setBanner(`保存访问成员失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
@@ -10384,7 +10693,9 @@ function bindActions(): void {
       clearAccessDraftProtection();
       state.selectedAccessConsumerId =
         memberSelectTrigger.dataset.accessMemberSelect;
-      openAccessMemberModal(memberSelectTrigger.dataset.accessMemberSelect);
+      openAccessMemberModal(memberSelectTrigger.dataset.accessMemberSelect, {
+        focusName: false,
+      });
       return;
     }
 
@@ -10567,7 +10878,9 @@ function bindActions(): void {
       target?.matches("[data-access-member-select]")
     ) {
       event.preventDefault();
-      openAccessMemberModal(target.dataset.accessMemberSelect);
+      openAccessMemberModal(target.dataset.accessMemberSelect, {
+        focusName: false,
+      });
     }
   });
 
@@ -10643,11 +10956,11 @@ function bindActions(): void {
       ) as HTMLButtonElement | null;
       try {
         setButtonLoading(button, true, "保存中");
-        setBanner("正在保存系统配置...", "info");
-        await saveSystemSettings();
-        setBanner("系统配置已保存。", "success");
+        setBanner("正在保存本页系统、鉴权与 LAN 共享配置...", "info");
+        await saveSystemAndSecuritySettings();
+        setBanner("本页配置已保存。LAN 共享状态已同步到访问页与诊断页。", "success");
       } catch (error) {
-        setBanner(`保存系统配置失败：${String(error)}`, "error");
+        setBanner(`保存本页配置失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }

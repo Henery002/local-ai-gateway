@@ -182,11 +182,11 @@ export function buildRuntimeDiagnostics(
     if (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey) {
       diagnostics.push({
         id: "lan-api-key-required",
-        title: "LAN 共享缺少 API Key 保护",
-        message: "局域网共享已开启，但推理面还没有可用的 API Key 保护。",
+        title: "LAN 共享缺少可用 Key 保护",
+        message: "局域网共享已开启，但推理面还没有可用的 Gateway Key、客户端映射 Key 或访问成员 Key。",
         severity: "warning",
         suggestion:
-          "请启用第三方接入鉴权并保存 Gateway API Key，避免局域网内未授权设备直接访问推理接口。",
+          "请启用第三方接入鉴权，并至少保存一类可用 Key，避免局域网内未授权设备直接访问推理接口。",
       });
     }
 

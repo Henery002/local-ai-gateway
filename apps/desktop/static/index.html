@@ -170,7 +170,7 @@
                       <strong>局域网共享</strong>
                       <span id="dashboard-lan-status">默认关闭</span>
                     </div>
-                    <span class="badge neutral">二期开发</span>
+                    <span class="badge neutral">默认关闭</span>
                   </div>
                   <div class="dashboard-mode-facts">
                     <span>LAN Base URL</span>
@@ -379,7 +379,7 @@
                       <strong>局域网共享</strong>
                       <span id="access-lan-status">二期开发入口</span>
                     </div>
-                    <span class="badge neutral">待接入</span>
+                    <span class="badge neutral">默认关闭</span>
                   </div>
                   <div class="dashboard-mode-facts">
                     <span>LAN Base URL</span>
@@ -891,7 +891,7 @@
                       <span class="card-title">系统配置</span>
                       <p class="card-description">配置推理面鉴权、局域网共享、桌面运行参数和本地数据迁移。不会修改 Cockpit / OpenClaw 原始账号配置。</p>
                     </div>
-                    <button id="save-system-settings" class="btn primary">保存系统配置</button>
+                    <button id="save-system-settings" class="btn primary">保存本页配置</button>
                   </div>
                   <div class="settings-note compact">
                     <strong>系统配置说明</strong>
@@ -963,7 +963,7 @@
                         <input id="gateway-lan-access-enabled" type="checkbox" style="width: 18px; height: 18px;" />
                         <span style="font-size: 14px; color: var(--text-secondary);">启用局域网共享</span>
                       </div>
-                      <div id="gateway-lan-access-status" class="form-hint">LAN 共享必须启用 API Key 鉴权，并配置默认 API Key 或客户端密钥映射。</div>
+                      <div id="gateway-lan-access-status" class="form-hint">LAN 共享必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问成员 Key。</div>
                     </div>
                     <div class="form-field full system-config-section">
                       <div class="system-section-head">
@@ -1148,8 +1148,17 @@
               </div>
               <div class="access-member-form-grid">
                 <div class="form-field full">
-                  <label>允许模型别名</label>
-                  <textarea id="access-member-model-aliases" class="input-field" rows="2" placeholder="多个模型可用逗号或换行分隔"></textarea>
+                  <label>自选已暴露模型</label>
+                  <div
+                    id="access-member-model-alias-options"
+                    class="model-alias-option-list"
+                    data-access-member-model-alias-options
+                  ></div>
+                  <div class="form-hint">勾选当前网关已暴露的模型别名；不勾选且不填写自定义值表示该成员不限制模型。</div>
+                </div>
+                <div class="form-field full">
+                  <label>自定义模型别名</label>
+                  <textarea id="access-member-model-aliases" class="input-field" rows="2" placeholder="可补充未出现在上方列表里的别名，多个值用逗号或换行分隔"></textarea>
                 </div>
                 <div class="form-field full">
                   <label>允许号池</label>
@@ -1184,6 +1193,7 @@
           </div>
         </div>
         <div class="modal-footer">
+          <span id="access-member-save-state" class="modal-save-state" data-tone="neutral" hidden></span>
           <button class="btn secondary" id="close-access-member-modal-footer" type="button">取消</button>
           <button class="btn primary" id="create-access-member-submit" type="button">创建成员并生成 Key</button>
         </div>

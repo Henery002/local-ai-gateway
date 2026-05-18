@@ -2896,6 +2896,68 @@ describe("gateway app", () => {
     }
   });
 
+  it("allows non-loopback inference requests when LAN access uses member access keys", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      lanAccess: {
+        enabled: true,
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-18T00:00:00.000Z",
+            updatedAt: "2026-05-18T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice LAN Key",
+            keyHash:
+              "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-18T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        remoteAddress: "192.168.1.42",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data[0]?.id).toBe("fake-default");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("stores access keys as hashes and exposes only redacted key metadata", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
@@ -4771,6 +4833,77 @@ describe("gateway app", () => {
       });
       expect(disallowed.statusCode).toBe(403);
       expect(disallowed.json().error.type).toBe("access_policy_model_denied");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects expired access policy on models and chat completions", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice Key",
+            keyHash: "9e599ef3b9c96e680f56c2d74ce64f1084043432c0a61a57c9f41c2a69e2ff5b",
+            keyPrefix: "lag_mode",
+            keySuffix: "0000",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            expiresAt: "2020-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const models = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: {
+          authorization: "Bearer lag_model_secret_0000",
+        },
+      });
+      expect(models.statusCode).toBe(403);
+      expect(models.json().error.type).toBe("access_policy_expired");
+
+      const chat = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_model_secret_0000",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+      expect(chat.statusCode).toBe(403);
+      expect(chat.json().error.type).toBe("access_policy_expired");
     } finally {
       await app.close();
       database.close();

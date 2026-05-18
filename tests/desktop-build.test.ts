@@ -203,6 +203,7 @@ describe("desktop build output", () => {
     expect(accessView).toContain("data-access-surface=\"local\"");
     expect(accessView).toContain("data-access-surface=\"lan\"");
     expect(accessView).toContain("data-access-surface=\"public\"");
+    expect(accessView).not.toContain("待接入");
     expect(accessView).toContain("id=\"access-consumer-list\"");
     expect(accessView).toContain("id=\"access-policy-preview\"");
     expect(accessView).toContain("访问策略摘要");
@@ -259,8 +260,60 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"create-access-member-submit\"");
     expect(indexHtml).toContain("id=\"access-member-one-time-key\"");
     expect(indexHtml).toContain("class=\"input-field one-time-key-input\"");
+    expect(indexHtml).toContain("id=\"access-member-save-state\"");
     expect(indexHtml).toContain("id=\"toggle-access-member-key-visibility\"");
     expect(indexHtml).toContain("id=\"copy-access-member-key\"");
+  });
+
+  it("renders selectable model aliases for access members while preserving custom input", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
+
+    expect(indexHtml).toContain("id=\"access-member-model-alias-options\"");
+    expect(indexHtml).toContain("data-access-member-model-alias-options");
+    expect(indexHtml).toContain("自选已暴露模型");
+    expect(indexHtml).toContain("自定义模型别名");
+    expect(indexHtml).toContain("id=\"access-member-model-aliases\"");
+    expect(rendererSource).toContain("function getAvailableModelAliases");
+    expect(rendererSource).toContain("function getRecommendedModelAlias");
+    expect(rendererSource).toContain("renderAccessMemberModelAliasOptions");
+    expect(rendererSource).toContain("data-access-member-model-alias-option");
+    expect(rendererSource).toContain("getSelectedAccessMemberModelAliases");
+    expect(rendererSource).toContain("getCustomAccessMemberModelAliases");
+    expect(styles).toContain(".model-alias-option-list");
+    expect(styles).toContain(".model-alias-option");
+  });
+
+  it("uses current model aliases in LAN and copied integration snippets", () => {
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+    const mainSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/main.ts"),
+      "utf8",
+    );
+
+    expect(rendererSource).toContain("推荐 Model");
+    expect(rendererSource).toContain("可用模型别名");
+    expect(rendererSource).toContain("getAvailableModelAliases()");
+    expect(rendererSource).toContain("getRecommendedModelAlias()");
+    expect(rendererSource).toContain("model: ${recommendedModel}");
+    expect(rendererSource).toContain("allowedModelAliases");
+    expect(mainSource).toContain("defaultModel?: string");
+    expect(mainSource).toContain("payload.openclaw?.model ?? payload.defaultModel");
+    expect(mainSource).toContain("apiKey=<你的 Gateway API Key 或成员 API Key>");
+    expect(mainSource).not.toContain("apiKey=<你的 Local AI Gateway API Key>");
   });
 
   it("renders access member detail and key management hooks", () => {
@@ -320,6 +373,15 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildAccessPolicyRuntimeSnapshot");
     expect(rendererSource).toContain("buildAccessPolicyAlertRules");
     expect(rendererSource).toContain("buildAccessPolicyErrorSummaryRule");
+    expect(rendererSource).toContain("focusName?: boolean");
+    expect(rendererSource).toContain("preserveScroll?: boolean");
+    expect(rendererSource).toContain("setAccessMemberModalSaveState");
+    expect(rendererSource).toContain("if (apiKey) {");
+    expect(rendererSource).toContain("closeAccessMemberModal();");
+    expect(rendererSource).toContain("openAccessMemberModal(memberSelectTrigger.dataset.accessMemberSelect, {");
+    expect(rendererSource).toContain("openAccessMemberModal(target.dataset.accessMemberSelect, {");
+    expect(rendererSource).toContain("focusName: false");
+    expect(rendererSource).not.toContain(")?.focus();");
     expect(rendererSource).toContain("dailyTokenLimit");
     expect(rendererSource).toContain("monthlyTokenLimit");
     expect(rendererSource).toContain("totalTokenLimit");
@@ -434,7 +496,8 @@ describe("desktop build output", () => {
     expect(systemView).toBeTruthy();
     expect(systemView).toContain("id=\"gateway-lan-access-enabled\"");
     expect(systemView).toContain("启用局域网共享");
-    expect(systemView).toContain("LAN 共享必须启用 API Key 鉴权");
+    expect(systemView).toContain("保存本页配置");
+    expect(systemView).toContain("访问成员 Key");
   });
 
   it("uses Figma hooks for the system diagnostics workbench", () => {
@@ -474,6 +537,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("diagnostic-fact-grid");
     expect(rendererSource).toContain("renderLanAccessTemplate");
     expect(rendererSource).toContain("renderRuntimeTroubleshootingGuide");
+    expect(rendererSource).toContain("saveSystemAndSecuritySettings");
+    expect(rendererSource).toContain("hasAnyInferenceCredential");
+    expect(rendererSource).toContain("setModeCardStatus");
     expect(rendererSource).toContain("LAN 成员设备访问不通");
     expect(rendererSource).toContain("401 / 403 鉴权失败");
     expect(rendererSource).toContain("copy-lan-access-template");

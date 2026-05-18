@@ -2616,6 +2616,55 @@ button, input, select {
   accent-color: var(--accent-color);
 }
 
+.model-alias-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.model-alias-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  border: 1px solid var(--border-strong);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.model-alias-option:hover {
+  border-color: var(--accent-color);
+  background: var(--accent-soft);
+}
+
+.model-alias-option input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent-color);
+  flex: 0 0 auto;
+}
+
+.model-alias-option span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.model-alias-option small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .form-hint {
   font-size: 13px;
   color: var(--text-secondary);
@@ -2886,6 +2935,26 @@ button, input, select {
   gap: 12px;
   background: var(--bg-surface);
   flex: 0 0 auto;
+}
+
+.modal-save-state {
+  margin-right: auto;
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.modal-save-state[data-tone="success"] {
+  color: var(--success);
+}
+
+.modal-save-state[data-tone="error"] {
+  color: var(--danger);
+}
+
+.modal-save-state[hidden] {
+  display: none !important;
 }
 
 /* Account Cards */
