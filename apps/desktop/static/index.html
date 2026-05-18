@@ -429,67 +429,6 @@
                 </div>
               </div>
 
-              <div id="access-member-drawer" class="card access-member-drawer detail-drawer-panel mt-4" data-state="placeholder">
-                <div class="dashboard-panel-head">
-                  <div>
-                    <strong id="access-member-detail-name">成员详情抽屉</strong>
-                    <span id="access-member-detail-client-tag">点击左侧成员后展示 key、额度、模型权限、号池授权与最近错误。</span>
-                  </div>
-                  <span class="badge neutral">未选择成员</span>
-                </div>
-                <div id="access-member-detail-keys" class="access-key-list mt-3">
-                  <div class="empty-card">当前未选择访问成员。</div>
-                </div>
-                <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
-                  <strong>轮换后一次性 API Key</strong>
-                  <p>此明文只在本次轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
-                  <div class="secret-field-stack">
-                    <div class="secret-inline-row">
-                      <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
-                      <button class="btn secondary mini" id="copy-access-rotated-key" type="button">复制新 Key</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div id="access-create-member-modal" class="card access-create-member-modal action-modal-card mt-4" data-state="form" hidden>
-                <div class="dashboard-panel-head">
-                  <div>
-                    <strong>新增成员弹窗</strong>
-                    <span>创建 LAN 成员并一次性展示 API key 明文；保存后本地只保留 hash。</span>
-                  </div>
-                  <button class="btn ghost mini" id="close-access-member-modal" type="button">关闭</button>
-                </div>
-                <div class="form-row mt-3">
-                  <div class="form-field">
-                    <label>成员名称</label>
-                    <input id="access-member-name" class="input-field" placeholder="例如 Alice" />
-                  </div>
-                  <div class="form-field">
-                    <label>来源标签</label>
-                    <input id="access-member-client-tag" class="input-field" placeholder="例如 alice" />
-                    <div class="form-hint">用于路由和用量统计，建议使用小写英文、数字或短横线。</div>
-                  </div>
-                  <div class="form-field full">
-                    <label>备注</label>
-                    <input id="access-member-note" class="input-field" placeholder="例如 Alice 的 MacBook / 局域网测试用户" />
-                  </div>
-                  <div class="form-field full" style="display: flex; justify-content: flex-end;">
-                    <button class="btn primary" id="create-access-member-submit" type="button">创建成员并生成 Key</button>
-                  </div>
-                </div>
-                <div id="access-member-key-result" class="settings-note compact mt-3" hidden>
-                  <strong>一次性 API Key</strong>
-                  <p>此明文只在本次创建后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
-                  <div class="secret-field-stack">
-                    <div class="secret-inline-row">
-                      <input id="access-member-one-time-key" class="input-field" type="password" readonly />
-                      <button class="btn secondary mini" id="copy-access-member-key" type="button">复制 Key</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <div class="card routing-rule-guide mt-4">
                 <strong>当前兼容能力</strong>
                 <span>现有“第三方客户端接入鉴权”和客户端密钥映射已兼容展示为访问成员；新建成员使用 AccessConsumer / AccessKey / AccessPolicy，旧配置入口暂保留在“系统与诊断”。</span>
@@ -533,7 +472,7 @@
                   <button class="btn secondary" id="account-sort-direction" title="切换升降序">降序</button>
                 </div>
                 <div class="toolbar-group">
-                  <button class="btn secondary" id="refresh-accounts">刷新额度</button>
+                  <button class="btn secondary" id="refresh-accounts">同步额度</button>
                   <button class="btn secondary" id="import-account-config">导入配置</button>
                   <button class="btn secondary" id="copy-snippet-toolbar">复制片段</button>
                   <button id="open-account-modal" class="btn primary">添加账号</button>
@@ -1068,7 +1007,7 @@
                         <option value="300">5 分钟</option>
                         <option value="600">10 分钟</option>
                       </select>
-                      <div id="auto-refresh-hint" class="form-hint">当前将每 2 分钟自动刷新一次账号额度与状态。</div>
+                      <div id="auto-refresh-hint" class="form-hint">当前将每 2 分钟自动同步一次账号额度与状态。</div>
                     </div>
                     <div class="form-field full system-config-section">
                       <label>数据迁移与恢复</label>
@@ -1116,6 +1055,141 @@
     </div>
 
     <!-- Modals -->
+    <div id="access-create-member-modal" class="modal-overlay" data-state="form" hidden>
+      <div class="modal-content figma-modal access-create-member-modal">
+        <div class="modal-header">
+          <div>
+            <h3 id="access-member-modal-title">新增成员</h3>
+            <p id="access-member-modal-subtitle">创建 LAN 成员并一次性展示 API Key 明文；保存后本地只保留 hash。</p>
+          </div>
+          <button class="btn ghost mini" id="close-access-member-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <input id="access-member-editing-id" type="hidden" />
+          <div class="access-member-modal-grid">
+            <section class="access-member-modal-section">
+              <div class="access-member-modal-section-head">
+                <strong>成员信息</strong>
+                <span>用于识别接入用户、统计归因和分发 API Key。</span>
+              </div>
+              <div class="access-member-form-grid">
+                <div class="form-field">
+                  <label>成员名称</label>
+                  <input id="access-member-name" class="input-field" placeholder="例如 Alice" />
+                </div>
+                <div class="form-field">
+                  <label>clientTag</label>
+                  <input id="access-member-client-tag" class="input-field" placeholder="例如 alice" />
+                  <div class="form-hint">建议使用小写英文、数字或短横线。</div>
+                </div>
+                <div class="form-field">
+                  <label>标签</label>
+                  <input id="access-member-tags" class="input-field" placeholder="例如 lan, qa" />
+                </div>
+                <div class="form-field full">
+                  <label>备注</label>
+                  <input id="access-member-note" class="input-field" placeholder="例如 Alice 的 MacBook / 局域网测试用户" />
+                </div>
+              </div>
+            </section>
+
+            <section class="access-member-modal-section">
+              <div class="access-member-modal-section-head">
+                <strong>额度与限制</strong>
+                <span>Token 额度当前以 M 为单位填写，留空表示不限制。</span>
+              </div>
+              <div class="access-member-form-grid three">
+                <div class="form-field">
+                  <label>日 Token 限额</label>
+                  <div class="unit-input">
+                    <input id="access-member-daily-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 20" />
+                    <select id="access-member-daily-token-unit" class="input-field" aria-label="日 Token 限额单位">
+                      <option value="M">M</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label>月 Token 限额</label>
+                  <div class="unit-input">
+                    <input id="access-member-monthly-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 300" />
+                    <select id="access-member-monthly-token-unit" class="input-field" aria-label="月 Token 限额单位">
+                      <option value="M">M</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label>总 Token 限额</label>
+                  <div class="unit-input">
+                    <input id="access-member-total-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 1000" />
+                    <select id="access-member-total-token-unit" class="input-field" aria-label="总 Token 限额单位">
+                      <option value="M">M</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label>每分钟请求数</label>
+                  <input id="access-member-requests-per-minute" class="input-field" type="number" min="1" step="1" placeholder="留空不限" />
+                </div>
+                <div class="form-field">
+                  <label>最大并发请求</label>
+                  <input id="access-member-max-concurrent" class="input-field" type="number" min="1" step="1" placeholder="留空不限" />
+                </div>
+                <div class="form-field">
+                  <label>策略到期时间</label>
+                  <input id="access-member-policy-expires-at" class="input-field" type="datetime-local" />
+                </div>
+              </div>
+            </section>
+
+            <section class="access-member-modal-section">
+              <div class="access-member-modal-section-head">
+                <strong>模型与号池</strong>
+                <span>留空或不勾选表示不限制；LAN 成员仍只能访问 shared-lan 号池。</span>
+              </div>
+              <div class="access-member-form-grid">
+                <div class="form-field full">
+                  <label>允许模型别名</label>
+                  <textarea id="access-member-model-aliases" class="input-field" rows="2" placeholder="多个模型可用逗号或换行分隔"></textarea>
+                </div>
+                <div class="form-field full">
+                  <label>允许号池</label>
+                  <div id="access-member-pool-list" class="access-policy-pool-list"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="access-member-modal-section" id="access-member-key-management-section" hidden>
+              <div class="access-member-modal-section-head">
+                <strong>API Keys</strong>
+                <span>可暂停、设置到期时间、轮换或新增 Key；明文只在创建或轮换后展示一次。</span>
+              </div>
+              <div id="access-member-modal-key-list" class="access-key-list"></div>
+              <div class="access-new-key-inline">
+                <input id="access-member-new-key-name" class="input-field" placeholder="新 Key 名称，例如 Alice iPad" />
+                <input id="access-member-new-key-expires-at" class="input-field" type="datetime-local" aria-label="新 Key 到期时间" />
+                <button class="btn secondary" id="access-member-create-extra-key" type="button">新增 Key</button>
+              </div>
+            </section>
+          </div>
+          <div id="access-member-key-result" class="settings-note compact mt-3 one-time-key-panel" hidden>
+            <strong id="access-one-time-key-title">一次性 API Key</strong>
+            <p>此明文只在本次创建后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+            <div class="secret-field-stack">
+              <div class="secret-inline-row">
+                <input id="access-member-one-time-key" class="input-field one-time-key-input" type="password" readonly placeholder="创建或轮换后在这里显示一次性明文 Key" />
+                <button class="btn ghost mini" id="toggle-access-member-key-visibility" type="button">显示</button>
+                <button class="btn secondary mini" id="copy-access-member-key" type="button">复制 Key</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary" id="close-access-member-modal-footer" type="button">取消</button>
+          <button class="btn primary" id="create-access-member-submit" type="button">创建成员并生成 Key</button>
+        </div>
+      </div>
+    </div>
+
     <div id="account-modal" class="modal-overlay" hidden>
       <div class="modal-content figma-modal">
         <div class="modal-header">

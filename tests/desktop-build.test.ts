@@ -82,14 +82,16 @@ describe("desktop build output", () => {
     expect(navGroup).not.toContain('<span class="nav-icon">诊</span>');
 
     expect(indexHtml).toContain("class=\"account-assets-shell table-container-lite\"");
-    expect(indexHtml).toContain("class=\"card access-member-drawer detail-drawer-panel mt-4\"");
+    expect(indexHtml).toContain("id=\"access-member-key-management-section\"");
     expect(indexHtml).toContain("class=\"card account-detail-drawer detail-drawer-panel mt-4\"");
-    expect(indexHtml).toContain("class=\"card access-create-member-modal action-modal-card mt-4\"");
+    expect(indexHtml).toContain("id=\"access-create-member-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("class=\"modal-content figma-modal access-create-member-modal\"");
     expect(indexHtml).toContain("class=\"modal-content figma-modal\"");
     expect(indexHtml).toContain("class=\"modal-tabs figma-tabs\"");
     expect(styles).toContain(".secret-inline-row .input-field");
     expect(styles).toContain(".detail-drawer-panel,");
     expect(styles).toContain("overflow: hidden;");
+    expect(styles).toContain(".modal-content.access-create-member-modal");
     expect(styles).toContain("max-height: min(86vh, 920px);");
     expect(styles).toContain(".modal-tabs {");
     expect(styles).toContain("overflow-x: auto;");
@@ -131,6 +133,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
       "utf8",
     );
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
     const styles = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/styles.css"),
       "utf8",
@@ -146,14 +152,20 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("account-assets-ownership-cell");
     expect(rendererSource).toContain("account-assets-usage-cell");
     expect(rendererSource).toContain("account-assets-actions-cell");
+    expect(rendererSource).toContain("同步额度（不刷新 refresh token）");
+    expect(rendererSource).toContain("shouldProtectAccessDraftFromLiveRefresh");
+    expect(rendererSource).toContain("markAccessDraftDirtyFromElement");
+    expect(rendererSource).toContain("SESSION_ACTIVITY_REFRESH_INTERVAL_MS = 30_000");
+    expect(indexHtml).toContain("id=\"refresh-accounts\">同步额度</button>");
     expect(styles).toContain(".figma-table {");
     expect(styles).toContain(".figma-table-head {");
     expect(styles).toContain(".figma-table-row {");
     expect(styles).toContain(".account-assets-table {");
     expect(styles).toContain(".account-assets-table .account-assets-table-row {");
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
+    expect(styles).toContain(".account-assets-actions-cell .icon-btn[data-tooltip]::after");
     expect(styles).toContain(".access-consumer-table {");
-    expect(styles).toContain("min-width: 620px;");
+    expect(styles).toContain("min-width: 980px;");
     expect(styles).toContain(".figma-table-cell strong");
     expect(styles).not.toContain(".access-consumer-row {\n    grid-template-columns: 1fr;");
   });
@@ -195,8 +207,12 @@ describe("desktop build output", () => {
     expect(accessView).toContain("id=\"access-policy-preview\"");
     expect(accessView).toContain("访问策略摘要");
     expect(accessView).not.toContain("成员级额度、模型权限和号池授权将在后续切片接入。");
-    expect(accessView).toContain("id=\"access-member-drawer\"");
-    expect(accessView).toContain("id=\"access-create-member-modal\"");
+    expect(accessView).not.toContain("id=\"access-member-drawer\"");
+    expect(accessView).not.toContain("id=\"access-create-member-modal\"");
+    expect(indexHtml).toContain("id=\"account-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"confirm-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"pool-events-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"usage-details-modal\" class=\"modal-overlay\"");
   });
 
   it("renders routing preview access consumer controls", () => {
@@ -232,11 +248,19 @@ describe("desktop build output", () => {
     expect(accessView).toBeTruthy();
     expect(accessView).toContain("id=\"access-create-member-button\"");
     expect(accessView).not.toContain("id=\"access-create-member-button\" type=\"button\" disabled");
-    expect(accessView).toContain("id=\"access-member-name\"");
-    expect(accessView).toContain("id=\"access-member-client-tag\"");
-    expect(accessView).toContain("id=\"create-access-member-submit\"");
-    expect(accessView).toContain("id=\"access-member-one-time-key\"");
-    expect(accessView).toContain("id=\"copy-access-member-key\"");
+    expect(accessView).not.toContain("id=\"access-member-name\"");
+    expect(indexHtml).toContain("id=\"access-create-member-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("class=\"modal-content figma-modal access-create-member-modal\"");
+    expect(indexHtml).toContain("id=\"access-member-name\"");
+    expect(indexHtml).toContain("id=\"access-member-client-tag\"");
+    expect(indexHtml).toContain("id=\"access-member-daily-token-limit\"");
+    expect(indexHtml).toContain("id=\"access-member-daily-token-unit\"");
+    expect(indexHtml).toContain("<option value=\"M\">M</option>");
+    expect(indexHtml).toContain("id=\"create-access-member-submit\"");
+    expect(indexHtml).toContain("id=\"access-member-one-time-key\"");
+    expect(indexHtml).toContain("class=\"input-field one-time-key-input\"");
+    expect(indexHtml).toContain("id=\"toggle-access-member-key-visibility\"");
+    expect(indexHtml).toContain("id=\"copy-access-member-key\"");
   });
 
   it("renders access member detail and key management hooks", () => {
@@ -250,12 +274,11 @@ describe("desktop build output", () => {
     )?.[1];
 
     expect(accessView).toBeTruthy();
-    expect(accessView).toContain("id=\"access-member-detail-name\"");
-    expect(accessView).toContain("id=\"access-member-detail-client-tag\"");
-    expect(accessView).toContain("id=\"access-member-detail-keys\"");
-    expect(accessView).toContain("id=\"access-rotated-key-result\"");
-    expect(accessView).toContain("id=\"access-rotated-one-time-key\"");
-    expect(accessView).toContain("id=\"copy-access-rotated-key\"");
+    expect(indexHtml).toContain("id=\"access-member-modal-title\"");
+    expect(indexHtml).toContain("id=\"access-member-modal-key-list\"");
+    expect(indexHtml).toContain("id=\"access-member-create-extra-key\"");
+    expect(indexHtml).toContain("id=\"access-member-new-key-name\"");
+    expect(indexHtml).toContain("id=\"access-member-pool-list\"");
   });
 
   it("binds access member detail actions in the renderer", () => {
@@ -265,28 +288,26 @@ describe("desktop build output", () => {
     );
 
     expect(rendererSource).toContain("data-access-member-select");
+    expect(rendererSource).toContain("查看/编辑");
+    expect(rendererSource).toContain("data-access-member-delete");
     expect(rendererSource).toContain("data-access-key-toggle");
     expect(rendererSource).toContain("data-access-key-rotate");
     expect(rendererSource).toContain("data-access-key-expiry");
     expect(rendererSource).toContain("data-access-key-save-expiry");
-    expect(rendererSource).toContain("data-access-policy-pool");
-    expect(rendererSource).toContain("data-access-policy-save-pools");
-    expect(rendererSource).toContain("data-access-policy-daily-token-limit");
-    expect(rendererSource).toContain("data-access-policy-requests-per-minute");
-    expect(rendererSource).toContain("data-access-policy-max-concurrent");
-    expect(rendererSource).toContain("data-access-policy-monthly-token-limit");
-    expect(rendererSource).toContain("data-access-policy-total-token-limit");
-    expect(rendererSource).toContain("data-access-policy-expires-at");
-    expect(rendererSource).toContain("data-access-policy-model-aliases");
-    expect(rendererSource).toContain("data-access-policy-save-settings");
-    expect(rendererSource).toContain("data-access-consumer-name");
-    expect(rendererSource).toContain("data-access-consumer-client-tag");
-    expect(rendererSource).toContain("data-access-consumer-note");
-    expect(rendererSource).toContain("data-access-consumer-tags");
-    expect(rendererSource).toContain("data-access-consumer-save");
-    expect(rendererSource).toContain("data-access-new-key-name");
-    expect(rendererSource).toContain("data-access-new-key-expires-at");
+    expect(rendererSource).toContain("data-access-member-pool");
+    expect(rendererSource).toContain("collectAccessMemberPolicyInput");
+    expect(rendererSource).toContain("parseTokenLimitMillionsInput");
+    expect(rendererSource).toContain("access-member-daily-token-limit");
+    expect(rendererSource).toContain("access-member-requests-per-minute");
+    expect(rendererSource).toContain("access-member-max-concurrent");
+    expect(rendererSource).toContain("access-member-monthly-token-limit");
+    expect(rendererSource).toContain("access-member-total-token-limit");
+    expect(rendererSource).toContain("access-member-policy-expires-at");
+    expect(rendererSource).toContain("access-member-model-aliases");
+    expect(rendererSource).toContain("access-member-new-key-name");
+    expect(rendererSource).toContain("access-member-new-key-expires-at");
     expect(rendererSource).toContain("data-access-key-create");
+    expect(rendererSource).toContain("deleteAccessConsumer");
     expect(rendererSource).toContain("rotateAccessKey");
     expect(rendererSource).toContain("createAccessKeyForConsumer");
     expect(rendererSource).toContain("saveAccessConsumerBasics");
@@ -494,6 +515,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/src/preload.ts"),
       "utf8",
     );
+    const staticPreloadSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/preload.cjs"),
+      "utf8",
+    );
     const mainSource = readFileSync(
       resolve(process.cwd(), "apps/desktop/src/main.ts"),
       "utf8",
@@ -526,6 +551,8 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-alert-event-list\"");
     expect(usageView).toContain("class=\"usage-alert-event-toolbar\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
+    expect(rendererSource).toContain("normalizeUsageObservability");
+    expect(rendererSource).toContain("normalizeAccessAlertEvents");
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("UsageTrendDimension");
     expect(rendererSource).toContain("usageTrendDimension");
@@ -577,9 +604,14 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("summary.accessKeys.map");
     expect(rendererSource).toContain("(summary.pools ?? []).map");
     expect(rendererSource).toContain("class=\"usage-insight-card\"");
+    expect(preloadSource).toContain("getAccessAlerts");
     expect(preloadSource).toContain("acknowledgeAccessAlert");
     expect(preloadSource).toContain("acknowledgeAllAccessAlerts");
     expect(preloadSource).toContain("clearAcknowledgedAccessAlerts");
+    expect(staticPreloadSource).toContain("getAccessAlerts");
+    expect(staticPreloadSource).toContain("acknowledgeAccessAlert");
+    expect(staticPreloadSource).toContain("acknowledgeAllAccessAlerts");
+    expect(staticPreloadSource).toContain("clearAcknowledgedAccessAlerts");
     expect(mainSource).toContain("gateway:acknowledge-access-alert");
     expect(mainSource).toContain("gateway:acknowledge-all-access-alerts");
     expect(mainSource).toContain("gateway:clear-acknowledged-access-alerts");

@@ -92,6 +92,21 @@ function normalizeEpochMs(value: unknown): number | undefined {
   return value > 1_000_000_000_000 ? value : value * 1_000;
 }
 
+function normalizeExpiresMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return normalizeEpochMs(value);
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  const parsedNumber = Number(value);
+  if (Number.isFinite(parsedNumber) && parsedNumber > 0) {
+    return normalizeEpochMs(parsedNumber);
+  }
+  const parsedDate = Date.parse(value);
+  return Number.isFinite(parsedDate) ? parsedDate : undefined;
+}
+
 function pickQuotaSnapshot(value: Record<string, unknown>): SessionQuotaSnapshot | undefined {
   const quota = isRecord(value.quota) ? value.quota : undefined;
   if (!quota) {
@@ -135,18 +150,27 @@ function extractRawProfile(value: unknown): RawProfile | undefined {
   }
 
   const tokens = isRecord(value.tokens) ? value.tokens : undefined;
+  const credentials = isRecord(value.credentials) ? value.credentials : undefined;
   const access =
     typeof value.access === "string"
       ? value.access
+      : typeof value.access_token === "string"
+        ? value.access_token
       : typeof tokens?.access_token === "string"
         ? tokens.access_token
-        : undefined;
+        : typeof credentials?.access_token === "string"
+          ? credentials.access_token
+          : undefined;
   const refresh =
     typeof value.refresh === "string"
       ? value.refresh
+      : typeof value.refresh_token === "string"
+        ? value.refresh_token
       : typeof tokens?.refresh_token === "string"
         ? tokens.refresh_token
-        : undefined;
+        : typeof credentials?.refresh_token === "string"
+          ? credentials.refresh_token
+          : undefined;
   const provider =
     typeof value.provider === "string"
       ? value.provider
@@ -171,31 +195,53 @@ function extractRawProfile(value: unknown): RawProfile | undefined {
         ? value.accountId
         : typeof value.account_id === "string"
           ? value.account_id
-          : undefined,
+          : typeof credentials?.chatgpt_account_id === "string"
+            ? credentials.chatgpt_account_id
+            : typeof credentials?.account_id === "string"
+              ? credentials.account_id
+              : undefined,
     access,
     refresh,
-    expires: typeof value.expires === "number" ? value.expires : undefined,
+    expires:
+      typeof value.expires === "number"
+        ? value.expires
+        : normalizeExpiresMs(value.expires_at ?? credentials?.expires_at),
     label:
       typeof value.label === "string"
         ? value.label
+        : typeof value.name === "string"
+          ? value.name
         : typeof value.email === "string"
           ? value.email
-          : typeof value.id === "string"
-            ? value.id
-            : undefined,
+          : typeof credentials?.email === "string"
+            ? credentials.email
+            : typeof value.id === "string"
+              ? value.id
+              : undefined,
     displayName:
       typeof value.displayName === "string"
         ? value.displayName
         : typeof value.email === "string"
           ? value.email
+          : typeof credentials?.email === "string"
+            ? credentials.email
+            : undefined,
+    email:
+      typeof value.email === "string"
+        ? value.email
+        : typeof credentials?.email === "string"
+          ? credentials.email
           : undefined,
-    email: typeof value.email === "string" ? value.email : undefined,
     planType:
       typeof value.planType === "string"
         ? value.planType
         : typeof value.plan_type === "string"
           ? value.plan_type
-          : undefined,
+          : typeof credentials?.plan_type === "string"
+            ? credentials.plan_type
+            : typeof value.type === "string"
+              ? value.type
+              : undefined,
     quota: pickQuotaSnapshot(value),
     credentialRefreshMode: normalizeCredentialRefreshMode(value.credentialRefreshMode),
     importedAt: typeof value.importedAt === "string" ? value.importedAt : undefined,
@@ -483,6 +529,10 @@ function collectProfilesFromUnknown(input: unknown): Record<string, RawProfile> 
 function extractCodexTransferPayload(input: unknown): unknown {
   if (!isRecord(input)) {
     return input;
+  }
+
+  if (Array.isArray(input.accounts)) {
+    return input.accounts;
   }
 
   const platforms = isRecord(input.platforms) ? input.platforms : undefined;

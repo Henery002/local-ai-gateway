@@ -1003,6 +1003,7 @@ const state: {
   isViewStackScrolling?: boolean;
   lastViewStackScrollAt?: number;
   pendingVisibleRefresh?: boolean;
+  accessDraftDirty?: boolean;
   runtimeDiagnostics: RuntimeDiagnostic[];
   usageClientFilter: UsageClientFilter;
   usageObserveWindow: UsageObserveWindow;
@@ -1014,6 +1015,7 @@ const state: {
   activePoolEventsModalId?: string;
   usageDetailsModalOpen?: boolean;
   selectedAccessConsumerId?: string;
+  editingAccessConsumerId?: string;
 } = {
   activeView: "overview",
   accountSearch: "",
@@ -1041,6 +1043,7 @@ let viewStackScrollIdleTimer: number | undefined;
 let visibleRefreshFrame: number | undefined;
 let accountRenderFrame: number | undefined;
 let accountRenderToken = 0;
+const SESSION_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 const poolMemberFieldFrames = new Map<string, number>();
 const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
 const selectedAccountKeys = new Set<string>();
@@ -1193,6 +1196,145 @@ function formatUsageTrendDimensionLabel(dimension: UsageTrendDimension): string 
     return "Key / 号池";
   }
   return "全部";
+}
+
+function buildEmptyUsageCounters(): UsageCounters {
+  return {
+    requestCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    totalLatencyMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedTokens: 0,
+    reasoningTokens: 0,
+  };
+}
+
+function normalizeUsageCounters(value?: Partial<UsageCounters>): UsageCounters {
+  const fallback = buildEmptyUsageCounters();
+  return {
+    requestCount: Number.isFinite(value?.requestCount)
+      ? Number(value?.requestCount)
+      : fallback.requestCount,
+    successCount: Number.isFinite(value?.successCount)
+      ? Number(value?.successCount)
+      : fallback.successCount,
+    failureCount: Number.isFinite(value?.failureCount)
+      ? Number(value?.failureCount)
+      : fallback.failureCount,
+    totalLatencyMs: Number.isFinite(value?.totalLatencyMs)
+      ? Number(value?.totalLatencyMs)
+      : fallback.totalLatencyMs,
+    inputTokens: Number.isFinite(value?.inputTokens)
+      ? Number(value?.inputTokens)
+      : fallback.inputTokens,
+    outputTokens: Number.isFinite(value?.outputTokens)
+      ? Number(value?.outputTokens)
+      : fallback.outputTokens,
+    totalTokens: Number.isFinite(value?.totalTokens)
+      ? Number(value?.totalTokens)
+      : fallback.totalTokens,
+    cachedTokens: Number.isFinite(value?.cachedTokens)
+      ? Number(value?.cachedTokens)
+      : fallback.cachedTokens,
+    reasoningTokens: Number.isFinite(value?.reasoningTokens)
+      ? Number(value?.reasoningTokens)
+      : fallback.reasoningTokens,
+  };
+}
+
+function normalizeUsageArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function buildEmptyUsageWindowSummary(timestamp = Date.now()): UsageWindowSummary {
+  return {
+    since: timestamp,
+    updatedAt: timestamp,
+    totals: buildEmptyUsageCounters(),
+    cachedSignalCount: 0,
+    reasoningSignalCount: 0,
+    importedEventCount: 0,
+    accounts: [],
+    clients: [],
+    consumers: [],
+    consumerTimeline: [],
+    modelTimeline: [],
+    accessKeyTimeline: [],
+    poolTimeline: [],
+    accessKeys: [],
+    pools: [],
+    models: [],
+  };
+}
+
+function normalizeUsageWindowSummary(
+  value?: Partial<UsageWindowSummary>,
+): UsageWindowSummary {
+  const fallback = buildEmptyUsageWindowSummary();
+  return {
+    since: Number.isFinite(value?.since) ? Number(value?.since) : fallback.since,
+    updatedAt: Number.isFinite(value?.updatedAt)
+      ? Number(value?.updatedAt)
+      : fallback.updatedAt,
+    totals: normalizeUsageCounters(value?.totals),
+    cachedSignalCount: Number.isFinite(value?.cachedSignalCount)
+      ? Number(value?.cachedSignalCount)
+      : 0,
+    reasoningSignalCount: Number.isFinite(value?.reasoningSignalCount)
+      ? Number(value?.reasoningSignalCount)
+      : 0,
+    importedEventCount: Number.isFinite(value?.importedEventCount)
+      ? Number(value?.importedEventCount)
+      : 0,
+    accounts: normalizeUsageArray<UsageAccountSummary>(value?.accounts),
+    clients: normalizeUsageArray<UsageClientSummary>(value?.clients),
+    consumers: normalizeUsageArray<UsageConsumerSummary>(value?.consumers),
+    consumerTimeline: normalizeUsageArray<UsageConsumerTimelinePoint>(
+      value?.consumerTimeline,
+    ),
+    modelTimeline: normalizeUsageArray<UsageModelTimelinePoint>(
+      value?.modelTimeline,
+    ),
+    accessKeyTimeline: normalizeUsageArray<UsageAccessKeyTimelinePoint>(
+      value?.accessKeyTimeline,
+    ),
+    poolTimeline: normalizeUsageArray<UsagePoolTimelinePoint>(
+      value?.poolTimeline,
+    ),
+    accessKeys: normalizeUsageArray<UsageAccessKeySummary>(value?.accessKeys),
+    pools: normalizeUsageArray<UsagePoolSummary>(value?.pools),
+    models: normalizeUsageArray<UsageModelSummary>(value?.models),
+  };
+}
+
+function normalizeUsageObservability(
+  value?: Partial<UsageObservability>,
+): UsageObservability | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const clientFilter =
+    value.clientFilter === "openclaw" ||
+    value.clientFilter === "hermes" ||
+    value.clientFilter === "other"
+      ? value.clientFilter
+      : "all";
+  return {
+    clientFilter,
+    history: normalizeUsageWindowSummary(value.history),
+    daily: normalizeUsageWindowSummary(value.daily),
+    weekly: normalizeUsageWindowSummary(value.weekly),
+    monthly: normalizeUsageWindowSummary(value.monthly),
+  };
+}
+
+function normalizeAccessAlertEvents(
+  value?: Partial<AccessAlertListResponse>,
+): AccessAlertEvent[] {
+  return normalizeUsageArray<AccessAlertEvent>(value?.data?.events);
 }
 
 function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
@@ -1543,6 +1685,9 @@ function initCollapsibleSettingsGroups(): void {
 
 function setActiveView(view: DashboardView): void {
   state.activeView = view;
+  if (view !== "access") {
+    clearAccessDraftProtection();
+  }
   if (view !== "accounts") {
     cancelAccountRenderFrame();
   }
@@ -1830,14 +1975,69 @@ function applyActiveViewFormState(): void {
   }
 }
 
+function isEditableFormElement(element: Element | null): boolean {
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement
+  ) {
+    return !element.disabled && !element.readOnly;
+  }
+  if (element instanceof HTMLSelectElement) {
+    return !element.disabled;
+  }
+  return false;
+}
+
+function isInsideAccessDraftSurface(element: Element | null): boolean {
+  if (!element) {
+    return false;
+  }
+  return Boolean(
+    element.closest('[data-view="access"]') ||
+      element.closest("#access-create-member-modal"),
+  );
+}
+
+function markAccessDraftDirtyFromElement(element: Element | null): void {
+  if (state.activeView === "access" && isInsideAccessDraftSurface(element)) {
+    state.accessDraftDirty = true;
+  }
+}
+
+function clearAccessDraftProtection(): void {
+  state.accessDraftDirty = false;
+  state.pendingVisibleRefresh = false;
+}
+
+function shouldProtectAccessDraftFromLiveRefresh(): boolean {
+  if (state.activeView !== "access") {
+    return false;
+  }
+  const activeElement = document.activeElement;
+  return (
+    Boolean(state.accessDraftDirty) ||
+    (isEditableFormElement(activeElement) &&
+      isInsideAccessDraftSurface(activeElement))
+  );
+}
+
 function flushDeferredVisibleRefresh(): void {
   cancelVisibleRefreshFrame();
+  if (shouldProtectAccessDraftFromLiveRefresh()) {
+    state.pendingVisibleRefresh = true;
+    return;
+  }
   state.pendingVisibleRefresh = false;
   renderActiveViewContent({ liveOnly: true });
 }
 
 function scheduleVisibleRefresh(): void {
   if (!hasHydratedDashboardState()) {
+    return;
+  }
+
+  if (shouldProtectAccessDraftFromLiveRefresh()) {
+    state.pendingVisibleRefresh = true;
     return;
   }
 
@@ -2243,7 +2443,7 @@ function renderAccessAndKeys(): void {
 
   renderAccessConsumerList(mappings, accessControl);
   renderAccessPolicyPreview();
-  renderAccessMemberDrawer(accessControl);
+  renderAccessMemberModal();
 }
 
 function renderAccessConsumerList(
@@ -2273,28 +2473,63 @@ function renderAccessConsumerList(
     const rows = consumers
       .map((consumer) => {
         const keys = keysByConsumer.get(consumer.id) ?? [];
-        const enabledKeys = keys.filter((key) => key.status === "enabled").length;
+        const enabledKeys = keys.filter(
+          (key) => key.status === "enabled" && !isPastIsoDate(key.expiresAt),
+        ).length;
+        const expiredKeys = keys.filter((key) => isPastIsoDate(key.expiresAt)).length;
+        const displayKey =
+          keys.find((key) => key.status === "enabled" && !isPastIsoDate(key.expiresAt)) ??
+          keys[0];
+        const keyPreview = displayKey
+          ? `${displayKey.keyPrefix || "lagw"}...${displayKey.keySuffix || "****"}`
+          : "尚未创建 Key";
         const policy = accessControl?.policies.find(
           (item) => item.consumerId === consumer.id,
         );
+        const dailyLimit = formatAccessPolicyTokenLimit(
+          policy?.quota?.dailyTokenLimit,
+        );
+        const poolCount = policy?.allowedPoolIds?.length ?? 0;
+        const modelCount = policy?.allowedModelAliases?.length ?? 0;
         const selected = consumer.id === state.selectedAccessConsumerId;
         return `
-          <div class="figma-table-row access-consumer-row" role="row" data-selected="${selected ? "true" : "false"}">
+          <div
+            class="figma-table-row access-consumer-row"
+            role="row"
+            data-access-member-select="${escapeHtml(consumer.id)}"
+            data-selected="${selected ? "true" : "false"}"
+            tabindex="0"
+            aria-label="编辑访问成员 ${escapeHtml(consumer.name || consumer.clientTag || consumer.id)}"
+          >
             <div class="figma-table-cell">
               <strong>${escapeHtml(consumer.name || consumer.clientTag || "未命名访问者")}</strong>
-              <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")}</span>
+              <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")} · ${escapeHtml(consumer.type)}</span>
+              <small>${escapeHtml(consumer.note || "暂无备注")}</small>
             </div>
             <div class="figma-table-cell">
               <small>Key 状态</small>
               <strong>${formatCompactCount(enabledKeys)} / ${formatCompactCount(keys.length)} 可用</strong>
+              <span>${escapeHtml(keyPreview)} · ${expiredKeys > 0 ? `${formatCompactCount(expiredKeys)} 个已过期` : "无过期 Key"}</span>
             </div>
             <div class="figma-table-cell">
-              <small>模型权限</small>
-              <strong>${policy?.allowedModelAliases?.length ? `${policy.allowedModelAliases.length} 个模型` : "未限制"}</strong>
+              <small>额度</small>
+              <strong>${escapeHtml(dailyLimit)}</strong>
+              <span>月 ${escapeHtml(formatAccessPolicyTokenLimit(policy?.quota?.monthlyTokenLimit))}</span>
+            </div>
+            <div class="figma-table-cell">
+              <small>限制</small>
+              <strong>${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.requestsPerMinute, "/min"))} / ${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.maxConcurrentRequests))}</strong>
+              <span>${policy?.expiresAt ? `到期 ${escapeHtml(formatAccessIsoDate(policy.expiresAt))}` : "策略不过期"}</span>
+            </div>
+            <div class="figma-table-cell">
+              <small>模型 / 号池</small>
+              <strong>${modelCount > 0 ? `${modelCount} 模型` : "模型不限"} / ${poolCount > 0 ? `${poolCount} 号池` : "号池不限"}</strong>
+              <span>${escapeHtml((consumer.tags ?? []).join(", ") || "无标签")}</span>
             </div>
             <div class="figma-table-cell access-consumer-actions">
               <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
-              <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">${selected ? "已选择" : "查看"}</button>
+              <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">查看/编辑</button>
+              <button class="btn danger-ghost mini" type="button" data-access-member-delete="${escapeHtml(consumer.id)}">删除</button>
             </div>
           </div>
         `;
@@ -2305,7 +2540,9 @@ function renderAccessConsumerList(
         <div class="figma-table-head access-consumer-table-head" role="row">
           <span>成员</span>
           <span>Key 状态</span>
-          <span>模型权限</span>
+          <span>额度</span>
+          <span>限制</span>
+          <span>模型 / 号池</span>
           <span>状态 / 操作</span>
         </div>
         ${rows}
@@ -2337,6 +2574,14 @@ function renderAccessConsumerList(
             <small>Header 覆盖</small>
             <strong>${mapping.allowHeaderOverride ? "允许" : "禁止"}</strong>
           </div>
+          <div class="figma-table-cell">
+            <small>额度</small>
+            <strong>沿用兼容配置</strong>
+          </div>
+          <div class="figma-table-cell">
+            <small>模型 / 号池</small>
+            <strong>未接入成员策略</strong>
+          </div>
           <div class="figma-table-cell access-consumer-actions">
             <span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>
           </div>
@@ -2350,6 +2595,8 @@ function renderAccessConsumerList(
         <span>客户端</span>
         <span>Key 状态</span>
         <span>Header 覆盖</span>
+        <span>额度</span>
+        <span>模型 / 号池</span>
         <span>状态</span>
       </div>
       ${rows}
@@ -2486,6 +2733,33 @@ function formatAccessPolicyTokenLimit(value?: number): string {
   return typeof value === "number" && value > 0
     ? `${formatCompactCount(value)} Token`
     : "未限制";
+}
+
+function formatTokenLimitMillionsInput(value?: number): string {
+  if (typeof value !== "number" || value <= 0) {
+    return "";
+  }
+  const millions = value / 1_000_000;
+  return Number.isInteger(millions)
+    ? String(millions)
+    : String(Number(millions.toFixed(2)));
+}
+
+function parseTokenLimitMillionsInput(
+  selector: string,
+  label: string,
+): number | undefined {
+  const value =
+    (document.querySelector(selector) as HTMLInputElement | null)?.value.trim() ??
+    "";
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label}必须是大于 0 的数字。`);
+  }
+  return Math.floor(parsed * 1_000_000);
 }
 
 function formatAccessPolicyNumberLimit(value?: number, unit = ""): string {
@@ -4873,10 +5147,10 @@ function renderCodexAccounts(): void {
               data-icon-only="true"
               data-action="refresh-session-usage"
               data-tone="refresh"
-              data-tooltip="刷新额度"
+              data-tooltip="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
               data-session-id="${escapeHtml(account.representative.id)}"
-              title="刷新额度"
-              aria-label="刷新额度"
+              title="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
+              aria-label="${refreshMode === "external-readonly" ? "同步额度，不刷新 refresh token" : "同步额度"}"
               type="button"
             >
               ${renderActionIcon("refresh")}
@@ -7843,7 +8117,7 @@ function applySystemSettingsToForm(): void {
   }
 
   if (autoRefreshHint) {
-    autoRefreshHint.textContent = `当前将每 ${formatAutoRefreshInterval(settings.autoRefreshIntervalSeconds)} 自动刷新一次账号额度与状态。`;
+    autoRefreshHint.textContent = `当前将每 ${formatAutoRefreshInterval(settings.autoRefreshIntervalSeconds)} 自动同步一次账号额度与状态。`;
   }
 
   const gatewayPort = normalizeGatewayPort(settings.gatewayPort);
@@ -7947,7 +8221,7 @@ function configureSessionActivityTimer(): void {
   clearSessionActivityTimer();
   sessionActivityTimer = window.setInterval(() => {
     void syncSessionActivitySilently();
-  }, 15_000);
+  }, SESSION_ACTIVITY_REFRESH_INTERVAL_MS);
 }
 
 function collectSettingsFromForm(): ProviderSettings {
@@ -8984,6 +9258,11 @@ function cloneAccessControlForSave(
       ...policy,
       allowedModelAliases: [...(policy.allowedModelAliases ?? [])],
       allowedPoolIds: [...(policy.allowedPoolIds ?? [])],
+      quota: policy.quota ? { ...policy.quota } : undefined,
+      limits: policy.limits ? { ...policy.limits } : undefined,
+      modelSwitching: policy.modelSwitching
+        ? { ...policy.modelSwitching }
+        : undefined,
     })),
     alertThresholds: accessControl.alertThresholds
       ? { ...accessControl.alertThresholds }
@@ -9025,6 +9304,7 @@ async function saveAccessControlSettings(
   ) {
     state.selectedAccessConsumerId = undefined;
   }
+  clearAccessDraftProtection();
   renderAccessAndKeys();
   renderSecurityClientMappings(state.securitySettings.clientMappings);
   return response.data;
@@ -9059,38 +9339,222 @@ function getAccessKeyExpiryInput(keyId: string): HTMLInputElement | undefined {
 }
 
 function showOneTimeAccessKey(apiKey: string, title: string): void {
-  const result = document.getElementById("access-rotated-key-result");
+  const result = document.getElementById("access-member-key-result");
   const titleNode = document.getElementById("access-one-time-key-title");
   const input = document.getElementById(
-    "access-rotated-one-time-key",
+    "access-member-one-time-key",
   ) as HTMLInputElement | null;
   if (titleNode) {
     titleNode.textContent = title;
   }
   if (input) {
     input.value = apiKey;
+    input.type = "password";
   }
   if (result) {
     result.hidden = false;
   }
 }
 
-function openAccessMemberModal(): void {
+function setAccessInputValue(id: string, value: string): void {
+  const input = document.getElementById(id) as
+    | HTMLInputElement
+    | HTMLTextAreaElement
+    | null;
+  if (input) {
+    input.value = value;
+  }
+}
+
+function readAccessInputValue(id: string): string {
+  const input = document.getElementById(id) as
+    | HTMLInputElement
+    | HTMLTextAreaElement
+    | null;
+  return input?.value.trim() ?? "";
+}
+
+function buildAccessMemberPoolOptions(policy?: SecurityAccessPolicy): string {
+  const pools = state.poolSettings?.pools ?? [];
+  const allowedPoolIds = new Set(policy?.allowedPoolIds ?? []);
+  if (pools.length === 0) {
+    return `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
+  }
+  return pools
+    .map((pool) => {
+      const visibility = normalizePoolVisibility(pool.visibility);
+      return `
+        <label class="access-policy-pool-option">
+          <input
+            type="checkbox"
+            data-access-member-pool="${escapeHtml(pool.id)}"
+            ${allowedPoolIds.has(pool.id) ? "checked" : ""}
+          />
+          <span>
+            <strong>${escapeHtml(pool.name || pool.id)}</strong>
+            <small>${escapeHtml(formatPoolVisibilityLabel(visibility))} · ${escapeHtml(pool.id)}</small>
+          </span>
+        </label>
+      `;
+    })
+    .join("");
+}
+
+function renderAccessMemberModalKeys(consumerId?: string): void {
+  const list = document.getElementById("access-member-modal-key-list");
+  const section = document.getElementById("access-member-key-management-section");
+  if (!list || !section) {
+    return;
+  }
+  if (!consumerId) {
+    section.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  section.hidden = false;
+  const keys = (state.securitySettings?.accessControl.keys ?? []).filter(
+    (key) => key.consumerId === consumerId,
+  );
+  if (keys.length === 0) {
+    list.innerHTML = `<div class="empty-card">当前成员暂无 Key。可在下方新增一把独立 Key。</div>`;
+    return;
+  }
+  list.innerHTML = keys
+    .map((key) => {
+      const expiredByTime = isPastIsoDate(key.expiresAt);
+      const statusLabel = expiredByTime
+        ? "过期"
+        : formatAccessStatusLabel(key.status);
+      const toggleLabel = key.status === "paused" ? "启用 Key" : "暂停 Key";
+      return `
+        <div class="access-key-card">
+          <div class="access-key-card-head">
+            <div>
+              <strong>${escapeHtml(key.name || key.id)}</strong>
+              <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
+            </div>
+            <span class="badge ${accessKeyBadgeClass(key)}">${escapeHtml(statusLabel)}</span>
+          </div>
+          <div class="access-key-meta">
+            <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
+            <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
+            <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>
+            <span>轮换：${escapeHtml(formatAccessIsoDate(key.rotatedAt, "尚未轮换"))}</span>
+          </div>
+          <div class="access-key-actions">
+            <input
+              class="input-field"
+              type="datetime-local"
+              data-access-key-expiry="${escapeHtml(key.id)}"
+              value="${escapeHtml(formatAccessDateTimeLocalValue(key.expiresAt))}"
+              aria-label="Key 到期时间"
+            />
+            <button class="btn secondary mini" type="button" data-access-key-save-expiry="${escapeHtml(key.id)}">保存到期</button>
+            <button class="btn ghost mini" type="button" data-access-key-toggle="${escapeHtml(key.id)}">${toggleLabel}</button>
+            <button class="btn danger-ghost mini" type="button" data-access-key-rotate="${escapeHtml(key.id)}">轮换 Key</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderAccessMemberModal(): void {
+  const modal = document.getElementById("access-create-member-modal");
+  if (!modal || modal.hidden || !state.editingAccessConsumerId) {
+    return;
+  }
+  if (shouldProtectAccessDraftFromLiveRefresh()) {
+    return;
+  }
+  openAccessMemberModal(state.editingAccessConsumerId, { preserveKeyResult: true });
+}
+
+function openAccessMemberModal(
+  consumerId?: string,
+  options: { preserveKeyResult?: boolean } = {},
+): void {
   const modal = document.getElementById("access-create-member-modal");
   if (!modal) {
     return;
   }
+  clearAccessDraftProtection();
+  state.editingAccessConsumerId = consumerId;
+  state.selectedAccessConsumerId = consumerId;
   modal.hidden = false;
+  const accessControl = state.securitySettings?.accessControl;
+  const consumer = accessControl?.consumers.find((item) => item.id === consumerId);
+  const policy = accessControl?.policies.find((item) => item.consumerId === consumerId);
+  const isEdit = Boolean(consumer);
+
+  setText("access-member-modal-title", isEdit ? "编辑成员" : "新增成员");
+  setText(
+    "access-member-modal-subtitle",
+    isEdit
+      ? "修改成员信息、额度、模型、号池和 API Key；保存后立即影响该成员后续调用。"
+      : "创建 LAN 成员并一次性展示 API Key 明文；保存后本地只保留 hash。",
+  );
+  setAccessInputValue("access-member-editing-id", consumer?.id ?? "");
+  setAccessInputValue("access-member-name", consumer?.name ?? "");
+  setAccessInputValue("access-member-client-tag", consumer?.clientTag ?? "");
+  setAccessInputValue("access-member-tags", (consumer?.tags ?? ["lan"]).join(", "));
+  setAccessInputValue("access-member-note", consumer?.note ?? "");
+  setAccessInputValue(
+    "access-member-daily-token-limit",
+    formatTokenLimitMillionsInput(policy?.quota?.dailyTokenLimit),
+  );
+  setAccessInputValue(
+    "access-member-monthly-token-limit",
+    formatTokenLimitMillionsInput(policy?.quota?.monthlyTokenLimit),
+  );
+  setAccessInputValue(
+    "access-member-total-token-limit",
+    formatTokenLimitMillionsInput(policy?.quota?.totalTokenLimit),
+  );
+  setAccessInputValue(
+    "access-member-requests-per-minute",
+    typeof policy?.limits?.requestsPerMinute === "number"
+      ? String(policy.limits.requestsPerMinute)
+      : "",
+  );
+  setAccessInputValue(
+    "access-member-max-concurrent",
+    typeof policy?.limits?.maxConcurrentRequests === "number"
+      ? String(policy.limits.maxConcurrentRequests)
+      : "",
+  );
+  setAccessInputValue(
+    "access-member-policy-expires-at",
+    formatAccessDateTimeLocalValue(policy?.expiresAt),
+  );
+  setAccessInputValue(
+    "access-member-model-aliases",
+    (policy?.allowedModelAliases ?? []).join("\n"),
+  );
+  setAccessInputValue("access-member-new-key-name", "");
+  setAccessInputValue("access-member-new-key-expires-at", "");
+  const poolList = document.getElementById("access-member-pool-list");
+  if (poolList) {
+    poolList.innerHTML = buildAccessMemberPoolOptions(policy);
+  }
+  const submit = document.getElementById(
+    "create-access-member-submit",
+  ) as HTMLButtonElement | null;
+  if (submit) {
+    submit.textContent = isEdit ? "保存成员配置" : "创建成员并生成 Key";
+  }
   const keyResult = document.getElementById("access-member-key-result");
-  if (keyResult) {
+  if (keyResult && !options.preserveKeyResult) {
     keyResult.hidden = true;
   }
   const keyNode = document.getElementById(
     "access-member-one-time-key",
   ) as HTMLInputElement | null;
-  if (keyNode) {
+  if (keyNode && !options.preserveKeyResult) {
     keyNode.value = "";
+    keyNode.type = "password";
   }
+  renderAccessMemberModalKeys(consumer?.id);
   (document.getElementById("access-member-name") as HTMLInputElement | null)?.focus();
 }
 
@@ -9099,6 +9563,8 @@ function closeAccessMemberModal(): void {
   if (modal) {
     modal.hidden = true;
   }
+  state.editingAccessConsumerId = undefined;
+  clearAccessDraftProtection();
 }
 
 function getSecuritySettingsWithDefaults(): SecuritySettings {
@@ -9122,88 +9588,163 @@ function getSecuritySettingsWithDefaults(): SecuritySettings {
   };
 }
 
+function collectAccessMemberPolicyInput(
+  consumerId: string,
+  existing?: SecurityAccessPolicy,
+): SecurityAccessPolicy {
+  const selectedPoolIds = Array.from(
+    document.querySelectorAll<HTMLInputElement>(
+      "[data-access-member-pool]:checked",
+    ),
+  )
+    .map((input) => input.dataset.accessMemberPool?.trim())
+    .filter((poolId): poolId is string => Boolean(poolId));
+  const dailyTokenLimit = parseTokenLimitMillionsInput(
+    "#access-member-daily-token-limit",
+    "日 Token 限额",
+  );
+  const monthlyTokenLimit = parseTokenLimitMillionsInput(
+    "#access-member-monthly-token-limit",
+    "月 Token 限额",
+  );
+  const totalTokenLimit = parseTokenLimitMillionsInput(
+    "#access-member-total-token-limit",
+    "总 Token 限额",
+  );
+  const requestsPerMinute = parseAccessPositiveIntegerInput(
+    "#access-member-requests-per-minute",
+    "每分钟请求数",
+  );
+  const maxConcurrentRequests = parseAccessPositiveIntegerInput(
+    "#access-member-max-concurrent",
+    "最大并发请求数",
+  );
+  const quota = { ...(existing?.quota ?? {}) };
+  if (typeof dailyTokenLimit === "number") {
+    quota.dailyTokenLimit = dailyTokenLimit;
+  } else {
+    delete quota.dailyTokenLimit;
+  }
+  if (typeof monthlyTokenLimit === "number") {
+    quota.monthlyTokenLimit = monthlyTokenLimit;
+  } else {
+    delete quota.monthlyTokenLimit;
+  }
+  if (typeof totalTokenLimit === "number") {
+    quota.totalTokenLimit = totalTokenLimit;
+  } else {
+    delete quota.totalTokenLimit;
+  }
+  const limits = { ...(existing?.limits ?? {}) };
+  if (typeof requestsPerMinute === "number") {
+    limits.requestsPerMinute = requestsPerMinute;
+  } else {
+    delete limits.requestsPerMinute;
+  }
+  if (typeof maxConcurrentRequests === "number") {
+    limits.maxConcurrentRequests = maxConcurrentRequests;
+  } else {
+    delete limits.maxConcurrentRequests;
+  }
+
+  const policy: SecurityAccessPolicy = {
+    ...(existing ?? { consumerId }),
+    consumerId,
+    allowedModelAliases: parseAccessModelAliasesInput(
+      "#access-member-model-aliases",
+    ),
+    allowedPoolIds: selectedPoolIds,
+    quota: Object.keys(quota).length > 0 ? quota : undefined,
+    limits: Object.keys(limits).length > 0 ? limits : undefined,
+  };
+  const expiresAt = parseAccessDateTimeLocalValue(
+    readAccessInputValue("access-member-policy-expires-at"),
+  );
+  if (expiresAt) {
+    policy.expiresAt = expiresAt;
+  } else {
+    delete policy.expiresAt;
+  }
+  return policy;
+}
+
 async function createAccessMember(): Promise<void> {
-  const api = getGatewayApi();
-  const name =
-    (document.getElementById("access-member-name") as HTMLInputElement | null)
-      ?.value.trim() ?? "";
-  const rawClientTag =
-    (document.getElementById("access-member-client-tag") as HTMLInputElement | null)
-      ?.value.trim() ?? "";
-  const note =
-    (document.getElementById("access-member-note") as HTMLInputElement | null)
-      ?.value.trim() || undefined;
+  const editingId = readAccessInputValue("access-member-editing-id");
+  const name = readAccessInputValue("access-member-name");
+  const rawClientTag = readAccessInputValue("access-member-client-tag");
+  const note = readAccessInputValue("access-member-note") || undefined;
   if (!name) {
     setBanner("请先填写成员名称。", "error");
     return;
   }
   const clientTag = normalizeAccessSlug(rawClientTag || name, "member");
   const current = getSecuritySettingsWithDefaults();
-  const consumerId = createAccessEntityId("consumer", clientTag);
-  const keyId = createAccessEntityId("key", clientTag);
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
   const now = new Date().toISOString();
-  const apiKey = generateApiKey(clientTag);
-  const nextAccessControl: SecurityAccessControlInput = {
-    consumers: [
-      ...current.accessControl.consumers,
-      {
-        id: consumerId,
-        name,
-        type: "lan-member",
-        status: "enabled",
-        clientTag,
-        note,
-        tags: ["lan"],
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
-    keys: [
-      ...current.accessControl.keys,
-      {
-        id: keyId,
-        consumerId,
-        name: `${name} 默认 Key`,
-        keyPrefix: apiKey.slice(0, 8),
-        keySuffix: apiKey.slice(-4),
-        status: "enabled",
-        createdAt: now,
-        hasKey: true,
-        apiKey,
-      },
-    ],
-    policies: [
-      ...current.accessControl.policies,
-      {
-        consumerId,
-        allowedModelAliases: [],
-        allowedPoolIds: [],
-      },
-    ],
-  };
+  let apiKey: string | undefined;
+  const existingConsumer = editingId
+    ? nextAccessControl.consumers.find((item) => item.id === editingId)
+    : undefined;
+  const consumerId = existingConsumer?.id ?? createAccessEntityId("consumer", clientTag);
 
-  const response = await api.saveSecuritySettings({
-    mode: "api-key",
-    resolveClientTagByApiKey: true,
-    clientMappings: getSecurityClientMappingInputs(current),
-    lanAccess: current.lanAccess,
-    accessControl: nextAccessControl,
-  });
-  state.securitySettings = response.data;
+  if (existingConsumer) {
+    existingConsumer.name = name;
+    existingConsumer.clientTag = clientTag;
+    existingConsumer.note = note;
+    existingConsumer.tags = parseAccessTagsInput("#access-member-tags");
+    existingConsumer.updatedAt = now;
+  } else {
+    apiKey = generateApiKey(clientTag);
+    nextAccessControl.consumers.push({
+      id: consumerId,
+      name,
+      type: "lan-member",
+      status: "enabled",
+      clientTag,
+      note,
+      tags: parseAccessTagsInput("#access-member-tags"),
+      createdAt: now,
+      updatedAt: now,
+    });
+    nextAccessControl.keys.push({
+      id: createAccessEntityId("key", clientTag),
+      consumerId,
+      name: `${name} 默认 Key`,
+      keyPrefix: apiKey.slice(0, 8),
+      keySuffix: apiKey.slice(-4),
+      status: "enabled",
+      createdAt: now,
+      hasKey: true,
+      apiKey,
+    });
+  }
+
+  const existingPolicyIndex = nextAccessControl.policies.findIndex(
+    (item) => item.consumerId === consumerId,
+  );
+  const nextPolicy = collectAccessMemberPolicyInput(
+    consumerId,
+    existingPolicyIndex >= 0
+      ? nextAccessControl.policies[existingPolicyIndex]
+      : undefined,
+  );
+  if (existingPolicyIndex >= 0) {
+    nextAccessControl.policies[existingPolicyIndex] = nextPolicy;
+  } else {
+    nextAccessControl.policies.push(nextPolicy);
+  }
+
+  await saveAccessControlSettings(nextAccessControl);
   state.selectedAccessConsumerId = consumerId;
-  renderAccessAndKeys();
-  renderSecurityClientMappings(state.securitySettings.clientMappings);
-  const keyNode = document.getElementById(
-    "access-member-one-time-key",
-  ) as HTMLInputElement | null;
-  const keyResult = document.getElementById("access-member-key-result");
-  if (keyNode) {
-    keyNode.value = apiKey;
+  state.editingAccessConsumerId = consumerId;
+  clearAccessDraftProtection();
+  openAccessMemberModal(consumerId, { preserveKeyResult: Boolean(apiKey) });
+  if (apiKey) {
+    showOneTimeAccessKey(apiKey, "创建后一次性 API Key");
+    setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
+  } else {
+    setBanner("访问成员配置已保存。", "success");
   }
-  if (keyResult) {
-    keyResult.hidden = false;
-  }
-  setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
 }
 
 async function saveAccessConsumerBasics(consumerId: string): Promise<void> {
@@ -9249,6 +9790,7 @@ async function saveAccessConsumerBasics(consumerId: string): Promise<void> {
   consumer.updatedAt = new Date().toISOString();
 
   await saveAccessControlSettings(nextAccessControl);
+  clearAccessDraftProtection();
   setBanner("访问成员基础信息已保存。", "success");
 }
 
@@ -9276,17 +9818,25 @@ async function createAccessKeyForConsumer(consumerId: string): Promise<void> {
   nextAccessControl.keys.push({
     id: createAccessEntityId("key", seed),
     consumerId,
-    name: keyNameInput?.value.trim() || `${consumer.name} 新 Key`,
+    name:
+      keyNameInput?.value.trim() ||
+      readAccessInputValue("access-member-new-key-name") ||
+      `${consumer.name} 新 Key`,
     keyPrefix: apiKey.slice(0, 8),
     keySuffix: apiKey.slice(-4),
     status: "enabled",
     createdAt: now,
-    expiresAt: parseAccessDateTimeLocalValue(expiresAtInput?.value ?? ""),
+    expiresAt: parseAccessDateTimeLocalValue(
+      expiresAtInput?.value ?? readAccessInputValue("access-member-new-key-expires-at"),
+    ),
     hasKey: true,
     apiKey,
   });
 
   await saveAccessControlSettings(nextAccessControl);
+  state.editingAccessConsumerId = consumerId;
+  openAccessMemberModal(consumerId, { preserveKeyResult: true });
+  clearAccessDraftProtection();
   showOneTimeAccessKey(apiKey, "新增后一次性 API Key");
   setBanner("访问 Key 已创建。请立即复制一次性 API Key。", "success");
 }
@@ -9326,6 +9876,7 @@ async function saveAccessKeyExpiry(keyId: string): Promise<void> {
     key.status = "enabled";
   }
   await saveAccessControlSettings(nextAccessControl);
+  clearAccessDraftProtection();
   setBanner(expiresAt ? "访问 Key 到期时间已保存。" : "访问 Key 到期时间已清空。", "success");
 }
 
@@ -9435,11 +9986,54 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
   }
 
   await saveAccessControlSettings(nextAccessControl);
+  clearAccessDraftProtection();
   setBanner("访问成员策略已保存。", "success");
 }
 
 async function saveAccessPolicyPools(consumerId: string): Promise<void> {
   await saveAccessPolicySettings(consumerId);
+}
+
+async function deleteAccessConsumer(consumerId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const target = current.accessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!target) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+  const keyCount = current.accessControl.keys.filter(
+    (key) => key.consumerId === consumerId,
+  ).length;
+  const confirmed = await requestConfirmation({
+    title: "确认删除访问成员",
+    message: `即将删除访问成员“${target.name || target.clientTag || consumerId}”，并同时删除其 ${keyCount} 把 API Key 和访问策略。删除后这些 API Key 将无法继续通过本地网关鉴权；不会修改 Cockpit / OpenClaw 原始账号配置。是否继续？`,
+    confirmLabel: "删除成员",
+    tone: "danger",
+  });
+  if (!confirmed) {
+    return;
+  }
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  nextAccessControl.consumers = nextAccessControl.consumers.filter(
+    (consumer) => consumer.id !== consumerId,
+  );
+  nextAccessControl.keys = nextAccessControl.keys.filter(
+    (key) => key.consumerId !== consumerId,
+  );
+  nextAccessControl.policies = nextAccessControl.policies.filter(
+    (policy) => policy.consumerId !== consumerId,
+  );
+  const wasEditing = state.editingAccessConsumerId === consumerId;
+  if (wasEditing) {
+    state.editingAccessConsumerId = undefined;
+  }
+  await saveAccessControlSettings(nextAccessControl);
+  if (wasEditing) {
+    closeAccessMemberModal();
+  }
+  setBanner("访问成员已删除，其 API Key 调用能力已失效。", "success");
 }
 
 async function rotateAccessKey(keyId: string): Promise<void> {
@@ -9556,6 +10150,11 @@ function bindActions(): void {
     ?.addEventListener("click", () => {
       closeAccessMemberModal();
     });
+  document
+    .getElementById("close-access-member-modal-footer")
+    ?.addEventListener("click", () => {
+      closeAccessMemberModal();
+    });
 
   document
     .getElementById("create-access-member-submit")
@@ -9564,10 +10163,14 @@ function bindActions(): void {
         "create-access-member-submit",
       ) as HTMLButtonElement | null;
       try {
-        setButtonLoading(button, true, "创建中");
+        setButtonLoading(
+          button,
+          true,
+          readAccessInputValue("access-member-editing-id") ? "保存中" : "创建中",
+        );
         await createAccessMember();
       } catch (error) {
-        setBanner(`创建访问成员失败：${String(error)}`, "error");
+        setBanner(`保存访问成员失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }
@@ -9592,6 +10195,22 @@ function bindActions(): void {
       } catch (error) {
         setBanner(`复制一次性 API Key 失败：${String(error)}`, "error");
       }
+    });
+
+  document
+    .getElementById("toggle-access-member-key-visibility")
+    ?.addEventListener("click", () => {
+      const input = document.getElementById(
+        "access-member-one-time-key",
+      ) as HTMLInputElement | null;
+      const button = document.getElementById(
+        "toggle-access-member-key-visibility",
+      ) as HTMLButtonElement | null;
+      if (!input || !button) {
+        return;
+      }
+      input.type = input.type === "password" ? "text" : "password";
+      button.textContent = input.type === "password" ? "显示" : "隐藏";
     });
 
   document.getElementById("open-logs")?.addEventListener("click", async () => {
@@ -9743,17 +10362,29 @@ function bindActions(): void {
       return;
     }
 
+    const memberDeleteTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-member-delete]",
+    );
+    if (memberDeleteTrigger?.dataset.accessMemberDelete) {
+      try {
+        setButtonLoading(memberDeleteTrigger, true, "删除中");
+        await deleteAccessConsumer(memberDeleteTrigger.dataset.accessMemberDelete);
+      } catch (error) {
+        setBanner(`删除访问成员失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(memberDeleteTrigger, false);
+      }
+      return;
+    }
+
     const memberSelectTrigger = target.closest<HTMLElement>(
       "[data-access-member-select]",
     );
     if (memberSelectTrigger) {
+      clearAccessDraftProtection();
       state.selectedAccessConsumerId =
         memberSelectTrigger.dataset.accessMemberSelect;
-      renderAccessConsumerList(
-        state.securitySettings?.clientMappings ?? [],
-        state.securitySettings?.accessControl,
-      );
-      renderAccessMemberDrawer(state.securitySettings?.accessControl);
+      openAccessMemberModal(memberSelectTrigger.dataset.accessMemberSelect);
       return;
     }
 
@@ -9823,11 +10454,13 @@ function bindActions(): void {
 
     const keyCreateTrigger = target.closest<HTMLButtonElement>(
       "[data-access-key-create]",
-    );
-    if (keyCreateTrigger?.dataset.accessKeyCreate) {
+    ) ?? target.closest<HTMLButtonElement>("#access-member-create-extra-key");
+    const keyCreateConsumerId =
+      keyCreateTrigger?.dataset.accessKeyCreate ?? state.editingAccessConsumerId;
+    if (keyCreateTrigger && keyCreateConsumerId) {
       try {
         setButtonLoading(keyCreateTrigger, true, "创建中");
-        await createAccessKeyForConsumer(keyCreateTrigger.dataset.accessKeyCreate);
+        await createAccessKeyForConsumer(keyCreateConsumerId);
       } catch (error) {
         setBanner(`创建访问 Key 失败：${String(error)}`, "error");
       } finally {
@@ -9911,6 +10544,7 @@ function bindActions(): void {
 
   document.addEventListener("input", (event) => {
     const target = event.target as HTMLElement | null;
+    markAccessDraftDirtyFromElement(target);
     if (!(target instanceof HTMLInputElement)) {
       return;
     }
@@ -9919,6 +10553,21 @@ function bindActions(): void {
       target.matches("[data-security-mapping-name]")
     ) {
       syncSecretFieldActionState();
+    }
+  });
+
+  document.addEventListener("change", (event) => {
+    markAccessDraftDirtyFromElement(event.target as Element | null);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      target?.matches("[data-access-member-select]")
+    ) {
+      event.preventDefault();
+      openAccessMemberModal(target.dataset.accessMemberSelect);
     }
   });
 
@@ -10095,19 +10744,19 @@ function bindActions(): void {
         "refresh-accounts",
       ) as HTMLButtonElement | null;
       try {
-        setButtonLoading(button, true, "刷新中");
-        setBanner("正在刷新全部账号的额度与状态...", "info");
+        setButtonLoading(button, true, "同步中");
+        setBanner("正在同步全部账号的额度与状态...", "info");
         const summary = await refreshWithLiveUsage();
         const banner = summarizeRefreshBanner(summary, {
-          successMessage: "账号状态已刷新，{count} 个账号已更新。",
-          emptyMessage: "账号状态已刷新。当前没有可刷新的桌面端账号。",
-          unsupportedMessage: "账号状态已刷新。",
+          successMessage: "账号额度与状态已同步，{count} 个账号已更新。",
+          emptyMessage: "账号状态已同步。当前没有可同步的桌面端账号。",
+          unsupportedMessage: "账号状态已同步。",
           failedOnlyMessage:
-            "账号状态已刷新，但当前没有账号成功同步到最新额度。",
+            "账号状态同步失败，当前没有账号成功同步到最新额度。",
         });
         setBanner(banner.message, banner.tone);
       } catch (error) {
-        setBanner(`账号刷新失败：${String(error)}`, "error");
+        setBanner(`账号同步失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }
@@ -10420,6 +11069,14 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("access-create-member-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeAccessMemberModal();
+      }
+    });
+
+  document
     .getElementById("pool-events-modal")
     ?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -10488,6 +11145,13 @@ function bindActions(): void {
       const usageDetailsModal = document.getElementById("usage-details-modal");
       if (usageDetailsModal && !usageDetailsModal.hidden) {
         closeUsageDetailsModal();
+        return;
+      }
+      const accessMemberModal = document.getElementById(
+        "access-create-member-modal",
+      );
+      if (accessMemberModal && !accessMemberModal.hidden) {
+        closeAccessMemberModal();
         return;
       }
       closeAccountModal();
@@ -10714,18 +11378,18 @@ function bindActions(): void {
     if (action === "refresh-session-usage" && button.dataset.sessionId) {
       const refreshButton = button as HTMLButtonElement;
       try {
-        setButtonLoading(refreshButton, true, "刷新中");
-        setBanner(`正在刷新 ${button.dataset.sessionId} 的额度信息...`, "info");
+        setButtonLoading(refreshButton, true, "同步中");
+        setBanner(`正在同步 ${button.dataset.sessionId} 的额度信息...`, "info");
         const summary = await refreshWithLiveUsage(button.dataset.sessionId);
         const banner = summarizeRefreshBanner(summary, {
-          successMessage: "账号状态已刷新。",
-          emptyMessage: "账号状态已刷新。当前会话暂无可更新额度。",
-          unsupportedMessage: "账号状态已刷新。",
-          failedOnlyMessage: "账号状态刷新失败，请稍后重试。",
+          successMessage: "账号额度与状态已同步。",
+          emptyMessage: "账号状态已同步。当前会话暂无可更新额度。",
+          unsupportedMessage: "账号状态已同步。",
+          failedOnlyMessage: "账号状态同步失败，请稍后重试。",
         });
         setBanner(banner.message, banner.tone);
       } catch (error) {
-        setBanner(`账号刷新失败：${String(error)}`, "error");
+        setBanner(`账号同步失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(refreshButton, false);
       }
@@ -11103,17 +11767,21 @@ async function refresh(): Promise<void> {
   }
 
   if (usageSummaryResult.status === "fulfilled") {
-    state.usageSummary = usageSummaryResult.value.data;
+    state.usageSummary = normalizeUsageObservability(
+      usageSummaryResult.value.data,
+    );
   } else {
     loadFailures.push({
       scope: "usage-summary",
       message: normalizeErrorMessage(usageSummaryResult.reason),
     });
-    state.usageSummary = state.health?.usageObservability;
+    state.usageSummary = normalizeUsageObservability(
+      state.health?.usageObservability,
+    );
   }
 
   if (accessAlertsResult.status === "fulfilled") {
-    state.accessAlerts = accessAlertsResult.value.data.events;
+    state.accessAlerts = normalizeAccessAlertEvents(accessAlertsResult.value);
   } else {
     loadFailures.push({
       scope: "access-alerts",
@@ -11283,16 +11951,20 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     usageSummaryResult.value &&
     "data" in usageSummaryResult.value
   ) {
-    state.usageSummary = usageSummaryResult.value.data;
+    state.usageSummary = normalizeUsageObservability(
+      usageSummaryResult.value.data,
+    );
   } else if (healthResult.status === "fulfilled") {
-    state.usageSummary = healthResult.value.usageObservability;
+    state.usageSummary = normalizeUsageObservability(
+      healthResult.value.usageObservability,
+    );
   }
   if (
     accessAlertsResult.status === "fulfilled" &&
     accessAlertsResult.value &&
     "data" in accessAlertsResult.value
   ) {
-    state.accessAlerts = accessAlertsResult.value.data.events;
+    state.accessAlerts = normalizeAccessAlertEvents(accessAlertsResult.value);
   }
   if (sessionsResult.status === "fulfilled" && sessionsResult.value) {
     state.sessions = sessionsResult.value;
@@ -11309,8 +11981,8 @@ async function refreshUsageSummaryOnly(): Promise<void> {
     api.getUsageSummary(state.usageClientFilter),
     api.getAccessAlerts(),
   ]);
-  state.usageSummary = response.data;
-  state.accessAlerts = alerts.data.events;
+  state.usageSummary = normalizeUsageObservability(response.data);
+  state.accessAlerts = normalizeAccessAlertEvents(alerts);
   scheduleVisibleRefresh();
 }
 

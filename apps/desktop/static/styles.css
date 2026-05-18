@@ -1127,7 +1127,7 @@ button, input, select {
 
 .access-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  grid-template-columns: 1fr;
   gap: var(--space-4);
 }
 
@@ -1143,12 +1143,19 @@ button, input, select {
 
 .access-consumer-table-head,
 .access-consumer-row {
-  grid-template-columns: minmax(180px, 1.3fr) minmax(112px, 0.55fr) minmax(120px, 0.65fr) minmax(132px, auto);
-  min-width: 620px;
+  grid-template-columns:
+    minmax(180px, 1.2fr)
+    minmax(130px, 0.7fr)
+    minmax(150px, 0.8fr)
+    minmax(150px, 0.8fr)
+    minmax(160px, 0.9fr)
+    minmax(180px, auto);
+  min-width: 980px;
 }
 
 .access-consumer-row {
   background: var(--color-bg-card);
+  cursor: pointer;
 }
 
 .access-consumer-row:hover {
@@ -1164,6 +1171,16 @@ button, input, select {
 .access-policy-item div {
   display: grid;
   gap: 3px;
+}
+
+.access-consumer-actions {
+  align-items: center;
+  grid-auto-flow: column;
+  justify-content: end;
+}
+
+.access-consumer-actions .btn {
+  white-space: nowrap;
 }
 
 .access-consumer-row strong,
@@ -2702,6 +2719,78 @@ button, input, select {
   flex-direction: column;
 }
 
+.modal-content.access-create-member-modal {
+  max-width: min(1040px, calc(100vw - 40px));
+}
+
+.access-member-modal-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.access-member-modal-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+}
+
+.access-member-modal-section-head {
+  display: grid;
+  gap: 4px;
+}
+
+.access-member-modal-section-head strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.access-member-modal-section-head span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.access-member-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+
+.access-member-form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.access-member-form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.unit-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px;
+  gap: 8px;
+}
+
+.access-new-key-inline {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.one-time-key-panel {
+  border-color: var(--accent-color);
+  background: var(--accent-soft);
+}
+
+.one-time-key-input {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
 .modal-header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-light);
@@ -2716,6 +2805,12 @@ button, input, select {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+}
+
+.modal-header p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .modal-tabs {
@@ -3215,13 +3310,24 @@ button, input, select {
   box-shadow: var(--shadow-sm);
   opacity: 0;
   pointer-events: none;
-  z-index: 10;
+  z-index: 1200;
   transition: opacity 0.2s, transform 0.2s;
 }
 
 .icon-btn:hover::after,
 .icon-btn:focus-visible::after {
   opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.account-assets-actions-cell .icon-btn[data-tooltip]::after {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.account-assets-actions-cell .icon-btn:hover::after,
+.account-assets-actions-cell .icon-btn:focus-visible::after {
   transform: translateX(-50%) translateY(0);
 }
 
@@ -4706,6 +4812,9 @@ button, input, select {
   .usage-attribution-detail { white-space: normal; }
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: 1fr; }
+  .access-member-form-grid,
+  .access-member-form-grid.three,
+  .access-new-key-inline { grid-template-columns: 1fr; }
   .routing-observe-grid { grid-template-columns: 1fr; }
   .usage-observe-grid { grid-template-columns: 1fr; }
   .pool-runtime-summary { grid-template-columns: 1fr; }

@@ -9,6 +9,21 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-18 13:20 CST]
+
+### 新增
+
+- “访问与密钥”页访问成员列表改为宽表格展示，行内补充成员信息、Key 可用数、脱敏 Key 前后缀、额度、QPS / 并发、模型 / 号池、标签和状态操作；点击成员行或“查看/编辑”可打开成员弹窗继续修改。
+- 新增 / 编辑成员共用全局弹窗，表单调整为多列分区布局；Token 额度输入改为数值 + 单位形式，当前单位为 `M`，保存时换算为实际 token 数。
+- 访问成员操作列新增删除入口，删除前二次确认；确认后会删除本项目访问控制配置中的成员、关联 AccessKey 和成员策略，旧 API Key 无法继续通过本地网关鉴权，不影响 Cockpit / OpenClaw 原始账号配置。
+
+### 修复
+
+- 账号配置导入新增对两类 Codex OAuth JSON 的兼容：顶层 `access_token / refresh_token` 数组导出，以及 sub2api 风格 `accounts[].credentials` 导出。
+- sub2api 导入会读取 `credentials.email / plan_type / chatgpt_account_id / expires_at` 等元数据；导入账号仍标记为 `external-readonly`，不会由本项目主动 OAuth refresh。
+- 账号资产操作栏将“刷新额度”调整为“同步额度”，外部只读账号 tooltip 明确提示不会刷新 `refresh_token`；同时修复操作栏 icon tooltip 被表格容器裁切的问题。
+- 修复后台自动同步 / 会话活动轮询重绘“访问与密钥”页导致新增成员、成员 Key 和策略配置表单草稿被清空的问题；访问页存在编辑草稿时会暂缓 live refresh 重绘，并把静默活动轮询从 15 秒放宽到 30 秒。
+
 ## [2026-05-17 21:05 CST]
 
 ### 新增
@@ -20,6 +35,12 @@
 ### 文档
 
 - 同步更新二期 / 三期开发进度清单、重构技术方案、桌面控制台说明和项目答疑清单，清理成员编辑、多 Key、月 / 总额度与过期策略的过时待办口径。
+
+### 修复
+
+- 修复 dev desktop 运行时实际加载的 `static/preload.cjs` 未暴露访问告警 IPC 方法，导致启动后报 `api.getAccessAlerts is not a function` 的问题；补充桌面构建测试覆盖运行时 static preload。
+- 修复重启或告警接口短暂失败时，旧版 / 不完整 usage summary 缺少新归因数组会触发 `Cannot read properties of undefined (reading 'map')` 的问题；渲染层现在会在写入 state 前归一化 usage 与访问告警事件结构。
+- 修复“访问与密钥 -> 新增成员”仍按页面卡片流式渲染的问题；新增成员已改为全局 modal overlay，并支持点击遮罩、页脚取消和 Esc 关闭。
 
 ## [2026-05-17 20:25 CST]
 

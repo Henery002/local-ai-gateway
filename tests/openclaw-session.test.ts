@@ -252,6 +252,82 @@ describe("openclaw session source", () => {
     });
   });
 
+  it("imports top-level token array account exports as external-readonly profiles", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-token-array-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+
+    const result = store.importAccountConfigObject([
+      {
+        id_token: "id-token",
+        access_token: "array-access-token",
+        refresh_token: "array-refresh-token",
+        account_id: "acct_array",
+        last_refresh: "2026-05-18T10:00:00.000Z",
+        email: "array@example.com",
+        type: "chatgpt_plus",
+      },
+    ]);
+
+    const imported = Object.values(store.listProfiles())[0];
+
+    expect(result.imported).toBe(1);
+    expect(imported).toMatchObject({
+      provider: "openai-codex",
+      access: "array-access-token",
+      refresh: "array-refresh-token",
+      accountId: "acct_array",
+      email: "array@example.com",
+      planType: "chatgpt_plus",
+      credentialRefreshMode: "external-readonly",
+    });
+  });
+
+  it("imports sub2api account exports as external-readonly profiles", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-sub2api-"));
+    const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
+    const store = new ImportedCodexAccountStore(importedProfilesPath);
+
+    const result = store.importAccountConfigObject({
+      exported_at: "2026-05-18T10:00:00.000Z",
+      accounts: [
+        {
+          name: "DSAI account",
+          platform: "openai",
+          type: "chatgpt_plus",
+          credentials: {
+            access_token: "sub2api-access-token",
+            refresh_token: "sub2api-refresh-token",
+            expires_at: "2026-05-18T11:00:00.000Z",
+            email: "sub2api@example.com",
+            chatgpt_account_id: "acct_sub2api",
+            chatgpt_user_id: "user_sub2api",
+            plan_type: "plus",
+          },
+          concurrency: 1,
+          priority: 10,
+        },
+      ],
+      type: "sub2api",
+      version: 1,
+    });
+
+    const imported = Object.values(store.listProfiles())[0];
+
+    expect(result.imported).toBe(1);
+    expect(imported).toMatchObject({
+      provider: "openai-codex",
+      access: "sub2api-access-token",
+      refresh: "sub2api-refresh-token",
+      accountId: "acct_sub2api",
+      label: "DSAI account",
+      email: "sub2api@example.com",
+      planType: "plus",
+      expires: Date.parse("2026-05-18T11:00:00.000Z"),
+      credentialRefreshMode: "external-readonly",
+    });
+  });
+
   it("can import an OpenClaw session into the desktop local account store", () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-copy-"));
     const importedProfilesPath = join(rootDir, "codex-auth-profiles.json");
