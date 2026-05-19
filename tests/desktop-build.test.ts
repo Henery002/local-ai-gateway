@@ -145,6 +145,12 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("class=\"figma-table access-consumer-table\"");
     expect(rendererSource).toContain("class=\"figma-table-head access-consumer-table-head\"");
     expect(rendererSource).toContain("class=\"figma-table-row access-consumer-row\"");
+    expect(rendererSource).toContain("access-consumer-actions-cell");
+    expect(rendererSource).toContain("创建时间");
+    expect(rendererSource).toContain("更新时间");
+    expect(rendererSource).toContain("data-access-member-toggle");
+    expect(rendererSource).toContain(">编辑</button>");
+    expect(rendererSource).not.toContain("查看/编辑");
     expect(rendererSource).toContain("class=\"figma-table account-assets-table\"");
     expect(rendererSource).toContain("class=\"figma-table-head account-assets-table-head\"");
     expect(rendererSource).toContain("account-assets-table-row");
@@ -165,7 +171,10 @@ describe("desktop build output", () => {
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
     expect(styles).toContain(".account-assets-actions-cell .icon-btn[data-tooltip]::after");
     expect(styles).toContain(".access-consumer-table {");
-    expect(styles).toContain("min-width: 980px;");
+    expect(styles).toContain("min-width: 1240px;");
+    expect(styles).toContain(".access-consumer-actions-cell {");
+    expect(styles).toContain("position: sticky;");
+    expect(styles).toContain("right: 0;");
     expect(styles).toContain(".figma-table-cell strong");
     expect(styles).not.toContain(".access-consumer-row {\n    grid-template-columns: 1fr;");
   });
@@ -192,6 +201,10 @@ describe("desktop build output", () => {
   it("renders the phase two access and keys skeleton", () => {
     const indexHtml = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
       "utf8",
     );
 
@@ -241,6 +254,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
     );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
 
     const accessView = indexHtml.match(
       /<div class="view" data-view="access" hidden>([\s\S]*?)<!-- View: Accounts -->/,
@@ -254,8 +271,23 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("class=\"modal-content figma-modal access-create-member-modal\"");
     expect(indexHtml).toContain("id=\"access-member-name\"");
     expect(indexHtml).toContain("id=\"access-member-client-tag\"");
-    expect(indexHtml).toContain("id=\"access-member-daily-token-limit\"");
-    expect(indexHtml).toContain("id=\"access-member-daily-token-unit\"");
+    expect(indexHtml).toContain("access-member-identity-section");
+    expect(indexHtml).toContain("access-member-identity-grid");
+    expect(indexHtml).toContain("id=\"access-member-quota-mode\"");
+    expect(indexHtml).toContain("access-member-quota-grid");
+    expect(indexHtml).toContain("quota-fields-panel");
+    expect(indexHtml).toContain("quota-inline-fields");
+    expect(indexHtml).toContain("quota-description");
+    expect(indexHtml).toContain("<option value=\"period\">周期包</option>");
+    expect(indexHtml).toContain("<option value=\"total\">总量包</option>");
+    expect(indexHtml).toContain("<option value=\"none\">不限制</option>");
+    expect(indexHtml).not.toContain("周期包：x 天共 xx M Token");
+    expect(indexHtml).toContain("id=\"access-member-period-days\"");
+    expect(indexHtml).toContain("id=\"access-member-period-token-limit\"");
+    expect(indexHtml).toContain("id=\"access-member-period-token-unit\"");
+    expect(indexHtml).toContain("id=\"access-member-total-token-limit\"");
+    expect(indexHtml).toContain("data-quota-mode-panel=\"period\"");
+    expect(indexHtml).toContain("data-quota-mode-panel=\"total\"");
     expect(indexHtml).toContain("<option value=\"M\">M</option>");
     expect(indexHtml).toContain("id=\"create-access-member-submit\"");
     expect(indexHtml).toContain("id=\"access-member-one-time-key\"");
@@ -263,6 +295,12 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"access-member-save-state\"");
     expect(indexHtml).toContain("id=\"toggle-access-member-key-visibility\"");
     expect(indexHtml).toContain("id=\"copy-access-member-key\"");
+    expect(styles).toContain(".access-member-identity-section");
+    expect(styles).toContain(".access-member-identity-grid");
+    expect(styles).toContain(".access-member-quota-grid");
+    expect(styles).toContain(".quota-fields-panel");
+    expect(styles).toContain(".quota-inline-fields");
+    expect(styles).toContain(".quota-description");
   });
 
   it("renders selectable model aliases for access members while preserving custom input", () => {
@@ -321,6 +359,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
     );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
 
     const accessView = indexHtml.match(
       /<div class="view" data-view="access" hidden>([\s\S]*?)<!-- View: Accounts -->/,
@@ -331,7 +373,17 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"access-member-modal-key-list\"");
     expect(indexHtml).toContain("id=\"access-member-create-extra-key\"");
     expect(indexHtml).toContain("id=\"access-member-new-key-name\"");
+    expect(indexHtml).toContain("class=\"access-key-manager-grid\"");
+    expect(indexHtml).toContain("class=\"access-key-create-panel\"");
+    expect(indexHtml).toContain("class=\"access-key-create-form\"");
+    expect(indexHtml).toContain("本次生成的 Key 明文");
     expect(indexHtml).toContain("id=\"access-member-pool-list\"");
+    expect(indexHtml).toContain("id=\"access-member-quota-mode\"");
+    expect(indexHtml).toContain("id=\"access-member-period-days\"");
+    expect(indexHtml).toContain("id=\"access-member-period-token-limit\"");
+    expect(styles).toContain("grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);");
+    expect(styles).toContain(".access-key-create-form");
+    expect(styles).toContain(".access-key-create-form .btn");
   });
 
   it("binds access member detail actions in the renderer", () => {
@@ -341,7 +393,7 @@ describe("desktop build output", () => {
     );
 
     expect(rendererSource).toContain("data-access-member-select");
-    expect(rendererSource).toContain("查看/编辑");
+    expect(rendererSource).toContain("data-access-member-toggle");
     expect(rendererSource).toContain("data-access-member-delete");
     expect(rendererSource).toContain("data-access-key-toggle");
     expect(rendererSource).toContain("data-access-key-rotate");
@@ -350,10 +402,13 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("data-access-member-pool");
     expect(rendererSource).toContain("collectAccessMemberPolicyInput");
     expect(rendererSource).toContain("parseTokenLimitMillionsInput");
-    expect(rendererSource).toContain("access-member-daily-token-limit");
+    expect(rendererSource).toContain("resolveAccessMemberQuotaMode");
+    expect(rendererSource).toContain("data-quota-mode-panel");
+    expect(rendererSource).toContain("access-member-quota-mode");
+    expect(rendererSource).toContain("access-member-period-days");
+    expect(rendererSource).toContain("access-member-period-token-limit");
     expect(rendererSource).toContain("access-member-requests-per-minute");
     expect(rendererSource).toContain("access-member-max-concurrent");
-    expect(rendererSource).toContain("access-member-monthly-token-limit");
     expect(rendererSource).toContain("access-member-total-token-limit");
     expect(rendererSource).toContain("access-member-policy-expires-at");
     expect(rendererSource).toContain("access-member-model-aliases");
@@ -382,11 +437,32 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("openAccessMemberModal(target.dataset.accessMemberSelect, {");
     expect(rendererSource).toContain("focusName: false");
     expect(rendererSource).not.toContain(")?.focus();");
+    expect(rendererSource).toContain("periodDays");
+    expect(rendererSource).toContain("periodTokenLimit");
+    expect(rendererSource).toContain("periodStartedAt");
     expect(rendererSource).toContain("dailyTokenLimit");
     expect(rendererSource).toContain("monthlyTokenLimit");
     expect(rendererSource).toContain("totalTokenLimit");
     expect(rendererSource).toContain("requestsPerMinute");
     expect(rendererSource).toContain("maxConcurrentRequests");
+  });
+
+  it("renders hot-effective access policy summary hooks", () => {
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+    const styleSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
+
+    expect(rendererSource).toContain("LAN URL 随健康检查刷新");
+    expect(rendererSource).toContain("配置保存后热生效");
+    expect(rendererSource).toContain("周期包");
+    expect(rendererSource).toContain("总量包");
+    expect(rendererSource).not.toContain("兼容客户端 key");
+    expect(styleSource).toContain("access-policy-item-grid");
   });
 
   it("renders the phase two account assets ownership skeleton", () => {

@@ -256,6 +256,7 @@ type AccessCredentialContext = {
   consumerId: string;
   consumerName: string;
   consumerType: GatewayAccessConsumer["type"];
+  consumerCreatedAt?: string;
   accessKeyId?: string;
   clientTag: string;
   policy?: GatewayAccessPolicy;
@@ -511,6 +512,7 @@ function resolveAccessCredential(
     consumerId: consumer.id,
     consumerName: consumer.name,
     consumerType: consumer.type,
+    consumerCreatedAt: consumer.createdAt,
     accessKeyId: accessKey.id,
     clientTag: consumer.clientTag,
     policy: accessControl?.policies?.find(
@@ -664,6 +666,131 @@ function assertAccessPolicyWithinDailyQuota(
       resetAt: new Date(window.resetAt).toISOString(),
       resetTimezone: window.timezone,
       retryAfterSeconds: Math.max(1, Math.ceil((window.resetAt - now) / 1000)),
+    },
+  );
+}
+
+function parsePolicyTimestamp(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function getAccessPolicyPeriodWindow(
+  accessContext: AccessCredentialContext,
+): { start: number; end: number; days: number } | undefined {
+  const periodDays = normalizePolicyLimit(
+    accessContext.policy?.quota?.periodDays,
+  );
+  const limit = normalizePolicyLimit(
+    accessContext.policy?.quota?.periodTokenLimit,
+  );
+  if (
+    typeof periodDays !== "number" ||
+    periodDays <= 0 ||
+    typeof limit !== "number"
+  ) {
+    return undefined;
+  }
+
+  const start =
+    parsePolicyTimestamp(accessContext.policy?.quota?.periodStartedAt) ??
+    parsePolicyTimestamp(accessContext.consumerCreatedAt) ??
+    Date.now();
+  return {
+    start,
+    end: start + periodDays * 24 * 60 * 60 * 1000,
+    days: periodDays,
+  };
+}
+
+function assertAccessPolicyWithinTotalQuota(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  const limit = normalizePolicyLimit(
+    accessContext?.policy?.quota?.totalTokenLimit,
+  );
+  if (typeof limit !== "number" || !accessContext) {
+    return;
+  }
+
+  const usage = runtime.database.getUsageTotalsForAccessConsumer({
+    consumerId: accessContext.consumerId,
+  });
+  if (usage.totalTokens < limit) {
+    return;
+  }
+
+  throw new GatewayError(
+    429,
+    "access_policy_total_quota_exceeded",
+    "Access consumer total token quota has been exceeded.",
+    {
+      consumerId: accessContext.consumerId,
+      accessKeyId: accessContext.accessKeyId,
+      limit,
+      usedTokens: usage.totalTokens,
+      remainingTokens: 0,
+    },
+  );
+}
+
+function assertAccessPolicyWithinPeriodQuota(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  if (!accessContext) {
+    return;
+  }
+  const limit = normalizePolicyLimit(
+    accessContext.policy?.quota?.periodTokenLimit,
+  );
+  const window = getAccessPolicyPeriodWindow(accessContext);
+  if (typeof limit !== "number" || !window) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now >= window.end) {
+    throw new GatewayError(
+      403,
+      "access_policy_period_expired",
+      "Access consumer token period is expired.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        periodDays: window.days,
+        periodStartedAt: new Date(window.start).toISOString(),
+        periodEndedAt: new Date(window.end).toISOString(),
+      },
+    );
+  }
+
+  const usage = runtime.database.getUsageTotalsForAccessConsumer({
+    consumerId: accessContext.consumerId,
+    sinceTimestamp: window.start,
+  });
+  if (usage.totalTokens < limit) {
+    return;
+  }
+
+  throw new GatewayError(
+    429,
+    "access_policy_period_quota_exceeded",
+    "Access consumer token period quota has been exceeded.",
+    {
+      consumerId: accessContext.consumerId,
+      accessKeyId: accessContext.accessKeyId,
+      limit,
+      usedTokens: usage.totalTokens,
+      remainingTokens: 0,
+      periodDays: window.days,
+      periodStartedAt: new Date(window.start).toISOString(),
+      resetAt: new Date(window.end).toISOString(),
+      retryAfterSeconds: Math.max(1, Math.ceil((window.end - now) / 1000)),
     },
   );
 }
@@ -841,6 +968,7 @@ function buildRoutingAccessDecision(
     consumerId: consumer.id,
     consumerName: consumer.name,
     consumerType: consumer.type,
+    consumerCreatedAt: consumer.createdAt,
     clientTag: consumer.clientTag,
     policy: accessControl?.policies?.find(
       (item) => item.consumerId === consumer.id,
@@ -1267,6 +1395,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     assertAccessPolicyNotExpired(authContext.accessContext);
     assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
     assertAccessPolicyWithinDailyQuota(runtime, authContext.accessContext);
+    assertAccessPolicyWithinPeriodQuota(runtime, authContext.accessContext);
+    assertAccessPolicyWithinTotalQuota(runtime, authContext.accessContext);
     assertAccessPolicyWithinRequestLimits(runtime, authContext.accessContext);
     const routingPreview = runtime.previewRouting({
       clientTag,

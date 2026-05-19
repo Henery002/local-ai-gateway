@@ -314,6 +314,9 @@ export interface GatewayAccessPolicy {
     dailyTokenLimit?: number;
     monthlyTokenLimit?: number;
     totalTokenLimit?: number;
+    periodDays?: number;
+    periodTokenLimit?: number;
+    periodStartedAt?: string;
     resetTimezone?: string;
   };
   limits?: {

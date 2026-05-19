@@ -3604,6 +3604,265 @@ describe("gateway app", () => {
     }
   });
 
+  it("rejects access consumers that exhausted their total token package", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              totalTokenLimit: 10,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 60_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 8,
+      outputTokens: 5,
+      totalTokens: 13,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.type).toBe("access_policy_total_quota_exceeded");
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        limit: 10,
+        usedTokens: 13,
+        remainingTokens: 0,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects access consumers outside their configured token period", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              periodDays: 1,
+              periodTokenLimit: 10,
+              periodStartedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+            },
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.type).toBe("access_policy_period_expired");
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        periodDays: 1,
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects access consumers that exceeded their current token period quota", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const periodStartedAt = new Date(Date.now() - 60_000).toISOString();
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              periodDays: 7,
+              periodTokenLimit: 10,
+              periodStartedAt,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 30_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 6,
+      outputTokens: 6,
+      totalTokens: 12,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.type).toBe("access_policy_period_quota_exceeded");
+      expect(response.json().error.details).toMatchObject({
+        consumerId: "consumer-alice",
+        accessKeyId: "key-alice",
+        limit: 10,
+        usedTokens: 12,
+        remainingTokens: 0,
+        periodDays: 7,
+      });
+      expect(response.json().error.details.resetAt).toEqual(expect.any(String));
+      expect(response.headers["retry-after"]).toEqual(expect.any(String));
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects access consumers that exceeded their requests-per-minute limit", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);

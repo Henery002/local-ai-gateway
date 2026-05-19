@@ -1067,12 +1067,12 @@
         <div class="modal-body">
           <input id="access-member-editing-id" type="hidden" />
           <div class="access-member-modal-grid">
-            <section class="access-member-modal-section">
+            <section class="access-member-modal-section access-member-identity-section">
               <div class="access-member-modal-section-head">
                 <strong>成员信息</strong>
-                <span>用于识别接入用户、统计归因和分发 API Key。</span>
+                <span>用于识别接入用户、统计归因和分发 API Key；clientTag 建议使用小写英文、数字或短横线。</span>
               </div>
-              <div class="access-member-form-grid">
+              <div class="access-member-identity-grid">
                 <div class="form-field">
                   <label>成员名称</label>
                   <input id="access-member-name" class="input-field" placeholder="例如 Alice" />
@@ -1080,13 +1080,12 @@
                 <div class="form-field">
                   <label>clientTag</label>
                   <input id="access-member-client-tag" class="input-field" placeholder="例如 alice" />
-                  <div class="form-hint">建议使用小写英文、数字或短横线。</div>
                 </div>
                 <div class="form-field">
                   <label>标签</label>
                   <input id="access-member-tags" class="input-field" placeholder="例如 lan, qa" />
                 </div>
-                <div class="form-field full">
+                <div class="form-field">
                   <label>备注</label>
                   <input id="access-member-note" class="input-field" placeholder="例如 Alice 的 MacBook / 局域网测试用户" />
                 </div>
@@ -1096,36 +1095,57 @@
             <section class="access-member-modal-section">
               <div class="access-member-modal-section-head">
                 <strong>额度与限制</strong>
-                <span>Token 额度当前以 M 为单位填写，留空表示不限制。</span>
+                <span>额度配置保存后立即影响后续请求；请求数、并发和策略到期作为独立硬限制保留。</span>
               </div>
-              <div class="access-member-form-grid three">
-                <div class="form-field">
-                  <label>日 Token 限额</label>
-                  <div class="unit-input">
-                    <input id="access-member-daily-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 20" />
-                    <select id="access-member-daily-token-unit" class="input-field" aria-label="日 Token 限额单位">
-                      <option value="M">M</option>
-                    </select>
+              <div class="access-member-quota-grid">
+                <div class="form-field access-member-quota-mode-field quota-mode-field">
+                  <label>使用方式</label>
+                  <select id="access-member-quota-mode" class="input-field">
+                    <option value="period">周期包</option>
+                    <option value="total">总量包</option>
+                    <option value="none">不限制</option>
+                  </select>
+                  <div id="access-member-quota-mode-hint" class="form-hint">按固定天数配置一组 Token 总量。</div>
+                </div>
+                <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="period">
+                  <div class="quota-inline-fields period">
+                    <div class="form-field">
+                      <label>周期天数</label>
+                      <input id="access-member-period-days" class="input-field" type="number" min="1" step="1" placeholder="例如 7" />
+                    </div>
+                    <div class="form-field">
+                      <label>周期 Token 总量</label>
+                      <div class="unit-input">
+                        <input id="access-member-period-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 100" />
+                        <select id="access-member-period-token-unit" class="input-field" aria-label="周期 Token 总量单位">
+                          <option value="M">M</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="quota-description">在指定天数内共享一组 Token 总量；周期到期或额度耗尽都会拒绝后续请求。</div>
                   </div>
                 </div>
-                <div class="form-field">
-                  <label>月 Token 限额</label>
-                  <div class="unit-input">
-                    <input id="access-member-monthly-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 300" />
-                    <select id="access-member-monthly-token-unit" class="input-field" aria-label="月 Token 限额单位">
-                      <option value="M">M</option>
-                    </select>
+                <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="total" hidden>
+                  <div class="quota-inline-fields total">
+                    <div class="form-field">
+                      <label>总量 Token</label>
+                      <div class="unit-input">
+                        <input id="access-member-total-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 1000" />
+                        <select id="access-member-total-token-unit" class="input-field" aria-label="总 Token 限额单位">
+                          <option value="M">M</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="quota-description">不限制自然天数，直到累计 Token 消耗达到上限。</div>
                   </div>
                 </div>
-                <div class="form-field">
-                  <label>总 Token 限额</label>
-                  <div class="unit-input">
-                    <input id="access-member-total-token-limit" class="input-field" type="number" min="0" step="0.1" placeholder="例如 1000" />
-                    <select id="access-member-total-token-unit" class="input-field" aria-label="总 Token 限额单位">
-                      <option value="M">M</option>
-                    </select>
+                <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="none" hidden>
+                  <div class="quota-inline-fields none">
+                    <div class="quota-description">不设置 Token 额度，只保留请求数、并发和策略到期等硬限制。</div>
                   </div>
                 </div>
+              </div>
+              <div class="access-member-form-grid three access-member-limit-grid">
                 <div class="form-field">
                   <label>每分钟请求数</label>
                   <input id="access-member-requests-per-minute" class="input-field" type="number" min="1" step="1" placeholder="留空不限" />
@@ -1137,6 +1157,7 @@
                 <div class="form-field">
                   <label>策略到期时间</label>
                   <input id="access-member-policy-expires-at" class="input-field" type="datetime-local" />
+                  <div class="form-hint">独立硬截止时间；可与周期包 / 总量包叠加使用。</div>
                 </div>
               </div>
             </section>
@@ -1169,20 +1190,40 @@
 
             <section class="access-member-modal-section" id="access-member-key-management-section" hidden>
               <div class="access-member-modal-section-head">
-                <strong>API Keys</strong>
+                <strong>API Key 管理</strong>
                 <span>可暂停、设置到期时间、轮换或新增 Key；明文只在创建或轮换后展示一次。</span>
               </div>
-              <div id="access-member-modal-key-list" class="access-key-list"></div>
-              <div class="access-new-key-inline">
-                <input id="access-member-new-key-name" class="input-field" placeholder="新 Key 名称，例如 Alice iPad" />
-                <input id="access-member-new-key-expires-at" class="input-field" type="datetime-local" aria-label="新 Key 到期时间" />
-                <button class="btn secondary" id="access-member-create-extra-key" type="button">新增 Key</button>
+              <div class="access-key-manager-grid">
+                <div class="access-key-list-panel">
+                  <div class="access-key-subhead">
+                    <strong>现有 Key</strong>
+                    <span>可暂停、设置到期或轮换。</span>
+                  </div>
+                  <div id="access-member-modal-key-list" class="access-key-list"></div>
+                </div>
+                <div class="access-key-create-panel">
+                  <div class="access-key-subhead">
+                    <strong>新增 Key</strong>
+                    <span>创建后只展示一次完整明文。</span>
+                  </div>
+                  <div class="access-key-create-form">
+                    <div class="form-field">
+                      <label>Key 名称</label>
+                      <input id="access-member-new-key-name" class="input-field" placeholder="例如 Alice iPad" />
+                    </div>
+                    <div class="form-field">
+                      <label>Key 到期时间</label>
+                      <input id="access-member-new-key-expires-at" class="input-field" type="datetime-local" aria-label="新 Key 到期时间" />
+                    </div>
+                    <button class="btn secondary" id="access-member-create-extra-key" type="button">新增 Key</button>
+                  </div>
+                </div>
               </div>
             </section>
           </div>
           <div id="access-member-key-result" class="settings-note compact mt-3 one-time-key-panel" hidden>
-            <strong id="access-one-time-key-title">一次性 API Key</strong>
-            <p>此明文只在本次创建后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+            <strong id="access-one-time-key-title">本次生成的 Key 明文</strong>
+            <p>只在本次创建或轮换后可复制。关闭弹窗后，本项目只保留 hash、前缀、后缀和状态，无法再次查看完整 Key。</p>
             <div class="secret-field-stack">
               <div class="secret-inline-row">
                 <input id="access-member-one-time-key" class="input-field one-time-key-input" type="password" readonly placeholder="创建或轮换后在这里显示一次性明文 Key" />

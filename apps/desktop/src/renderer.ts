@@ -861,6 +861,9 @@ type SecurityAccessPolicy = {
     dailyTokenLimit?: number;
     monthlyTokenLimit?: number;
     totalTokenLimit?: number;
+    periodDays?: number;
+    periodTokenLimit?: number;
+    periodStartedAt?: string;
     resetTimezone?: string;
   };
   limits?: {
@@ -2633,12 +2636,12 @@ function renderAccessConsumerList(
         const policy = accessControl?.policies.find(
           (item) => item.consumerId === consumer.id,
         );
-        const dailyLimit = formatAccessPolicyTokenLimit(
-          policy?.quota?.dailyTokenLimit,
-        );
+        const quotaSummary = getAccessPolicyQuotaSummary(policy);
         const poolCount = policy?.allowedPoolIds?.length ?? 0;
         const modelCount = policy?.allowedModelAliases?.length ?? 0;
         const selected = consumer.id === state.selectedAccessConsumerId;
+        const consumerEnabled = consumer.status === "enabled";
+        const toggleLabel = consumerEnabled ? "禁用" : "启用";
         return `
           <div
             class="figma-table-row access-consumer-row"
@@ -2660,8 +2663,8 @@ function renderAccessConsumerList(
             </div>
             <div class="figma-table-cell">
               <small>额度</small>
-              <strong>${escapeHtml(dailyLimit)}</strong>
-              <span>月 ${escapeHtml(formatAccessPolicyTokenLimit(policy?.quota?.monthlyTokenLimit))}</span>
+              <strong>${escapeHtml(quotaSummary)}</strong>
+              <span>${policy?.quota?.periodStartedAt ? `起始 ${escapeHtml(formatAccessIsoDate(policy.quota.periodStartedAt))}` : "保存后热生效"}</span>
             </div>
             <div class="figma-table-cell">
               <small>限制</small>
@@ -2673,9 +2676,20 @@ function renderAccessConsumerList(
               <strong>${modelCount > 0 ? `${modelCount} 模型` : "模型不限"} / ${poolCount > 0 ? `${poolCount} 号池` : "号池不限"}</strong>
               <span>${escapeHtml((consumer.tags ?? []).join(", ") || "无标签")}</span>
             </div>
-            <div class="figma-table-cell access-consumer-actions">
+            <div class="figma-table-cell">
+              <small>创建时间</small>
+              <strong>${escapeHtml(formatAccessIsoDate(consumer.createdAt))}</strong>
+              <span>${escapeHtml(consumer.id)}</span>
+            </div>
+            <div class="figma-table-cell">
+              <small>更新时间</small>
+              <strong>${escapeHtml(formatAccessIsoDate(consumer.updatedAt))}</strong>
+              <span>${consumerEnabled ? "当前可调用" : "已暂停调用"}</span>
+            </div>
+            <div class="figma-table-cell access-consumer-actions access-consumer-actions-cell">
               <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
-              <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">查看/编辑</button>
+              <button class="btn ghost mini" type="button" data-access-member-select="${escapeHtml(consumer.id)}">编辑</button>
+              <button class="btn secondary mini" type="button" data-access-member-toggle="${escapeHtml(consumer.id)}">${toggleLabel}</button>
               <button class="btn danger-ghost mini" type="button" data-access-member-delete="${escapeHtml(consumer.id)}">删除</button>
             </div>
           </div>
@@ -2690,7 +2704,9 @@ function renderAccessConsumerList(
           <span>额度</span>
           <span>限制</span>
           <span>模型 / 号池</span>
-          <span>状态 / 操作</span>
+          <span>创建时间</span>
+          <span>更新时间</span>
+          <span class="access-consumer-actions-cell">操作</span>
         </div>
         ${rows}
       </div>
@@ -2729,7 +2745,15 @@ function renderAccessConsumerList(
             <small>模型 / 号池</small>
             <strong>未接入成员策略</strong>
           </div>
-          <div class="figma-table-cell access-consumer-actions">
+          <div class="figma-table-cell">
+            <small>创建时间</small>
+            <strong>兼容配置</strong>
+          </div>
+          <div class="figma-table-cell">
+            <small>更新时间</small>
+            <strong>保存后生效</strong>
+          </div>
+          <div class="figma-table-cell access-consumer-actions access-consumer-actions-cell">
             <span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>
           </div>
         </div>
@@ -2744,7 +2768,9 @@ function renderAccessConsumerList(
         <span>Header 覆盖</span>
         <span>额度</span>
         <span>模型 / 号池</span>
-        <span>状态</span>
+        <span>创建时间</span>
+        <span>更新时间</span>
+        <span class="access-consumer-actions-cell">状态</span>
       </div>
       ${rows}
     </div>
@@ -3109,11 +3135,11 @@ function renderAccessMemberDrawer(
         <span class="badge neutral">未选择成员</span>
       </div>
       <div id="access-member-detail-keys" class="access-key-list mt-3">
-        <div class="empty-card">${consumers.length > 0 ? "点击成员行右侧“查看”进入详情。" : "当前暂无访问成员。"}</div>
+        <div class="empty-card">${consumers.length > 0 ? "点击成员行或右侧“编辑”进入详情。" : "当前暂无访问成员。"}</div>
       </div>
       <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
-        <strong id="access-one-time-key-title">一次性 API Key</strong>
-        <p>此明文只在本次创建或轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+        <strong id="access-one-time-key-title">本次生成的 Key 明文</strong>
+        <p>只在本次创建或轮换后可复制。关闭弹窗后，本项目只保留 hash、前缀、后缀和状态。</p>
         <div class="secret-field-stack">
           <div class="secret-inline-row">
             <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
@@ -3421,8 +3447,8 @@ function renderAccessMemberDrawer(
       ${keyRows}
     </div>
     <div id="access-rotated-key-result" class="settings-note compact mt-3" hidden>
-      <strong id="access-one-time-key-title">一次性 API Key</strong>
-      <p>此明文只在本次创建或轮换后展示。保存后配置文件只保留 hash、前缀、后缀和状态。</p>
+      <strong id="access-one-time-key-title">本次生成的 Key 明文</strong>
+      <p>只在本次创建或轮换后可复制。关闭弹窗后，本项目只保留 hash、前缀、后缀和状态。</p>
       <div class="secret-field-stack">
         <div class="secret-inline-row">
           <input id="access-rotated-one-time-key" class="input-field" type="password" readonly />
@@ -3442,18 +3468,23 @@ function renderAccessPolicyPreview(): void {
   const authEnabled = Boolean(
     state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled,
   );
-  const mappingCount =
-    state.securitySettings?.enabledMappingCount ??
-    state.health?.inferenceAuth?.enabledMappingCount ??
-    0;
   const accessControl = state.securitySettings?.accessControl;
+  const lanEnabled = Boolean(
+    state.securitySettings?.lanAccess?.enabled ??
+      state.health?.inferenceAuth?.lanAccess?.enabled,
+  );
+  const accessKeyCount =
+    accessControl?.keys.filter((item) => item.status === "enabled").length ?? 0;
   const policies = accessControl?.policies ?? [];
-  const policiesWithQuota = policies.filter(
+  const periodPackageCount = policies.filter(
     (policy) =>
-      typeof policy.quota?.dailyTokenLimit === "number" ||
-      typeof policy.quota?.monthlyTokenLimit === "number" ||
-      typeof policy.quota?.totalTokenLimit === "number",
+      typeof policy.quota?.periodDays === "number" &&
+      typeof policy.quota?.periodTokenLimit === "number",
   ).length;
+  const totalPackageCount = policies.filter(
+    (policy) => typeof policy.quota?.totalTokenLimit === "number",
+  ).length;
+  const policiesWithQuota = periodPackageCount + totalPackageCount;
   const policiesWithRateLimit = policies.filter(
     (policy) =>
       typeof policy.limits?.requestsPerMinute === "number" ||
@@ -3471,52 +3502,65 @@ function renderAccessPolicyPreview(): void {
     0,
   );
 
-  node.innerHTML = [
+  const items = [
     {
-      title: "推理面鉴权",
+      title: "共享入口",
       detail: authEnabled
-        ? "当前兼容使用 Gateway API Key / 客户端专属 key。"
+        ? lanEnabled
+          ? "LAN URL 随健康检查刷新；网卡 IP 改变后无需重启服务，等待下一次状态刷新即可更新展示。"
+          : "推理面已启用 API Key 鉴权；局域网共享仍默认关闭。"
         : "当前未启用鉴权，仅建议本机自用场景使用。",
-      value: authEnabled ? "api-key" : "none",
+      value: lanEnabled ? "LAN 可用" : authEnabled ? "本机鉴权" : "未鉴权",
+      tone: lanEnabled && authEnabled ? "active" : authEnabled ? "neutral" : "warning",
     },
     {
-      title: "成员级额度",
+      title: "成员额度",
       detail:
         policiesWithQuota > 0
-          ? `${formatCompactCount(policiesWithQuota)} 个成员已配置日 / 月 / 总 Token 限额。`
-          : "服务端已支持成员日限额；可在成员弹窗中配置额度。",
-      value: policiesWithQuota > 0 ? "已接入" : "待配置",
+          ? `${formatCompactCount(periodPackageCount)} 个周期包、${formatCompactCount(totalPackageCount)} 个总量包；配置保存后热生效。`
+          : "可配置周期包或总量包；未配置时不限制 Token 额度。",
+      value: policiesWithQuota > 0 ? `${formatCompactCount(policiesWithQuota)} 条` : "未限制",
+      tone: policiesWithQuota > 0 ? "active" : "neutral",
     },
     {
-      title: "QPS / 并发限制",
+      title: "运行限流",
       detail:
         policiesWithRateLimit > 0
           ? `${formatCompactCount(policiesWithRateLimit)} 个成员已配置请求频率或并发限制。`
-          : "服务端已支持 QPS 与并发前置拦截；可在成员弹窗中配置。",
-      value: policiesWithRateLimit > 0 ? "已配置" : "待配置",
+          : "可按成员限制每分钟请求数和最大并发请求。",
+      value: policiesWithRateLimit > 0 ? "已配置" : "未限制",
+      tone: policiesWithRateLimit > 0 ? "active" : "neutral",
     },
     {
-      title: "策略到期",
+      title: "硬截止",
       detail:
         policiesWithExpiry > 0
           ? `${formatCompactCount(policiesWithExpiry)} 个成员已配置策略到期时间。`
-          : "未设置策略到期时间；留空表示长期有效。",
+          : "策略到期时间独立于额度包，留空表示不按日期硬截止。",
       value: policiesWithExpiry > 0 ? "已配置" : "未限制",
+      tone: policiesWithExpiry > 0 ? "active" : "neutral",
     },
     {
-      title: "模型与号池授权",
+      title: "模型 / 号池授权",
       detail: `当前策略合计 ${formatCompactCount(allowedModelCount)} 个模型授权、${formatCompactCount(allowedPoolCount)} 个号池授权。`,
       value: allowedPoolCount > 0 || allowedModelCount > 0 ? "已接入" : "未限制",
+      tone: allowedPoolCount > 0 || allowedModelCount > 0 ? "active" : "neutral",
     },
     {
-      title: "兼容客户端 key",
-      detail: "来自现有 clientMappings，可继续用于来源归因。",
-      value: `${formatCompactCount(mappingCount)} 个`,
+      title: "成员 Key",
+      detail:
+        accessKeyCount > 0
+          ? "成员 Key 只保存 hash、前缀和后缀；明文只在创建或轮换时展示。"
+          : "尚未创建成员 Key；LAN 共享需要至少一把可用 Key 或 Gateway Key。",
+      value: accessKeyCount > 0 ? `${formatCompactCount(accessKeyCount)} 把` : "待创建",
+      tone: accessKeyCount > 0 ? "active" : "warning",
     },
-  ]
+  ];
+
+  node.innerHTML = `<div class="access-policy-item-grid">${items
     .map(
       (item) => `
-        <div class="access-policy-item">
+        <div class="access-policy-item" data-tone="${escapeHtml(item.tone)}">
           <div>
             <strong>${escapeHtml(item.title)}</strong>
             <span>${escapeHtml(item.detail)}</span>
@@ -3525,7 +3569,7 @@ function renderAccessPolicyPreview(): void {
         </div>
       `,
     )
-    .join("");
+    .join("")}</div>`;
 }
 
 function renderDashboardTokenChart(
@@ -9591,6 +9635,7 @@ function setAccessMemberModalSaveState(
 function setAccessInputValue(id: string, value: string): void {
   const input = document.getElementById(id) as
     | HTMLInputElement
+    | HTMLSelectElement
     | HTMLTextAreaElement
     | null;
   if (input) {
@@ -9601,9 +9646,99 @@ function setAccessInputValue(id: string, value: string): void {
 function readAccessInputValue(id: string): string {
   const input = document.getElementById(id) as
     | HTMLInputElement
+    | HTMLSelectElement
     | HTMLTextAreaElement
     | null;
   return input?.value.trim() ?? "";
+}
+
+type AccessMemberQuotaMode = "period" | "total" | "none";
+
+function resolveAccessMemberQuotaMode(
+  policy?: SecurityAccessPolicy,
+): AccessMemberQuotaMode {
+  if (
+    typeof policy?.quota?.periodDays === "number" ||
+    typeof policy?.quota?.periodTokenLimit === "number" ||
+    typeof policy?.quota?.dailyTokenLimit === "number" ||
+    typeof policy?.quota?.monthlyTokenLimit === "number"
+  ) {
+    return "period";
+  }
+  if (typeof policy?.quota?.totalTokenLimit === "number") {
+    return "total";
+  }
+  return "none";
+}
+
+function applyAccessMemberQuotaMode(mode: AccessMemberQuotaMode): void {
+  const hints: Record<AccessMemberQuotaMode, string> = {
+    period: "按固定天数配置一组 Token 总量。",
+    total: "不限制自然天数，直到累计 Token 消耗达到上限。",
+    none: "不设置 Token 额度，只保留请求数、并发和策略到期。",
+  };
+  const hint = document.getElementById("access-member-quota-mode-hint");
+  if (hint) {
+    hint.textContent = hints[mode];
+  }
+
+  const panels = Array.from(
+    document.querySelectorAll<HTMLElement>("[data-quota-mode-panel]"),
+  );
+  for (const panel of panels) {
+    const active = panel.dataset.quotaModePanel === mode;
+    panel.hidden = !active;
+    const inputs = Array.from(
+      panel.querySelectorAll("input, select, textarea"),
+    ) as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+    for (const input of inputs) {
+      input.disabled = !active;
+    }
+  }
+}
+
+function getAccessPolicyPeriodDaysInput(
+  policy?: SecurityAccessPolicy,
+): number | undefined {
+  if (typeof policy?.quota?.periodDays === "number") {
+    return policy.quota.periodDays;
+  }
+  if (typeof policy?.quota?.dailyTokenLimit === "number") {
+    return 1;
+  }
+  if (typeof policy?.quota?.monthlyTokenLimit === "number") {
+    return 30;
+  }
+  return undefined;
+}
+
+function getAccessPolicyPeriodTokenLimitInput(
+  policy?: SecurityAccessPolicy,
+): number | undefined {
+  return (
+    policy?.quota?.periodTokenLimit ??
+    policy?.quota?.dailyTokenLimit ??
+    policy?.quota?.monthlyTokenLimit
+  );
+}
+
+function getAccessPolicyQuotaSummary(policy?: SecurityAccessPolicy): string {
+  if (
+    typeof policy?.quota?.periodDays === "number" &&
+    typeof policy.quota.periodTokenLimit === "number"
+  ) {
+    return `${formatCompactCount(policy.quota.periodDays)} 天 / ${formatAccessPolicyTokenLimit(policy.quota.periodTokenLimit)}`;
+  }
+  if (typeof policy?.quota?.totalTokenLimit === "number") {
+    return `总量 ${formatAccessPolicyTokenLimit(policy.quota.totalTokenLimit)}`;
+  }
+  if (typeof policy?.quota?.dailyTokenLimit === "number") {
+    return `每日 ${formatAccessPolicyTokenLimit(policy.quota.dailyTokenLimit)}`;
+  }
+  if (typeof policy?.quota?.monthlyTokenLimit === "number") {
+    return `每月 ${formatAccessPolicyTokenLimit(policy.quota.monthlyTokenLimit)}`;
+  }
+  return "未限制";
 }
 
 function renderAccessMemberModelAliasOptions(
@@ -9783,18 +9918,23 @@ function openAccessMemberModal(
   setAccessInputValue("access-member-client-tag", consumer?.clientTag ?? "");
   setAccessInputValue("access-member-tags", (consumer?.tags ?? ["lan"]).join(", "));
   setAccessInputValue("access-member-note", consumer?.note ?? "");
+  const quotaMode = resolveAccessMemberQuotaMode(policy);
+  setAccessInputValue("access-member-quota-mode", quotaMode);
   setAccessInputValue(
-    "access-member-daily-token-limit",
-    formatTokenLimitMillionsInput(policy?.quota?.dailyTokenLimit),
+    "access-member-period-days",
+    typeof getAccessPolicyPeriodDaysInput(policy) === "number"
+      ? String(getAccessPolicyPeriodDaysInput(policy))
+      : "",
   );
   setAccessInputValue(
-    "access-member-monthly-token-limit",
-    formatTokenLimitMillionsInput(policy?.quota?.monthlyTokenLimit),
+    "access-member-period-token-limit",
+    formatTokenLimitMillionsInput(getAccessPolicyPeriodTokenLimitInput(policy)),
   );
   setAccessInputValue(
     "access-member-total-token-limit",
     formatTokenLimitMillionsInput(policy?.quota?.totalTokenLimit),
   );
+  applyAccessMemberQuotaMode(quotaMode);
   setAccessInputValue(
     "access-member-requests-per-minute",
     typeof policy?.limits?.requestsPerMinute === "number"
@@ -9895,18 +10035,32 @@ function collectAccessMemberPolicyInput(
   )
     .map((input) => input.dataset.accessMemberPool?.trim())
     .filter((poolId): poolId is string => Boolean(poolId));
-  const dailyTokenLimit = parseTokenLimitMillionsInput(
-    "#access-member-daily-token-limit",
-    "日 Token 限额",
-  );
-  const monthlyTokenLimit = parseTokenLimitMillionsInput(
-    "#access-member-monthly-token-limit",
-    "月 Token 限额",
-  );
-  const totalTokenLimit = parseTokenLimitMillionsInput(
-    "#access-member-total-token-limit",
-    "总 Token 限额",
-  );
+  const quotaMode = readAccessInputValue("access-member-quota-mode") as
+    | AccessMemberQuotaMode
+    | "";
+  const normalizedQuotaMode: AccessMemberQuotaMode =
+    quotaMode === "total" || quotaMode === "none" ? quotaMode : "period";
+  const periodDays =
+    normalizedQuotaMode === "period"
+      ? parseAccessPositiveIntegerInput(
+          "#access-member-period-days",
+          "周期天数",
+        )
+      : undefined;
+  const periodTokenLimit =
+    normalizedQuotaMode === "period"
+      ? parseTokenLimitMillionsInput(
+          "#access-member-period-token-limit",
+          "周期 Token 总量",
+        )
+      : undefined;
+  const totalTokenLimit =
+    normalizedQuotaMode === "total"
+      ? parseTokenLimitMillionsInput(
+          "#access-member-total-token-limit",
+          "总量 Token",
+        )
+      : undefined;
   const requestsPerMinute = parseAccessPositiveIntegerInput(
     "#access-member-requests-per-minute",
     "每分钟请求数",
@@ -9916,20 +10070,33 @@ function collectAccessMemberPolicyInput(
     "最大并发请求数",
   );
   const quota = { ...(existing?.quota ?? {}) };
-  if (typeof dailyTokenLimit === "number") {
-    quota.dailyTokenLimit = dailyTokenLimit;
-  } else {
-    delete quota.dailyTokenLimit;
-  }
-  if (typeof monthlyTokenLimit === "number") {
-    quota.monthlyTokenLimit = monthlyTokenLimit;
-  } else {
-    delete quota.monthlyTokenLimit;
-  }
-  if (typeof totalTokenLimit === "number") {
+  delete quota.dailyTokenLimit;
+  delete quota.monthlyTokenLimit;
+  delete quota.totalTokenLimit;
+  delete quota.periodDays;
+  delete quota.periodTokenLimit;
+  delete quota.periodStartedAt;
+  if (normalizedQuotaMode === "period") {
+    if (
+      typeof periodDays !== "number" ||
+      typeof periodTokenLimit !== "number"
+    ) {
+      throw new Error("周期包需要同时填写周期天数和周期 Token 总量。");
+    }
+    quota.periodDays = periodDays;
+    quota.periodTokenLimit = periodTokenLimit;
+    const periodUnchanged =
+      existing?.quota?.periodDays === periodDays &&
+      existing.quota?.periodTokenLimit === periodTokenLimit;
+    quota.periodStartedAt =
+      periodUnchanged && existing?.quota?.periodStartedAt
+        ? existing.quota.periodStartedAt
+        : new Date().toISOString();
+  } else if (normalizedQuotaMode === "total") {
+    if (typeof totalTokenLimit !== "number") {
+      throw new Error("总量包需要填写总量 Token。");
+    }
     quota.totalTokenLimit = totalTokenLimit;
-  } else {
-    delete quota.totalTokenLimit;
   }
   const limits = { ...(existing?.limits ?? {}) };
   if (typeof requestsPerMinute === "number") {
@@ -10039,7 +10206,7 @@ async function createAccessMember(): Promise<void> {
       preserveScroll: true,
       focusName: false,
     });
-    showOneTimeAccessKey(apiKey, "创建后一次性 API Key");
+    showOneTimeAccessKey(apiKey, "本次生成的 Key 明文");
     setAccessMemberModalSaveState("成员已创建，请复制一次性 API Key。", "success");
     setBanner("访问成员已创建。请立即复制一次性 API Key。", "success");
   } else {
@@ -10142,7 +10309,7 @@ async function createAccessKeyForConsumer(consumerId: string): Promise<void> {
     focusName: false,
   });
   clearAccessDraftProtection();
-  showOneTimeAccessKey(apiKey, "新增后一次性 API Key");
+  showOneTimeAccessKey(apiKey, "本次生成的 Key 明文");
   setBanner("访问 Key 已创建。请立即复制一次性 API Key。", "success");
 }
 
@@ -10341,6 +10508,47 @@ async function deleteAccessConsumer(consumerId: string): Promise<void> {
   setBanner("访问成员已删除，其 API Key 调用能力已失效。", "success");
 }
 
+async function toggleAccessConsumerStatus(consumerId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const target = current.accessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!target) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+  const nextStatus: SecurityAccessConsumer["status"] =
+    target.status === "enabled" ? "paused" : "enabled";
+  if (nextStatus === "paused") {
+    const confirmed = await requestConfirmation({
+      title: "确认禁用访问成员",
+      message: `禁用后，访问成员“${target.name || target.clientTag || consumerId}”名下所有 API Key 会保留但无法继续通过本地网关鉴权；不会删除账号资产，也不会修改 Cockpit / OpenClaw 原始配置。是否继续？`,
+      confirmLabel: "禁用成员",
+      tone: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+  }
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  const consumer = nextAccessControl.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  if (!consumer) {
+    setBanner("未找到目标访问成员。", "error");
+    return;
+  }
+  consumer.status = nextStatus;
+  consumer.updatedAt = new Date().toISOString();
+  await saveAccessControlSettings(nextAccessControl);
+  setBanner(
+    nextStatus === "enabled"
+      ? "访问成员已启用，后续请求可继续按策略鉴权。"
+      : "访问成员已禁用，其 API Key 后续调用会被拒绝。",
+    "success",
+  );
+}
+
 async function rotateAccessKey(keyId: string): Promise<void> {
   const confirmed = await requestConfirmation({
     title: "确认轮换 Key",
@@ -10371,7 +10579,7 @@ async function rotateAccessKey(keyId: string): Promise<void> {
   key.rotatedAt = new Date().toISOString();
 
   await saveAccessControlSettings(nextAccessControl);
-  showOneTimeAccessKey(apiKey, "轮换后一次性 API Key");
+  showOneTimeAccessKey(apiKey, "本次生成的 Key 明文");
   setBanner("访问 Key 已轮换。请立即复制一次性 API Key。", "success");
 }
 
@@ -10448,6 +10656,14 @@ function bindActions(): void {
     .getElementById("access-create-member-button")
     ?.addEventListener("click", () => {
       openAccessMemberModal();
+    });
+  document
+    .getElementById("access-member-quota-mode")
+    ?.addEventListener("change", () => {
+      const mode = readAccessInputValue("access-member-quota-mode");
+      applyAccessMemberQuotaMode(
+        mode === "total" || mode === "none" ? mode : "period",
+      );
     });
 
   document
@@ -10682,6 +10898,27 @@ function bindActions(): void {
         setBanner(`删除访问成员失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(memberDeleteTrigger, false);
+      }
+      return;
+    }
+
+    const memberToggleTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-member-toggle]",
+    );
+    if (memberToggleTrigger?.dataset.accessMemberToggle) {
+      try {
+        setButtonLoading(
+          memberToggleTrigger,
+          true,
+          memberToggleTrigger.textContent?.trim() === "启用" ? "启用中" : "禁用中",
+        );
+        await toggleAccessConsumerStatus(
+          memberToggleTrigger.dataset.accessMemberToggle,
+        );
+      } catch (error) {
+        setBanner(`切换访问成员状态失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(memberToggleTrigger, false);
       }
       return;
     }
