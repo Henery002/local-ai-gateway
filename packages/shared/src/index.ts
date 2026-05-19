@@ -13,13 +13,11 @@ export const DEFAULT_PROVIDER_ID = "openai-codex";
 export const DEFAULT_MODEL_ALIAS = "codex-default";
 export const DEFAULT_PROVIDER_MODEL_ID = "gpt-5.4";
 export const SUPPORTED_CODEX_UPSTREAM_MODELS = [
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
   "gpt-5.3-codex",
-  "gpt-5.2-codex",
   "gpt-5.2",
-  "gpt-5.1-codex-max",
-  "gpt-5.1-codex-mini",
 ] as const;
 export type SupportedCodexUpstreamModel =
   (typeof SUPPORTED_CODEX_UPSTREAM_MODELS)[number];
@@ -27,13 +25,15 @@ export const CODEX_MODEL_ALIAS_PRESETS: Record<
   SupportedCodexUpstreamModel,
   string
 > = {
+  "gpt-5.5": "codex-5.5",
   "gpt-5.4": "codex-5.4",
   "gpt-5.4-mini": "codex-5.4-mini",
   "gpt-5.3-codex": "codex-5.3",
-  "gpt-5.2-codex": "codex-5.2",
-  "gpt-5.2": "codex-5.2-core",
-  "gpt-5.1-codex-max": "codex-5.1-max",
-  "gpt-5.1-codex-mini": "codex-5.1-mini",
+  "gpt-5.2": "codex-5.2",
+};
+
+const LEGACY_CODEX_UPSTREAM_MODEL_ALIASES: Record<string, SupportedCodexUpstreamModel> = {
+  "gpt-5.2-codex": "gpt-5.2",
 };
 export const OPENAI_COMPAT_PROVIDER_ID = "openai-compatible";
 export const OLLAMA_PROVIDER_ID = "ollama";
@@ -951,13 +951,27 @@ export function isSupportedCodexUpstreamModel(
   );
 }
 
+export function normalizeCodexUpstreamModel(
+  value: string | undefined,
+): SupportedCodexUpstreamModel | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (isSupportedCodexUpstreamModel(trimmed)) {
+    return trimmed;
+  }
+  return LEGACY_CODEX_UPSTREAM_MODEL_ALIASES[trimmed];
+}
+
 export function getCodexAliasForUpstreamModel(
   modelId: string,
 ): string | undefined {
-  if (!isSupportedCodexUpstreamModel(modelId)) {
+  const normalized = normalizeCodexUpstreamModel(modelId);
+  if (!normalized) {
     return undefined;
   }
-  return CODEX_MODEL_ALIAS_PRESETS[modelId];
+  return CODEX_MODEL_ALIAS_PRESETS[normalized];
 }
 
 export function redactSensitiveValue(value: unknown): unknown {

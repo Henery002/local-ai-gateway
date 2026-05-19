@@ -516,18 +516,26 @@
               </div>
 
               <div class="model-provider-workbench">
-                <div class="card provider-config-panel provider-codex-panel" data-collapsible-id="provider-codex">
+                <div class="provider-config-grid">
+                <div class="card provider-config-panel provider-codex-panel provider-hero-panel" data-collapsible-id="provider-codex">
                   <div class="settings-header card-header">
                     <div>
                       <span class="card-title">会话型 Provider (Codex)</span>
                       <p class="card-description">复用本地授权驱动，无需手动填写密钥。</p>
                     </div>
+                    <div class="provider-panel-status-strip">
+                      <span class="badge active">默认启用</span>
+                      <span class="badge neutral">OAuth Session</span>
+                      <span class="badge neutral">外部导入只读</span>
+                    </div>
                   </div>
                   <div class="settings-body">
-                    <div class="settings-note compact">
-                      <strong>Codex Provider 说明</strong>
-                      <p>这里控制 `codex-default` 背后实际使用的上游模型，以及额外暴露给第三方客户端的模型别名；不会影响你已经导入的账号数据。</p>
-                    </div>
+                    <section class="provider-form-section">
+                      <div>
+                        <strong>Codex Provider 说明</strong>
+                        <span>控制 `codex-default` 背后的上游模型，以及额外暴露给第三方客户端的模型别名；不会影响已导入账号数据，也不会刷新外部账号的 refresh token。</span>
+                      </div>
+                    </section>
                     <div class="provider-config-form-grid">
                       <div class="form-field">
                         <label>接入方式</label>
@@ -548,12 +556,13 @@
                       <div class="form-field full">
                         <label>并行暴露模型别名</label>
                         <div id="codex-exposed-models" class="chip-check-list"></div>
-                        <div class="form-hint">可同时暴露多个 Codex 模型别名给第三方客户端，例如 `codex-5.4`、`codex-5.4-mini`、`codex-5.1-max`、`codex-5.1-mini`。</div>
+                        <div class="form-hint">可同时暴露多个 Codex 模型别名给第三方客户端，例如 `codex-5.5`、`codex-5.4`、`codex-5.4-mini`、`codex-5.3`、`codex-5.2`。</div>
                       </div>
                     </div>
                   </div>
                 </div>
 
+                <div class="provider-extension-grid">
                 <div class="card provider-config-panel provider-extension-panel" data-collapsible-id="provider-openai-compatible" data-default-collapsed="true">
                   <div class="settings-header card-header">
                     <div>
@@ -566,10 +575,12 @@
                     </label>
                   </div>
                   <div class="settings-body">
-                    <div class="settings-note compact">
-                      <strong>OpenAI-Compatible Provider 说明</strong>
-                      <p>这是额外的标准兼容 Provider，可与 Codex 同时存在；适合接入你自有的云端中转、官方 API 或其他 OpenAI 兼容服务。若当前只围绕 Codex 使用，可保持关闭状态。</p>
-                    </div>
+                    <section class="provider-form-section">
+                      <div>
+                        <strong>OpenAI-Compatible Provider 说明</strong>
+                        <span>适合接入自有云端中转、官方 API 或其他 OpenAI 兼容服务；当前只围绕 Codex 使用时可保持关闭。</span>
+                      </div>
+                    </section>
                     <div class="provider-config-form-grid">
                       <div class="form-field"><label>显示名称</label><input id="openai-label" class="input-field" placeholder="My Relay" /></div>
                       <div class="form-field"><label>模型别名</label><input id="openai-alias" class="input-field" placeholder="openai-compatible-default" /></div>
@@ -593,10 +604,12 @@
                     </label>
                   </div>
                   <div class="settings-body">
-                    <div class="settings-note compact">
-                      <strong>Ollama Provider 说明</strong>
-                      <p>用于把本机 Ollama 模型一并纳入本地网关管理。配置成功后，第三方客户端就能通过同一个网关入口同时访问 Codex 和 Ollama；若当前只服务 Codex，可保持关闭状态。</p>
-                    </div>
+                    <section class="provider-form-section">
+                      <div>
+                        <strong>Ollama Provider 说明</strong>
+                        <span>用于把本机 Ollama 模型纳入同一个网关入口；当前只服务 Codex 时可保持关闭。</span>
+                      </div>
+                    </section>
                     <div class="provider-config-form-grid">
                       <div class="form-field"><label>显示名称</label><input id="ollama-label" class="input-field" placeholder="Ollama" /></div>
                       <div class="form-field"><label>模型别名</label><input id="ollama-alias" class="input-field" placeholder="ollama-default" /></div>
@@ -605,6 +618,8 @@
                       <div class="form-field"><label>展示名称</label><input id="ollama-display-name" class="input-field" placeholder="Ollama Default" /></div>
                     </div>
                   </div>
+                </div>
+                </div>
                 </div>
 
                 <div class="provider-registry-shell table-container-lite">
@@ -833,7 +848,6 @@
                 </div>
                 <div class="section-actions">
                   <button id="add-pool" class="btn secondary">新增号池</button>
-                  <button id="save-pool-settings" class="btn primary">保存号池配置</button>
                 </div>
               </div>
 
@@ -847,6 +861,7 @@
                     <label class="switch-label">
                       <input id="pool-enabled" type="checkbox" /> 启用动态号池
                     </label>
+                    <button id="save-pool-settings" class="btn secondary mini" type="button">保存调度开关</button>
                   </div>
                   <div class="settings-note compact pool-control-note">
                     <strong>号池与策略路由的关系</strong>
@@ -1308,6 +1323,24 @@
           <button id="close-pool-events-modal" class="btn ghost mini" type="button">关闭</button>
         </div>
         <div id="pool-events-modal-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <div id="pool-config-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal pool-config-modal">
+        <div class="modal-header">
+          <div>
+            <h3 id="pool-config-modal-title">编辑号池</h3>
+            <p id="pool-config-modal-subtitle">调整号池基础信息、调度参数和池成员。</p>
+          </div>
+          <button id="close-pool-config-modal" class="btn ghost mini" type="button">关闭</button>
+        </div>
+        <div id="pool-config-modal-body" class="modal-body"></div>
+        <div class="modal-footer">
+          <span class="modal-save-state" data-tone="neutral">直接保存到网关并影响后续请求；不改写 Cockpit / OpenClaw 原始账号配置。</span>
+          <button id="cancel-pool-config-modal" class="btn secondary" type="button">取消</button>
+          <button id="save-pool-config-modal" class="btn primary" type="button">保存修改</button>
+        </div>
       </div>
     </div>
 

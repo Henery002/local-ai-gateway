@@ -72,7 +72,7 @@ export LOCAL_AI_GATEWAY_OPENAI_ALIAS="relay-default"
 默认行为：
 
 - `codex-default` 始终存在，并指向当前选中的 Codex 上游模型
-- 额外可并行暴露多个固定别名（例如 `codex-5.4`、`codex-5.4-mini`、`codex-5.3`、`codex-5.2`、`codex-5.2-core`、`codex-5.1-max`、`codex-5.1-mini`）
+- 额外可并行暴露多个固定别名（当前为 `codex-5.5`、`codex-5.4`、`codex-5.4-mini`、`codex-5.3`、`codex-5.2`）
 
 可选环境变量：
 
@@ -83,17 +83,17 @@ export LOCAL_AI_GATEWAY_OPENAI_ALIAS="relay-default"
 
 ```bash
 export LOCAL_AI_GATEWAY_CODEX_MODEL="gpt-5.4-mini"
-export LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS="gpt-5.4,gpt-5.4-mini,gpt-5.3-codex,gpt-5.2,gpt-5.1-codex-max"
+export LOCAL_AI_GATEWAY_CODEX_EXPOSED_MODELS="gpt-5.5,gpt-5.4,gpt-5.4-mini,gpt-5.3-codex,gpt-5.2"
 ```
 
 此时 `/v1/models` 中将同时包含：
 
 - `codex-default`（指向 `gpt-5.4-mini`）
+- `codex-5.5`
 - `codex-5.4`
 - `codex-5.4-mini`
 - `codex-5.3`
-- `codex-5.2-core`
-- `codex-5.1-max`
+- `codex-5.2`
 
 ## Ollama
 

@@ -2,6 +2,7 @@ import type { ProviderAdapter } from "@local-ai-gateway/shared";
 import {
   getCodexAliasForUpstreamModel,
   isSupportedCodexUpstreamModel,
+  normalizeCodexUpstreamModel,
   DEFAULT_MODEL_ALIAS,
   DEFAULT_PROVIDER_ID,
   DEFAULT_PROVIDER_MODEL_ID,
@@ -25,8 +26,11 @@ function resolveCodexUpstreamModel(
   env: NodeJS.ProcessEnv,
   settings: GatewayProviderSettings,
 ): string {
-  const requested = env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim() || settings.codex?.upstreamModel?.trim();
-  if (requested && isSupportedCodexUpstreamModel(requested)) {
+  const requested = normalizeCodexUpstreamModel(
+    env.LOCAL_AI_GATEWAY_CODEX_MODEL?.trim() ||
+      settings.codex?.upstreamModel?.trim(),
+  );
+  if (requested) {
     return requested;
   }
   return DEFAULT_PROVIDER_MODEL_ID;
@@ -46,11 +50,12 @@ function resolveCodexExposedModels(
 
   const deduped: string[] = [];
   for (const modelId of source) {
-    if (!modelId || !isSupportedCodexUpstreamModel(modelId)) {
+    const normalized = normalizeCodexUpstreamModel(modelId);
+    if (!normalized || !isSupportedCodexUpstreamModel(normalized)) {
       continue;
     }
-    if (!deduped.includes(modelId)) {
-      deduped.push(modelId);
+    if (!deduped.includes(normalized)) {
+      deduped.push(normalized);
     }
   }
 

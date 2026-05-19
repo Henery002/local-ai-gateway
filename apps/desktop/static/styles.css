@@ -3640,6 +3640,17 @@ button, input, select {
 /* Provider & Routing Cards */
 .model-provider-workbench {
   display: grid;
+  gap: var(--space-5);
+}
+
+.provider-config-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.provider-extension-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
@@ -3648,28 +3659,72 @@ button, input, select {
   gap: 0;
   padding: 0;
   overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
+}
+
+.provider-hero-panel {
+  border-color: color-mix(in oklab, var(--accent-color) 22%, var(--color-border-subtle));
 }
 
 .provider-config-panel > .settings-header {
   margin: 0;
-  padding: 16px 20px;
-  background: var(--color-bg-elevated);
+  padding: 18px 20px;
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--accent-color) 7%, transparent), transparent 62%),
+    var(--color-bg-elevated);
+  gap: 14px;
 }
 
 .provider-config-panel > .settings-body {
-  padding: 20px;
+  padding: 18px 20px 20px;
   gap: var(--space-4);
+}
+
+.provider-panel-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-form-section {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+}
+
+.provider-form-section strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.provider-form-section span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .provider-config-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
 }
 
 .provider-config-form-grid .full {
   grid-column: 1 / -1;
+}
+
+.provider-extension-panel .provider-config-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .provider-enable-switch {
@@ -3687,30 +3742,45 @@ button, input, select {
   padding-bottom: var(--space-3);
 }
 
-.provider-registry-table {
-  gap: 0;
-}
-
-.provider-registry-table-head,
-.provider-registry-row {
-  grid-template-columns: minmax(180px, 0.72fr) minmax(210px, 0.78fr) minmax(320px, 1.5fr);
-}
-
-.provider-registry-row {
-  align-items: start;
-  border: none;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.provider-registry-row.active {
-  box-shadow: inset 3px 0 0 var(--accent-color);
-}
-
-.provider-registry-main-cell,
-.provider-registry-config-cell,
-.provider-registry-models-cell {
+.provider-registry-card-list {
   display: grid;
-  gap: 6px;
+  gap: 12px;
+}
+
+.provider-registry-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.provider-registry-card.active {
+  border-color: color-mix(in oklab, var(--accent-color) 36%, var(--color-border-subtle));
+  box-shadow: inset 3px 0 0 var(--accent-color), var(--shadow-sm);
+}
+
+.provider-registry-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-registry-card-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-registry-main-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .provider-registry-main-cell strong {
@@ -3720,19 +3790,57 @@ button, input, select {
 }
 
 .provider-registry-main-cell span:not(.badge),
-.provider-registry-config-cell span,
 .provider-registry-model-name span {
   color: var(--text-secondary);
   font-size: 13px;
 }
 
-.provider-registry-model-list {
+.provider-registry-summary-grid {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.provider-registry-fact {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+}
+
+.provider-registry-fact span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.provider-registry-fact strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.provider-registry-model-list {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .provider-registry-model-line {
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: min(260px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
   background: var(--color-bg-elevated);
 }
 
@@ -4512,11 +4620,157 @@ button, input, select {
 .pool-list-shell {
   display: grid;
   gap: var(--space-4);
+  overflow-x: auto;
 }
 
 .pool-config-list {
   display: grid;
   gap: var(--space-4);
+}
+
+.pool-list-table {
+  min-width: 1080px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.pool-list-row {
+  grid-template-columns:
+    minmax(260px, 1.3fr)
+    minmax(150px, 0.7fr)
+    minmax(170px, 0.75fr)
+    minmax(150px, 0.7fr)
+    minmax(260px, 1.25fr)
+    minmax(210px, 0.85fr);
+}
+
+.pool-list-row[role="button"] {
+  cursor: pointer;
+}
+
+.pool-list-row[role="button"]:hover {
+  background: var(--color-bg-elevated);
+}
+
+.pool-list-main-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pool-list-actions-cell {
+  justify-content: flex-end;
+}
+
+.muted-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.pool-config-modal {
+  width: min(1480px, calc(100vw - 40px));
+  max-width: min(1480px, calc(100vw - 40px));
+  max-height: min(92vh, 1040px);
+}
+
+.pool-config-modal .modal-body {
+  padding: 24px 28px;
+}
+
+.pool-config-modal-layout {
+  display: grid;
+  gap: 20px;
+}
+
+.pool-config-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 0.86fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.pool-config-section {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+}
+
+.pool-config-section-head {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.24fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: baseline;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.pool-config-section-head strong {
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.pool-config-section-head span {
+  max-width: 720px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pool-config-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px 18px;
+  align-items: start;
+}
+
+.pool-config-fields-grid .form-field {
+  min-width: 0;
+}
+
+.pool-config-fields-grid .form-field.span-4 {
+  grid-column: span 4;
+}
+
+.pool-config-fields-grid .form-field.span-8 {
+  grid-column: span 8;
+}
+
+.pool-config-fields-grid .form-field.full,
+.pool-config-fields-grid .form-field.span-12 {
+  grid-column: 1 / -1;
+}
+
+.pool-config-switch-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.pool-config-switch-grid .switch-label {
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  line-height: 1.35;
+}
+
+.pool-config-members-section {
+  grid-column: 1 / -1;
+  gap: 18px;
 }
 
 .pool-bulk-toolbar {
@@ -4602,6 +4856,10 @@ button, input, select {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-subtle);
   background: var(--color-bg-elevated);
+}
+
+.pool-config-modal .pool-member-table-shell {
+  padding: 12px;
 }
 
 .pool-runtime-summary {
@@ -4801,6 +5059,11 @@ button, input, select {
   gap: 20px;
 }
 
+.pool-config-modal .pool-member-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .pool-member-option {
   display: flex;
   flex-direction: column;
@@ -4818,6 +5081,32 @@ button, input, select {
     color 0.2s;
   min-width: 0;
   box-shadow: var(--shadow-sm);
+}
+
+.compact-pool-member-option {
+  gap: 8px;
+  padding: 12px;
+  min-height: 158px;
+}
+
+.compact-pool-member-option .pool-member-option-subtitle {
+  display: none;
+}
+
+.compact-pool-member-option .pool-member-option-meta {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.compact-pool-member-option .pool-member-option-meta .badge {
+  justify-content: flex-start;
+  max-width: 100%;
+}
+
+.compact-pool-member-option .pool-member-decision,
+.compact-pool-member-option .pool-member-runtime {
+  display: none;
 }
 
 .pool-member-option:hover {
@@ -4968,9 +5257,10 @@ button, input, select {
   .nav-group { flex-direction: row; }
   .page-section-head { align-items: flex-start; flex-direction: column; }
   .section-actions { justify-content: flex-start; width: 100%; }
+  .provider-extension-grid { grid-template-columns: 1fr; }
   .provider-config-form-grid { grid-template-columns: 1fr; }
-  .provider-registry-table-head,
-  .provider-registry-row { grid-template-columns: minmax(170px, 0.7fr) minmax(190px, 0.75fr) minmax(260px, 1.3fr); }
+  .provider-extension-panel .provider-config-form-grid { grid-template-columns: 1fr; }
+  .provider-registry-summary-grid { grid-template-columns: 1fr; }
   .system-config-form-grid { grid-template-columns: 1fr; }
   .diagnostics-grid { grid-template-columns: 1fr; }
   .troubleshooting-guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4992,6 +5282,13 @@ button, input, select {
   .header-stats { flex-wrap: wrap; }
   .stat-divider { display: none; }
   .pool-runtime-summary { grid-template-columns: 1fr 1fr; }
+  .pool-config-modal-grid { grid-template-columns: 1fr; }
+  .pool-config-fields-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .pool-config-fields-grid .form-field.span-4,
+  .pool-config-fields-grid .form-field.span-8 {
+    grid-column: span 3;
+  }
+  .pool-config-switch-grid { grid-template-columns: 1fr; }
   .pool-member-grid { grid-template-columns: 1fr; }
   .usage-observe-controls { justify-content: flex-start; }
   .usage-kpi-card strong { font-size: 30px; }
@@ -5000,12 +5297,14 @@ button, input, select {
 @media (max-width: 1680px) {
   .accounts-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .pool-member-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pool-config-modal .pool-member-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .pool-runtime-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 1260px) {
   .accounts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pool-member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pool-config-modal .pool-member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pool-runtime-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -5017,6 +5316,21 @@ button, input, select {
 
 @media (max-width: 760px) {
   .accounts-grid { grid-template-columns: 1fr; }
+  .pool-config-fields-grid,
+  .pool-config-modal .pool-member-grid {
+    grid-template-columns: 1fr;
+  }
+  .pool-config-fields-grid .form-field.span-4,
+  .pool-config-fields-grid .form-field.span-8 {
+    grid-column: 1 / -1;
+  }
+  .pool-config-section-head {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .pool-config-modal {
+    width: calc(100vw - 24px);
+  }
   .troubleshooting-guide-grid { grid-template-columns: 1fr; }
   .modal-overlay {
     align-items: stretch;
@@ -5096,8 +5410,13 @@ button, input, select {
   }
   .provider-config-panel > .settings-header { align-items: flex-start; flex-direction: column; }
   .provider-enable-switch { margin-left: 0; }
-  .provider-registry-table-head { display: none; }
-  .provider-registry-row { grid-template-columns: 1fr; }
+  .provider-registry-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .provider-registry-card-badges {
+    justify-content: flex-start;
+  }
   .system-config-header,
   .system-section-head,
   .system-config-row { align-items: flex-start; flex-direction: column; }

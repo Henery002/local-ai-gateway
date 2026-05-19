@@ -2,6 +2,7 @@ import { buildCodexAccountGroups } from "./account-groups.js";
 import {
   CODEX_MODEL_ALIAS_PRESETS,
   formatCodexUpstreamModelLabel,
+  normalizeCodexUpstreamModel,
   SUPPORTED_CODEX_UPSTREAM_MODELS,
   type SupportedCodexUpstreamModel,
 } from "./codex-models.js";
@@ -1022,6 +1023,8 @@ const state: {
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
   activePoolEventsModalId?: string;
+  activePoolConfigModalId?: string;
+  activePoolConfigModalMode?: "create" | "edit";
   usageDetailsModalOpen?: boolean;
   selectedAccessConsumerId?: string;
   editingAccessConsumerId?: string;
@@ -1057,6 +1060,7 @@ const poolMemberFieldFrames = new Map<string, number>();
 const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
 const selectedAccountKeys = new Set<string>();
 const selectedPoolIds = new Set<string>();
+let activePoolModalDraft: PoolDefinition | undefined;
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 let usageTooltipElement: HTMLDivElement | undefined;
 let usageTooltipInteractionsBound = false;
@@ -2220,8 +2224,9 @@ function getActiveProviderLabel(): string {
 }
 
 function getCodexAliasPreset(modelId: string): string {
+  const normalized = normalizeCodexUpstreamModel(modelId);
   return (
-    CODEX_MODEL_ALIAS_PRESETS[modelId as SupportedCodexUpstreamModel] ??
+    (normalized ? CODEX_MODEL_ALIAS_PRESETS[normalized] : undefined) ??
     "codex-custom"
   );
 }
@@ -5551,10 +5556,19 @@ function renderProviderRegistry(): void {
       const isDefault = provider.models.some(
         (model) => model.alias === state.health?.defaultModel,
       );
+      const configurationStatus =
+        getProviderConfiguration(provider.id)?.status ?? "disabled";
+      const statusClass =
+        configurationStatus === "active"
+          ? "active"
+          : configurationStatus === "incomplete"
+            ? "warning"
+            : "neutral";
+      const activeModelCount = provider.models.length;
       const modelRows = provider.models
         .map(
           (model) => `
-        <div class="model-line provider-registry-model-line">
+        <div class="provider-registry-model-line">
           <div class="provider-registry-model-name">
             <strong>${escapeHtml(model.alias)}</strong>
             <span>${escapeHtml(model.providerModelId)}</span>
@@ -5566,17 +5580,33 @@ function renderProviderRegistry(): void {
         .join("");
 
       return `
-      <div class="figma-table-row provider-registry-row${isDefault ? " active" : ""}">
-        <div class="figma-table-cell provider-registry-main-cell">
-          <strong>${escapeHtml(provider.label)}</strong>
-          <span>${escapeHtml(provider.id)}</span>
-          <span class="badge neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
+      <div class="provider-registry-card${isDefault ? " active" : ""}">
+        <div class="provider-registry-card-head">
+          <div class="provider-registry-main-cell">
+            <strong>${escapeHtml(provider.label)}</strong>
+            <span>${escapeHtml(provider.id)}</span>
+          </div>
+          <div class="provider-registry-card-badges">
+            <span class="badge ${statusClass}">${escapeHtml(statusTone(configurationStatus))}</span>
+            <span class="badge neutral">${provider.usesSessions ? "会话型" : "固定配置"}</span>
+            ${isDefault ? `<span class="badge active">默认路由</span>` : ""}
+          </div>
         </div>
-        <div class="figma-table-cell provider-registry-config-cell">
-          <span>配置来源: ${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</span>
-          <span>${provider.usesSessions ? `活动会话: ${escapeHtml(provider.activeSessionId ?? "未选择")}` : "无需活动会话"}</span>
+        <div class="provider-registry-summary-grid">
+          <div class="provider-registry-fact">
+            <span>配置来源</span>
+            <strong>${escapeHtml(provider.configuration?.configuredVia ?? "未声明")}</strong>
+          </div>
+          <div class="provider-registry-fact">
+            <span>${provider.usesSessions ? "活动会话" : "认证方式"}</span>
+            <strong>${provider.usesSessions ? escapeHtml(provider.activeSessionId ?? "未选择") : escapeHtml(provider.configuration?.authMode ?? "固定配置")}</strong>
+          </div>
+          <div class="provider-registry-fact">
+            <span>暴露模型</span>
+            <strong>${escapeHtml(String(activeModelCount))} 个</strong>
+          </div>
         </div>
-        <div class="figma-table-cell provider-registry-models-cell">
+        <div class="provider-registry-models-cell">
           <div class="provider-registry-model-list">${modelRows}</div>
         </div>
       </div>
@@ -5585,12 +5615,7 @@ function renderProviderRegistry(): void {
     .join("");
 
   container.innerHTML = `
-    <div class="figma-table provider-registry-table">
-      <div class="figma-table-head provider-registry-table-head">
-        <span>Provider</span>
-        <span>配置</span>
-        <span>暴露模型</span>
-      </div>
+    <div class="provider-registry-card-list">
       ${rows}
     </div>
   `;
@@ -6215,14 +6240,18 @@ function applySettingsToForm(): void {
       node.textContent = formatCodexUpstreamModelLabel(modelId);
       codexSelect.appendChild(node);
     }
-    codexSelect.value = codex.upstreamModel ?? "gpt-5.4";
+    codexSelect.value = normalizeCodexUpstreamModel(codex.upstreamModel) ?? "gpt-5.4";
   }
 
   if (codexExposeContainer) {
     const selectedModels =
       codex.exposedModels === undefined
         ? [...SUPPORTED_CODEX_UPSTREAM_MODELS]
-        : codex.exposedModels;
+        : codex.exposedModels
+          .map((modelId) => normalizeCodexUpstreamModel(modelId))
+          .filter((modelId): modelId is SupportedCodexUpstreamModel =>
+            Boolean(modelId),
+          );
     codexExposeContainer.innerHTML = SUPPORTED_CODEX_UPSTREAM_MODELS.map(
       (modelId) => {
         const alias = getCodexAliasPreset(modelId);
@@ -6242,6 +6271,10 @@ function applySettingsToForm(): void {
       codex.exposedModels === undefined
         ? [...SUPPORTED_CODEX_UPSTREAM_MODELS]
         : codex.exposedModels
+          .map((modelId) => normalizeCodexUpstreamModel(modelId))
+          .filter((modelId): modelId is SupportedCodexUpstreamModel =>
+            Boolean(modelId),
+          )
     )
       .map((modelId) => getCodexAliasPreset(modelId))
       .filter((alias) => alias !== "codex-custom");
@@ -6315,6 +6348,46 @@ function createPoolId(): string {
   return `pool-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createPoolDraft(index: number): PoolDefinition {
+  return {
+    id: createPoolId(),
+    name: `号池-${index}`,
+    enabled: true,
+    visibility: "private",
+    selectionStrategy: "hybrid",
+    minRemainingPercentage: 15,
+    cooldownSeconds: 300,
+    quotaExhaustedCooldownSeconds: 7200,
+    maxRetryCandidates: 2,
+    allowUnknownQuota: true,
+    fallbackToActiveSession: true,
+    members: [],
+  };
+}
+
+function clonePoolDefinition(pool: PoolDefinition): PoolDefinition {
+  return {
+    ...pool,
+    members: (pool.members ?? []).map((member) => ({ ...member })),
+  };
+}
+
+function upsertPoolDraft(pool: PoolDefinition): void {
+  const settings = state.poolSettings ?? {};
+  const pools = [...(settings.pools ?? [])];
+  const existingIndex = pools.findIndex((item) => item.id === pool.id);
+  if (existingIndex >= 0) {
+    pools.splice(existingIndex, 1, pool);
+  } else {
+    pools.push(pool);
+  }
+  state.poolSettings = {
+    ...settings,
+    enabled: settings.enabled ?? true,
+    pools,
+  };
+}
+
 function getRoutingRulesContainer(): HTMLElement | null {
   return document.getElementById("routing-rules-list");
 }
@@ -6343,6 +6416,9 @@ function syncAllPoolDraftsFromRows(): void {
   for (const row of Array.from(
     document.querySelectorAll<HTMLElement>("[data-pool-row]"),
   )) {
+    if (row.closest("#pool-config-modal")) {
+      continue;
+    }
     syncPoolDraftFromRow(row);
   }
 }
@@ -6364,7 +6440,7 @@ function buildPoolBulkToolbarMarkup(pools: PoolDefinition[]): string {
           <span>选择全部号池</span>
         </label>
         <span class="badge neutral">已选 ${escapeHtml(String(selectedCount))} / 共 ${escapeHtml(String(pools.length))}</span>
-        <span class="pool-bulk-hint">批量删除只影响当前编辑态，保存号池配置后正式生效。</span>
+        <span class="pool-bulk-hint">批量删除会二次确认，并直接保存到网关。</span>
       </div>
       <div class="pool-bulk-actions">
         <button
@@ -6382,6 +6458,200 @@ function buildPoolBulkToolbarMarkup(pools: PoolDefinition[]): string {
       </div>
     </div>
   `;
+}
+
+function formatPoolEnabledLabel(pool: PoolDefinition): string {
+  return pool.enabled === false ? "未启用" : "已启用";
+}
+
+function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
+  const poolVisibility = normalizePoolVisibility(pool.visibility);
+  const candidates = buildPoolMemberCandidates();
+  const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
+    "\n",
+  );
+  return `
+    <div
+      class="pool-config-modal-form"
+      data-pool-row
+      data-pool-id="${escapeHtml(pool.id)}"
+      data-enabled="${pool.enabled === false ? "false" : "true"}"
+    >
+      <div class="pool-config-modal-layout">
+      <div class="pool-config-modal-grid">
+        <section class="pool-config-section pool-config-basic-section">
+          <div class="pool-config-section-head">
+            <strong>基础信息</strong>
+            <span>决定这个号池的用途、可见范围和基础调度方式。</span>
+          </div>
+          <div class="pool-config-fields-grid">
+            <div class="form-field span-4">
+              <label>号池名称</label>
+              <input class="input-field" data-field="pool-name" value="${escapeHtml(pool.name ?? "")}" />
+            </div>
+            <div class="form-field span-4">
+              <label>选择策略</label>
+              <select class="input-field" data-field="pool-strategy">
+                <option value="hybrid" ${pool.selectionStrategy === "hybrid" || !pool.selectionStrategy ? "selected" : ""}>综合策略</option>
+                <option value="quota-desc" ${pool.selectionStrategy === "quota-desc" ? "selected" : ""}>剩余额度优先</option>
+                <option value="least-recently-used" ${pool.selectionStrategy === "least-recently-used" ? "selected" : ""}>最近最少使用</option>
+                <option value="priority" ${pool.selectionStrategy === "priority" ? "selected" : ""}>成员顺序</option>
+              </select>
+            </div>
+            <div class="form-field span-4">
+              <label>可见性</label>
+              <select class="input-field" data-field="pool-visibility">
+                <option value="private" ${poolVisibility === "private" ? "selected" : ""}>私有</option>
+                <option value="shared-lan" ${poolVisibility === "shared-lan" ? "selected" : ""}>局域网共享</option>
+                <option value="public-ready" ${poolVisibility === "public-ready" ? "selected" : ""}>外网预留</option>
+              </select>
+            </div>
+            <div class="form-field span-4">
+              <label>最低剩余额度阈值</label>
+              <input class="input-field" data-field="pool-min-percentage" type="number" min="0" max="100" step="1" value="${typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15}" />
+              <div class="form-hint">单位：%</div>
+            </div>
+            <div class="form-field span-8">
+              <label>说明</label>
+              <input class="input-field" data-field="pool-description" placeholder="例如：给 LAN 成员或 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
+            </div>
+          </div>
+        </section>
+
+        <section class="pool-config-section pool-config-guard-section">
+          <div class="pool-config-section-head">
+            <strong>调度保护</strong>
+            <span>限制失败重试、冷却和兜底行为；不会刷新或改写外部导入账号的 refresh token。</span>
+          </div>
+          <div class="pool-config-fields-grid">
+            <div class="form-field span-4">
+              <label>常规冷却</label>
+              <input class="input-field" data-field="pool-cooldown-seconds" type="number" min="10" max="86400" step="10" value="${typeof pool.cooldownSeconds === "number" ? pool.cooldownSeconds : 300}" />
+              <div class="form-hint">单位：秒</div>
+            </div>
+            <div class="form-field span-4">
+              <label>额度耗尽冷却</label>
+              <input class="input-field" data-field="pool-quota-cooldown-seconds" type="number" min="30" max="86400" step="30" value="${typeof pool.quotaExhaustedCooldownSeconds === "number" ? pool.quotaExhaustedCooldownSeconds : 7200}" />
+              <div class="form-hint">单位：秒</div>
+            </div>
+            <div class="form-field span-4">
+              <label>单次最多尝试账号数</label>
+              <input class="input-field" data-field="pool-max-retry-candidates" type="number" min="1" max="5" step="1" value="${typeof pool.maxRetryCandidates === "number" ? pool.maxRetryCandidates : 2}" />
+            </div>
+            <div class="pool-config-switch-grid">
+              <label class="switch-label">
+                <input type="checkbox" data-field="pool-enabled" ${pool.enabled === false ? "" : "checked"} />
+                启用号池
+              </label>
+              <label class="switch-label">
+                <input type="checkbox" data-field="pool-allow-unknown" ${pool.allowUnknownQuota === false ? "" : "checked"} />
+                允许未知额度账号参与
+              </label>
+              <label class="switch-label">
+                <input type="checkbox" data-field="pool-fallback-active" ${pool.fallbackToActiveSession === false ? "" : "checked"} />
+                无候选时回退活动账号
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pool-config-section pool-config-members-section">
+          <div class="pool-config-section-head">
+            <strong>池成员</strong>
+            <span>账号卡片已压缩为 ID、额度、重置时间和进度条视图；列表支持搜索和排序，滚动统一交给弹窗本身。</span>
+          </div>
+          <div class="form-field" data-pool-members-field="true">
+            <label>池成员（推荐直接勾选桌面端账号）</label>
+            ${buildPoolMemberSelectorMarkup(pool)}
+            <div class="form-hint">同一账号存在多个底层会话时，网关会优先解析到当前更合适的本地会话。</div>
+          </div>
+          <div class="form-field">
+            <label>额外成员标识（高级，可选）</label>
+            <textarea class="input-field" data-field="pool-members-extra" rows="3" placeholder="仅当某个账号暂时未出现在上方列表时，再手动填写 sessionId / profileId / accountId，每行一个。">${escapeHtml(unresolvedMembers)}</textarea>
+          </div>
+        </section>
+      </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPoolConfigModalDraft(): void {
+  const body = document.getElementById("pool-config-modal-body");
+  const title = document.getElementById("pool-config-modal-title");
+  const subtitle = document.getElementById("pool-config-modal-subtitle");
+  const submit = document.getElementById(
+    "save-pool-config-modal",
+  ) as HTMLButtonElement | null;
+  if (!body || !activePoolModalDraft) {
+    return;
+  }
+  const mode = state.activePoolConfigModalMode ?? "edit";
+  if (title) {
+    title.textContent = mode === "create" ? "新增号池" : "编辑号池";
+  }
+  if (subtitle) {
+    subtitle.textContent =
+      mode === "create"
+        ? "创建一个新的动态号池，保存后直接写入网关并参与后续调度。"
+        : "调整号池基础信息、调度参数和池成员，保存后直接写入网关并参与后续调度。";
+  }
+  if (submit) {
+    submit.textContent = mode === "create" ? "创建并保存" : "保存修改";
+  }
+  body.innerHTML = buildPoolConfigModalBodyMarkup(activePoolModalDraft);
+}
+
+function openPoolConfigModal(poolId?: string): void {
+  const modal = document.getElementById("pool-config-modal");
+  if (!modal) {
+    return;
+  }
+  const pools = state.poolSettings?.pools ?? [];
+  const existing = poolId
+    ? pools.find((pool) => pool.id === poolId)
+    : undefined;
+  activePoolModalDraft = existing
+    ? clonePoolDefinition(existing)
+    : createPoolDraft(pools.length + 1);
+  state.activePoolConfigModalId = activePoolModalDraft.id;
+  state.activePoolConfigModalMode = existing ? "edit" : "create";
+  renderPoolConfigModalDraft();
+  modal.hidden = false;
+}
+
+function closePoolConfigModal(): void {
+  const modal = document.getElementById("pool-config-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+  const body = document.getElementById("pool-config-modal-body");
+  if (body) {
+    body.replaceChildren();
+  }
+  activePoolModalDraft = undefined;
+  state.activePoolConfigModalId = undefined;
+  state.activePoolConfigModalMode = undefined;
+}
+
+async function savePoolConfigModalDraft(): Promise<string> {
+  const row = document.querySelector<HTMLElement>(
+    "#pool-config-modal [data-pool-row]",
+  );
+  if (!row) {
+    throw new Error("未找到号池编辑表单。");
+  }
+  const nextPool = collectPoolDefinitionFromRow(row);
+  if (
+    nextPool.name.trim().length === 0 ||
+    (nextPool.members?.length ?? 0) === 0
+  ) {
+    throw new Error("号池需要填写名称并至少选择一个成员账号。");
+  }
+  upsertPoolDraft(nextPool);
+  activePoolModalDraft = clonePoolDefinition(nextPool);
+  await persistPoolSettingsFromState();
+  return nextPool.name || nextPool.id;
 }
 
 function resolveRoutingDispatchMode(rule: RoutingRule): RoutingDispatchMode {
@@ -7232,7 +7502,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
               runtimeStatus === "unknown-quota"),
           );
           return `
-            <label class="pool-member-option" data-selected="${selected ? "true" : "false"}" data-eligible="${runtimeMember?.eligible === false ? "false" : "true"}" data-runtime-status="${escapeHtml(runtimeStatus)}" data-deemphasized="${isDeemphasized ? "true" : "false"}">
+            <label class="pool-member-option compact-pool-member-option" data-selected="${selected ? "true" : "false"}" data-eligible="${runtimeMember?.eligible === false ? "false" : "true"}" data-runtime-status="${escapeHtml(runtimeStatus)}" data-deemphasized="${isDeemphasized ? "true" : "false"}">
               <div class="pool-member-option-head">
                 <div class="pool-member-option-title">
                   <input
@@ -7443,138 +7713,84 @@ function renderPoolCards(): void {
 
   container.innerHTML = [
     buildPoolBulkToolbarMarkup(pools),
-    ...pools
-    .map((pool, index) => {
-      const poolVisibility = normalizePoolVisibility(pool.visibility);
-      const poolVisibilityLabel = formatPoolVisibilityLabel(poolVisibility);
-      const panelState = getPoolPanelState(pool.id);
-      const candidates = buildPoolMemberCandidates();
-      const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
-        "\n",
-      );
-      const selected = selectedPoolIds.has(pool.id);
-      return `
-        <div class="routing-rule-card pool-config-card detail-drawer-panel ${panelState.cardCollapsed ? "collapsed" : ""}" data-pool-row data-pool-id="${escapeHtml(pool.id)}" data-enabled="${pool.enabled === false ? "false" : "true"}" data-selected="${selected ? "true" : "false"}">
-          <div class="card-header pool-card-header routing-rule-top pool-card-top" data-action="toggle-pool-card" data-pool-id="${escapeHtml(pool.id)}">
-            <div class="pool-card-title-wrap">
-              <label
-                class="pool-card-select"
-                data-pool-select-control="true"
-                title="选择此号池用于批量操作"
-              >
-                <input
-                  type="checkbox"
-                  data-field="pool-card-selector"
+    `<div class="pool-list-table figma-table">
+      <div class="figma-table-head pool-list-row pool-list-head">
+        <div class="figma-table-cell">号池</div>
+        <div class="figma-table-cell">可见性</div>
+        <div class="figma-table-cell">策略</div>
+        <div class="figma-table-cell">成员</div>
+        <div class="figma-table-cell">运行态</div>
+        <div class="figma-table-cell pool-list-actions-cell">操作</div>
+      </div>
+      ${pools
+        .map((pool, index) => {
+          const selected = selectedPoolIds.has(pool.id);
+          const poolRuntime = getPoolRuntime(pool.id);
+          const memberCount = pool.members?.length ?? 0;
+          const eligibleCount =
+            poolRuntime?.eligibleMemberCount ?? Math.max(memberCount, 0);
+          const coolingCount = poolRuntime?.coolingMemberCount ?? 0;
+          return `
+            <div
+              class="figma-table-row pool-list-row"
+              data-pool-list-row
+              data-pool-id="${escapeHtml(pool.id)}"
+              data-selected="${selected ? "true" : "false"}"
+              data-action="pool-edit"
+              role="button"
+              tabindex="0"
+            >
+              <div class="figma-table-cell pool-list-main-cell">
+                <label class="pool-card-select" data-pool-select-control="true" title="选择此号池用于批量操作">
+                  <input
+                    type="checkbox"
+                    data-field="pool-card-selector"
+                    data-pool-id="${escapeHtml(pool.id)}"
+                    aria-label="选择号池 ${escapeHtml(pool.name || pool.id)}"
+                    ${selected ? "checked" : ""}
+                  />
+                </label>
+                <div class="pool-card-index-avatar">${index + 1}</div>
+                <div class="pool-card-title-text">
+                  <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
+                  <span title="${escapeHtml(pool.id)}">${escapeHtml(pool.id)}</span>
+                </div>
+              </div>
+              <div class="figma-table-cell">
+                <span class="badge neutral">${escapeHtml(formatPoolVisibilityLabel(pool.visibility))}</span>
+                <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${escapeHtml(formatPoolEnabledLabel(pool))}</span>
+              </div>
+              <div class="figma-table-cell">
+                <strong>${escapeHtml(formatPoolSelectionStrategyLabel(pool.selectionStrategy))}</strong>
+                <span class="muted-text">阈值 ${escapeHtml(String(typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15))}%</span>
+              </div>
+              <div class="figma-table-cell">
+                <strong>${escapeHtml(String(memberCount))} 个账号</strong>
+                <span class="muted-text">可选 ${escapeHtml(String(eligibleCount))} · 冷却 ${escapeHtml(String(coolingCount))}</span>
+              </div>
+              <div class="figma-table-cell">
+                <strong>${escapeHtml(poolRuntime?.selectionReason ?? "等待运行观测")}</strong>
+                <span class="muted-text">最近选中 ${escapeHtml(formatRecentCall(poolRuntime?.lastSelectedAt))}</span>
+              </div>
+              <div class="figma-table-cell pool-card-actions pool-list-actions-cell">
+                <button
+                  type="button"
+                  class="btn primary mini"
+                  data-action="pool-edit"
                   data-pool-id="${escapeHtml(pool.id)}"
-                  aria-label="选择号池 ${escapeHtml(pool.name || pool.id)}"
-                  ${selected ? "checked" : ""}
-                />
-              </label>
-              <div class="pool-card-index-avatar">${index + 1}</div>
-              <div class="pool-card-title-text">
-                <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
-                <span>首版只纳入桌面端导入账号；通过列表顺序确定默认优先级，必要时再结合额度与最近使用情况自动挑号。</span>
+                >编辑</button>
+                <button
+                  type="button"
+                  class="btn ghost danger-ghost mini"
+                  data-action="pool-remove"
+                  data-pool-id="${escapeHtml(pool.id)}"
+                >删除</button>
               </div>
             </div>
-            <div class="routing-rule-meta pool-card-actions">
-              <span class="badge neutral">${escapeHtml(pool.id)}</span>
-              <span class="badge neutral">${poolVisibilityLabel}</span>
-              <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${pool.enabled === false ? "未启用" : "已启用"}</span>
-              <button
-                type="button"
-                class="btn primary mini"
-                data-action="save-pool-card"
-                data-pool-id="${escapeHtml(pool.id)}"
-              >保存此卡片</button>
-              <button
-                type="button"
-                class="btn ghost danger-ghost mini"
-                data-action="pool-remove"
-                data-pool-id="${escapeHtml(pool.id)}"
-              >删除号池</button>
-              <div class="routing-rule-collapse-icon">▾</div>
-            </div>
-          </div>
-          <div class="routing-rule-body">
-          <div class="routing-rule-grid pool-config-form-grid">
-            <div class="form-field">
-              <label>号池名称</label>
-              <input class="input-field" data-field="pool-name" value="${escapeHtml(pool.name ?? "")}" />
-            </div>
-            <div class="form-field">
-              <label>选择策略</label>
-              <select class="input-field" data-field="pool-strategy">
-                <option value="hybrid" ${pool.selectionStrategy === "hybrid" || !pool.selectionStrategy ? "selected" : ""}>混合策略（推荐）</option>
-                <option value="quota-desc" ${pool.selectionStrategy === "quota-desc" ? "selected" : ""}>按剩余额度优先</option>
-                <option value="least-recently-used" ${pool.selectionStrategy === "least-recently-used" ? "selected" : ""}>按最近最少使用</option>
-                <option value="priority" ${pool.selectionStrategy === "priority" ? "selected" : ""}>按成员顺序优先</option>
-              </select>
-            </div>
-            <div class="form-field">
-              <label>可见性</label>
-              <select class="input-field" data-field="pool-visibility">
-                <option value="private" ${poolVisibility === "private" ? "selected" : ""}>私有（管理员自用）</option>
-                <option value="shared-lan" ${poolVisibility === "shared-lan" ? "selected" : ""}>局域网共享</option>
-                <option value="public-ready" ${poolVisibility === "public-ready" ? "selected" : ""}>外网预留（暂不开放）</option>
-              </select>
-            </div>
-            <div class="form-field" style="grid-column: 1 / -1;">
-              <label>说明（可选）</label>
-              <input class="input-field" data-field="pool-description" placeholder="例如：给 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
-            </div>
-            <div class="form-field" data-pool-members-field="true" style="grid-column: 1 / -1;">
-              <label>池成员（推荐直接勾选桌面端账号）</label>
-              ${buildPoolMemberSelectorMarkup(pool)}
-              <div class="form-hint">支持搜索、排序、全选、反选与面板收起；优先使用上方可视账号列表勾选池成员。如果同一账号存在多个底层会话，网关会优先解析到当前更合适的本地会话。</div>
-            </div>
-            <div class="form-field" style="grid-column: 1 / -1;">
-              <label>额外成员标识（高级，可选）</label>
-              <textarea class="input-field" data-field="pool-members-extra" rows="3" placeholder="仅当某个账号暂时未出现在上方列表里时，再手动填写额外的 sessionId / profileId / accountId，每行一个。">${escapeHtml(unresolvedMembers)}</textarea>
-            </div>
-            <div class="form-field">
-              <label>最低剩余额度阈值（%）</label>
-              <input class="input-field" data-field="pool-min-percentage" type="number" min="0" max="100" step="1" value="${typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15}" />
-            </div>
-            <div class="form-field">
-              <label>常规冷却（秒）</label>
-              <input class="input-field" data-field="pool-cooldown-seconds" type="number" min="10" max="86400" step="10" value="${typeof pool.cooldownSeconds === "number" ? pool.cooldownSeconds : 300}" />
-            </div>
-            <div class="form-field">
-              <label>额度耗尽冷却（秒）</label>
-              <input class="input-field" data-field="pool-quota-cooldown-seconds" type="number" min="30" max="86400" step="30" value="${typeof pool.quotaExhaustedCooldownSeconds === "number" ? pool.quotaExhaustedCooldownSeconds : 7200}" />
-            </div>
-            <div class="form-field">
-              <label>单次请求最多尝试账号数</label>
-              <input class="input-field" data-field="pool-max-retry-candidates" type="number" min="1" max="5" step="1" value="${typeof pool.maxRetryCandidates === "number" ? pool.maxRetryCandidates : 2}" />
-            </div>
-          </div>
-          <div class="routing-rule-guide">
-            <span>第一版动态号池只纳入桌面端导入账号，不直接把原始本地可复用授权作为正式池成员。</span>
-            <span>动态号池是“请求级自动选账号”，不是把多个账号做成真正的额度池化；单次请求仍只会使用一个账号。</span>
-            <span>额度阈值用于“新请求是否可选”，不是精确 token 预算；当某账号低于阈值或进入冷却，会自动跳过。</span>
-            <span>请求级自动切号不会改写全局活动账号；每次请求只会在命中的号池内独立选择实际使用账号。</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-              <label class="switch-label" style="font-size: 14px;">
-                <input type="checkbox" data-field="pool-enabled" ${pool.enabled === false ? "" : "checked"} />
-                启用号池
-              </label>
-              <label class="switch-label" style="font-size: 14px;">
-                <input type="checkbox" data-field="pool-allow-unknown" ${pool.allowUnknownQuota === false ? "" : "checked"} />
-                允许未知额度账号参与
-              </label>
-              <label class="switch-label" style="font-size: 14px;">
-                <input type="checkbox" data-field="pool-fallback-active" ${pool.fallbackToActiveSession === false ? "" : "checked"} />
-                无候选时回退活动账号
-              </label>
-            </div>
-            <button class="btn primary mini" data-action="save-pool-card" data-pool-id="${escapeHtml(pool.id)}">保存此卡片</button>
-          </div>
-          </div>
-        </div>
-      `;
-    }),
+          `;
+        })
+        .join("")}
+    </div>`,
   ].join("");
 }
 
@@ -7690,6 +7906,10 @@ function collectPoolDefinitionFromRow(row: HTMLElement): PoolDefinition {
 
 function syncPoolDraftFromRow(row: HTMLElement): void {
   const nextPool = collectPoolDefinitionFromRow(row);
+  if (row.closest("#pool-config-modal")) {
+    activePoolModalDraft = nextPool;
+    return;
+  }
   const settings = state.poolSettings ?? {};
   const pools = settings.pools ?? [];
   const existingIndex = pools.findIndex((pool) => pool.id === nextPool.id);
@@ -7715,8 +7935,10 @@ function renderPoolMembersField(
 ): void {
   const poolId = row.dataset.poolId || createPoolId();
   const pool =
-    state.poolSettings?.pools?.find((item) => item.id === poolId) ??
-    collectPoolDefinitionFromRow(row);
+    row.closest("#pool-config-modal") && activePoolModalDraft?.id === poolId
+      ? activePoolModalDraft
+      : state.poolSettings?.pools?.find((item) => item.id === poolId) ??
+        collectPoolDefinitionFromRow(row);
   const membersContainer = getPoolMembersFieldContainer(row);
   if (!membersContainer) {
     renderPoolCards();
@@ -7840,6 +8062,11 @@ function collectRoutingSettingsFromForm(): RoutingSettings {
 }
 
 async function savePoolSettings(): Promise<void> {
+  syncAllPoolDraftsFromRows();
+  await persistPoolSettingsFromState();
+}
+
+async function persistPoolSettingsFromState(): Promise<void> {
   const api = getGatewayApi();
   const payload = collectPoolSettingsFromForm();
   const response = await api.savePoolSettings(payload);
@@ -7848,46 +8075,11 @@ async function savePoolSettings(): Promise<void> {
   applyRoutingSettingsToForm();
 }
 
-async function saveSinglePoolSettings(poolId: string): Promise<string> {
-  const row = document.querySelector<HTMLElement>(
-    `[data-pool-row][data-pool-id="${poolId}"]`,
-  );
-  if (!row) {
-    throw new Error("未找到目标号池卡片。");
-  }
-
-  syncPoolDraftFromRow(row);
-  const settings = state.poolSettings ?? {};
-  const enabled =
-    (document.getElementById("pool-enabled") as HTMLInputElement | null)
-      ?.checked ?? Boolean(settings.enabled);
-  const pools = (settings.pools ?? []).filter(
-    (pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0,
-  );
-  if (!pools.some((pool) => pool.id === poolId)) {
-    throw new Error("目标号池缺少有效成员或名称，无法保存。");
-  }
-
-  const response = await getGatewayApi().savePoolSettings({
-    enabled,
-    pools,
-  });
-  state.poolSettings = response.data;
-  applyPoolSettingsToForm();
-  applyRoutingSettingsToForm();
-  const savedPool = response.data.pools?.find((pool) => pool.id === poolId);
-  return savedPool?.name?.trim() || poolId;
-}
-
 function collectPoolSettingsFromForm(): PoolSettings {
   const enabled =
     (document.getElementById("pool-enabled") as HTMLInputElement | null)
       ?.checked ?? false;
-  const rows = Array.from(
-    document.querySelectorAll<HTMLElement>("[data-pool-row]"),
-  );
-  const pools: PoolDefinition[] = rows
-    .map((row) => collectPoolDefinitionFromRow(row))
+  const pools: PoolDefinition[] = (state.poolSettings?.pools ?? [])
     .filter(
       (pool) => pool.name.trim().length > 0 && (pool.members?.length ?? 0) > 0,
     );
@@ -10783,14 +10975,14 @@ function bindActions(): void {
       ) as HTMLButtonElement | null;
       try {
         setButtonLoading(button, true, "保存中");
-        setBanner("正在保存号池调度配置...", "info");
+        setBanner("正在保存号池调度开关...", "info");
         await savePoolSettings();
         setBanner(
-          "号池调度配置已保存。命中号池的请求将按调度策略自动挑选账号。",
+          "号池调度开关已保存。启用后命中号池的请求将按调度策略自动挑选账号。",
           "success",
         );
       } catch (error) {
-        setBanner(`保存号池配置失败：${String(error)}`, "error");
+        setBanner(`保存号池调度开关失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button, false);
       }
@@ -11119,33 +11311,17 @@ function bindActions(): void {
         focusName: false,
       });
     }
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      target?.matches("[data-pool-list-row]")
+    ) {
+      event.preventDefault();
+      openPoolConfigModal(target.dataset.poolId);
+    }
   });
 
   document.getElementById("add-pool")?.addEventListener("click", () => {
-    const settings = state.poolSettings ?? {};
-    const pools = settings.pools ?? [];
-    state.poolSettings = {
-      ...settings,
-      enabled: settings.enabled ?? true,
-      pools: [
-        ...pools,
-        {
-          id: createPoolId(),
-          name: `号池-${pools.length + 1}`,
-          enabled: true,
-          visibility: "private",
-          selectionStrategy: "hybrid",
-          minRemainingPercentage: 15,
-          cooldownSeconds: 300,
-          quotaExhaustedCooldownSeconds: 7200,
-          maxRetryCandidates: 2,
-          allowUnknownQuota: true,
-          fallbackToActiveSession: true,
-          members: [],
-        },
-      ],
-    };
-    applyPoolSettingsToForm();
+    openPoolConfigModal();
   });
 
   document.getElementById("add-routing-rule")?.addEventListener("click", () => {
@@ -11635,6 +11811,14 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("pool-config-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closePoolConfigModal();
+      }
+    });
+
+  document
     .getElementById("usage-details-modal")
     ?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -11646,6 +11830,39 @@ function bindActions(): void {
     .getElementById("close-pool-events-modal")
     ?.addEventListener("click", () => {
       closePoolEventsModal();
+    });
+
+  document
+    .getElementById("close-pool-config-modal")
+    ?.addEventListener("click", () => {
+      closePoolConfigModal();
+    });
+
+  document
+    .getElementById("cancel-pool-config-modal")
+    ?.addEventListener("click", () => {
+      closePoolConfigModal();
+    });
+
+  document
+    .getElementById("save-pool-config-modal")
+    ?.addEventListener("click", async () => {
+      const saveButton = document.getElementById(
+        "save-pool-config-modal",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(saveButton, true, "保存中");
+        const savedName = await savePoolConfigModalDraft();
+        closePoolConfigModal();
+        setBanner(
+          `号池「${savedName}」配置已保存，后续请求会直接使用新配置。`,
+          "success",
+        );
+      } catch (error) {
+        setBanner(`保存号池配置失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(saveButton, false);
+      }
     });
 
   document
@@ -11690,6 +11907,11 @@ function bindActions(): void {
       const poolEventsModal = document.getElementById("pool-events-modal");
       if (poolEventsModal && !poolEventsModal.hidden) {
         closePoolEventsModal();
+        return;
+      }
+      const poolConfigModal = document.getElementById("pool-config-modal");
+      if (poolConfigModal && !poolConfigModal.hidden) {
+        closePoolConfigModal();
         return;
       }
       const usageDetailsModal = document.getElementById("usage-details-modal");
@@ -11867,6 +12089,11 @@ function bindActions(): void {
       return;
     }
 
+    if (action === "pool-edit" && button.dataset.poolId) {
+      openPoolConfigModal(button.dataset.poolId);
+      return;
+    }
+
     if (action === "save-routing-settings") {
       try {
         setButtonLoading(button as HTMLButtonElement, true, "保存中");
@@ -11884,25 +12111,11 @@ function bindActions(): void {
     if (action === "save-pool-settings") {
       try {
         setButtonLoading(button as HTMLButtonElement, true, "保存中");
-        setBanner("正在保存动态号池配置...", "info");
+        setBanner("正在保存号池调度开关...", "info");
         await savePoolSettings();
-        setBanner("动态号池配置已保存。启用后将自动调度组内额度。", "success");
+        setBanner("号池调度开关已保存。启用后将自动调度组内额度。", "success");
       } catch (error) {
-        setBanner(`保存号池失败：${String(error)}`, "error");
-      } finally {
-        setButtonLoading(button as HTMLButtonElement, false);
-      }
-      return;
-    }
-
-    if (action === "save-pool-card" && button.dataset.poolId) {
-      try {
-        setButtonLoading(button as HTMLButtonElement, true, "保存中");
-        setBanner("正在保存当前号池配置...", "info");
-        const savedName = await saveSinglePoolSettings(button.dataset.poolId);
-        setBanner(`号池「${savedName}」配置已保存。`, "success");
-      } catch (error) {
-        setBanner(`保存号池配置失败：${String(error)}`, "error");
+        setBanner(`保存号池调度开关失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button as HTMLButtonElement, false);
       }
@@ -12159,7 +12372,7 @@ function bindActions(): void {
           : "";
       const confirmed = await requestConfirmation({
         title: "确认批量删除号池",
-        message: `即将从当前编辑态删除 ${result.deletedPools.length} 个号池：${deletedNames}${suffix}。保存号池配置后会正式生效；若仍有路由规则引用这些号池，请同步检查策略路由配置。是否继续？`,
+        message: `即将删除 ${result.deletedPools.length} 个号池：${deletedNames}${suffix}。确认后会直接保存到网关；若仍有路由规则引用这些号池，请同步检查策略路由配置。是否继续？`,
         confirmLabel: "批量删除",
         tone: "danger",
       });
@@ -12172,11 +12385,10 @@ function bindActions(): void {
         ...settings,
         pools: result.remainingPools,
       };
-      applyPoolSettingsToForm();
-      applyRoutingSettingsToForm();
+      await persistPoolSettingsFromState();
       resetRoutingPreviewResult();
       setBanner(
-        `已从当前编辑态删除 ${result.deletedPools.length} 个号池；保存号池配置后正式生效。`,
+        `已删除 ${result.deletedPools.length} 个号池，并保存到网关。`,
         "success",
       );
       return;
@@ -12186,7 +12398,7 @@ function bindActions(): void {
       const confirmed = await requestConfirmation({
         title: "确认删除号池",
         message:
-          "删除后该号池会立即从当前编辑态中移除；保存号池配置后会正式生效。若仍有路由规则引用该号池，请同步检查策略路由配置。",
+          "删除后该号池会直接从网关配置中移除。若仍有路由规则引用该号池，请同步检查策略路由配置。",
         confirmLabel: "删除号池",
         tone: "danger",
       });
@@ -12202,10 +12414,9 @@ function bindActions(): void {
         pools,
       };
       cleanupDeletedPoolState([button.dataset.poolId]);
-      applyPoolSettingsToForm();
-      applyRoutingSettingsToForm();
+      await persistPoolSettingsFromState();
       resetRoutingPreviewResult();
-      setBanner("已从当前编辑态删除号池；保存号池配置后正式生效。", "success");
+      setBanner("号池已删除，并保存到网关。", "success");
     }
 
     if (action === "pool-toggle-collapse" && button.dataset.poolId) {

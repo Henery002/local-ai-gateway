@@ -13,13 +13,11 @@ describe("provider bootstrap", () => {
 
     expect(bootstrapped.models.map((model) => model.alias)).toEqual([
       "codex-default",
+      "codex-5.5",
       "codex-5.4",
       "codex-5.4-mini",
       "codex-5.3",
       "codex-5.2",
-      "codex-5.2-core",
-      "codex-5.1-max",
-      "codex-5.1-mini",
       "openai-compatible-default",
       "ollama-default",
     ]);
@@ -107,7 +105,7 @@ describe("provider bootstrap", () => {
       {
         codex: {
           upstreamModel: "gpt-5.4",
-          exposedModels: ["gpt-5.4-mini", "gpt-5.2-codex"],
+          exposedModels: ["gpt-5.4-mini", "gpt-5.2"],
         },
       },
     );
@@ -119,7 +117,30 @@ describe("provider bootstrap", () => {
     ]);
     expect(bootstrapped.models.find((model) => model.alias === "codex-5.2"))
       .toMatchObject({
-        providerModelId: "gpt-5.2-codex",
+        providerModelId: "gpt-5.2",
+      });
+  });
+
+  it("normalizes legacy saved Codex model ids before registration", () => {
+    const bootstrapped = bootstrapProvidersFromEnvironment(
+      {},
+      {
+        codex: {
+          upstreamModel: "gpt-5.2-codex",
+          exposedModels: ["gpt-5.4", "gpt-5.2-codex"],
+        },
+      },
+    );
+
+    expect(bootstrapped.models.map((model) => model.alias)).toEqual([
+      "codex-default",
+      "codex-5.4",
+      "codex-5.2",
+    ]);
+    expect(bootstrapped.models[0]?.providerModelId).toBe("gpt-5.2");
+    expect(bootstrapped.models.find((model) => model.alias === "codex-5.2"))
+      .toMatchObject({
+        providerModelId: "gpt-5.2",
       });
   });
 
@@ -128,11 +149,10 @@ describe("provider bootstrap", () => {
       {},
       {
         codex: {
-          upstreamModel: "gpt-5.4",
+          upstreamModel: "gpt-5.5",
           exposedModels: [
+            "gpt-5.5",
             "gpt-5.2",
-            "gpt-5.1-codex-max",
-            "gpt-5.1-codex-mini",
           ],
         },
       },
@@ -140,14 +160,13 @@ describe("provider bootstrap", () => {
 
     expect(bootstrapped.models.map((model) => model.alias)).toEqual([
       "codex-default",
-      "codex-5.2-core",
-      "codex-5.1-max",
-      "codex-5.1-mini",
+      "codex-5.5",
+      "codex-5.2",
     ]);
     expect(
-      bootstrapped.models.find((model) => model.alias === "codex-5.2-core"),
+      bootstrapped.models.find((model) => model.alias === "codex-5.5"),
     ).toMatchObject({
-      providerModelId: "gpt-5.2",
+      providerModelId: "gpt-5.5",
     });
   });
 });
