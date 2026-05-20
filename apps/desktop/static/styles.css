@@ -1487,68 +1487,68 @@ button, input, select {
 
 .access-key-list {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
-.access-key-card {
+.access-key-row {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  grid-template-columns: minmax(150px, 0.9fr) auto minmax(260px, 1.35fr) minmax(360px, 1.6fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
 }
 
-.access-key-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.access-key-actions {
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto auto auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.access-key-card-head div,
-.access-key-meta {
+.access-key-row-main {
   display: grid;
   gap: 4px;
   min-width: 0;
 }
 
-.access-key-card-head strong,
-.access-key-card-head span,
-.access-key-meta strong,
+.access-key-row-main strong,
+.access-key-row-main span,
 .access-key-meta span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.access-key-card-head span,
-.access-key-meta {
+.access-key-row-main strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.access-key-row-main span {
   color: var(--text-secondary);
-  font-size: 13px !important;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.access-key-status-badge {
+  justify-self: start;
 }
 
 .access-key-meta {
+  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 12px !important;
 }
 
 .access-key-actions {
-  flex-wrap: wrap;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: minmax(168px, 1fr) repeat(4, auto);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  justify-content: end;
 }
 
 .access-key-actions .input-field {
-  max-width: 220px;
+  min-width: 168px;
 }
 
 .account-ownership-alert {
@@ -2984,8 +2984,8 @@ button, input, select {
 
 .access-key-manager-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 14px;
   align-items: start;
 }
 
@@ -3005,13 +3005,12 @@ button, input, select {
 
 .access-key-create-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(120px, auto);
   gap: 12px;
   align-items: end;
 }
 
 .access-key-create-form .btn {
-  grid-column: 1 / -1;
   width: 100%;
   justify-content: center;
   min-height: 44px;
@@ -3742,22 +3741,24 @@ button, input, select {
   padding-bottom: var(--space-3);
 }
 
-.provider-registry-card-list {
+.provider-registry-row-list {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
-.provider-registry-card {
+.provider-registry-row {
   display: grid;
+  grid-template-columns: minmax(180px, 0.95fr) minmax(360px, 1.25fr) minmax(300px, 1.45fr);
+  align-items: center;
   gap: 14px;
-  padding: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
   box-shadow: var(--shadow-sm);
 }
 
-.provider-registry-card.active {
+.provider-registry-row.active {
   border-color: color-mix(in oklab, var(--accent-color) 36%, var(--color-border-subtle));
   box-shadow: inset 3px 0 0 var(--accent-color), var(--shadow-sm);
 }
@@ -3798,14 +3799,14 @@ button, input, select {
 .provider-registry-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .provider-registry-fact {
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-elevated);
@@ -3828,7 +3829,7 @@ button, input, select {
 .provider-registry-model-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .provider-registry-model-line {
@@ -3837,8 +3838,8 @@ button, input, select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-width: min(260px, 100%);
-  padding: 10px 12px;
+  min-width: min(220px, 100%);
+  padding: 8px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-elevated);
@@ -5384,7 +5385,6 @@ button, input, select {
     align-self: flex-start;
   }
   .secret-inline-row,
-  .access-key-card-head,
   .access-key-actions,
   .access-policy-panel-head {
     align-items: stretch;
@@ -5398,7 +5398,9 @@ button, input, select {
   .quota-inline-fields.none,
   .access-key-manager-grid,
   .access-key-create-form,
+  .access-key-row,
   .access-key-actions,
+  .provider-registry-row,
   .access-member-form-grid.one,
   .access-member-form-grid.two {
     grid-template-columns: 1fr;

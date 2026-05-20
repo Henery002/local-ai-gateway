@@ -381,7 +381,8 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"access-member-quota-mode\"");
     expect(indexHtml).toContain("id=\"access-member-period-days\"");
     expect(indexHtml).toContain("id=\"access-member-period-token-limit\"");
-    expect(styles).toContain("grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);");
+    expect(styles).toContain(".access-key-row {");
+    expect(styles).toContain("grid-template-columns: 1fr;");
     expect(styles).toContain(".access-key-create-form");
     expect(styles).toContain(".access-key-create-form .btn");
   });
@@ -415,7 +416,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("access-member-new-key-name");
     expect(rendererSource).toContain("access-member-new-key-expires-at");
     expect(rendererSource).toContain("data-access-key-create");
+    expect(rendererSource).toContain("data-access-key-delete");
     expect(rendererSource).toContain("deleteAccessConsumer");
+    expect(rendererSource).toContain("deleteAccessKey");
     expect(rendererSource).toContain("rotateAccessKey");
     expect(rendererSource).toContain("createAccessKeyForConsumer");
     expect(rendererSource).toContain("saveAccessConsumerBasics");
@@ -586,8 +589,8 @@ describe("desktop build output", () => {
     expect(modelsView).toContain("class=\"provider-config-form-grid\"");
     expect(modelsView).toContain("class=\"provider-registry-shell table-container-lite\"");
     expect(modelsView).toContain("id=\"provider-registry\"");
-    expect(rendererSource).toContain("class=\"provider-registry-summary-grid\"");
-    expect(rendererSource).toContain("class=\"provider-registry-card");
+    expect(rendererSource).toContain("class=\"provider-registry-row-list\"");
+    expect(rendererSource).toContain("class=\"provider-registry-row");
     expect(rendererSource).toContain("provider-registry-card-head");
     expect(rendererSource).toContain("provider-registry-models-cell");
     expect(styles).toContain(".model-provider-workbench {");
@@ -599,7 +602,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".provider-config-panel {");
     expect(styles).toContain(".provider-config-form-grid {");
     expect(styles).toContain(".provider-registry-summary-grid {");
-    expect(styles).toContain(".provider-registry-card {");
+    expect(styles).toContain(".provider-registry-row {");
   });
 
   it("renders LAN access controls with api key safety copy", () => {

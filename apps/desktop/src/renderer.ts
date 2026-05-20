@@ -3110,10 +3110,63 @@ function accessKeyBadgeClass(key: SecurityAccessKey): string {
   if (key.status === "enabled" && !isPastIsoDate(key.expiresAt)) {
     return "active";
   }
-  if (key.status === "paused" || key.status === "rotated") {
+  if (key.status === "paused") {
+    return "disabled";
+  }
+  if (key.status === "rotated") {
     return "neutral";
   }
-  return "warning";
+  return "expired";
+}
+
+function formatAccessKeyStatusLabel(key: SecurityAccessKey): string {
+  if (isPastIsoDate(key.expiresAt)) {
+    return "过期";
+  }
+  if (key.status === "enabled") {
+    return "启用中";
+  }
+  return formatAccessStatusLabel(key.status);
+}
+
+function renderAccessKeyRows(keys: SecurityAccessKey[], emptyCopy: string): string {
+  if (keys.length === 0) {
+    return `<div class="empty-card">${emptyCopy}</div>`;
+  }
+  return keys
+    .map((key) => {
+      const statusLabel = formatAccessKeyStatusLabel(key);
+      const toggleLabel = key.status === "paused" ? "启用" : "暂停";
+      return `
+        <div class="access-key-row">
+          <div class="access-key-row-main">
+            <strong>${escapeHtml(key.name || key.id)}</strong>
+            <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
+          </div>
+          <span class="badge ${accessKeyBadgeClass(key)} access-key-status-badge">${escapeHtml(statusLabel)}</span>
+          <div class="access-key-meta">
+            <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
+            <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
+            <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>
+            <span>轮换：${escapeHtml(formatAccessIsoDate(key.rotatedAt, "尚未轮换"))}</span>
+          </div>
+          <div class="access-key-actions">
+            <input
+              class="input-field"
+              type="datetime-local"
+              data-access-key-expiry="${escapeHtml(key.id)}"
+              value="${escapeHtml(formatAccessDateTimeLocalValue(key.expiresAt))}"
+              aria-label="Key 到期时间"
+            />
+            <button class="btn secondary mini" type="button" data-access-key-save-expiry="${escapeHtml(key.id)}">保存到期</button>
+            <button class="btn ghost mini" type="button" data-access-key-toggle="${escapeHtml(key.id)}">${toggleLabel}</button>
+            <button class="btn danger-ghost mini" type="button" data-access-key-rotate="${escapeHtml(key.id)}">轮换</button>
+            <button class="btn danger-ghost mini" type="button" data-access-key-delete="${escapeHtml(key.id)}">删除</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderAccessMemberDrawer(
@@ -3186,47 +3239,10 @@ function renderAccessMemberDrawer(
           })
           .join("")
       : `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
-  const keyRows =
-    keys.length > 0
-      ? keys
-          .map((key) => {
-            const expiredByTime = isPastIsoDate(key.expiresAt);
-            const statusLabel = expiredByTime
-              ? "过期"
-              : formatAccessStatusLabel(key.status);
-            const toggleLabel = key.status === "paused" ? "启用 Key" : "暂停 Key";
-            return `
-              <div class="access-key-card">
-                <div class="access-key-card-head">
-                  <div>
-                    <strong>${escapeHtml(key.name || key.id)}</strong>
-                    <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
-                  </div>
-                  <span class="badge ${accessKeyBadgeClass(key)}">${escapeHtml(statusLabel)}</span>
-                </div>
-                <div class="access-key-meta">
-                  <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
-                  <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
-                  <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>
-                  <span>轮换：${escapeHtml(formatAccessIsoDate(key.rotatedAt, "尚未轮换"))}</span>
-                </div>
-                <div class="access-key-actions">
-                  <input
-                    class="input-field"
-                    type="datetime-local"
-                    data-access-key-expiry="${escapeHtml(key.id)}"
-                    value="${escapeHtml(formatAccessDateTimeLocalValue(key.expiresAt))}"
-                    aria-label="Key 到期时间"
-                  />
-                  <button class="btn secondary mini" type="button" data-access-key-save-expiry="${escapeHtml(key.id)}">保存到期</button>
-                  <button class="btn ghost mini" type="button" data-access-key-toggle="${escapeHtml(key.id)}">${toggleLabel}</button>
-                  <button class="btn danger-ghost mini" type="button" data-access-key-rotate="${escapeHtml(key.id)}">轮换 Key</button>
-                </div>
-              </div>
-            `;
-          })
-          .join("")
-      : `<div class="empty-card">当前成员暂无 Key。可后续补充多 Key 创建能力。</div>`;
+  const keyRows = renderAccessKeyRows(
+    keys,
+    "当前成员暂无 Key。可后续在成员弹窗里新增独立 Key。",
+  );
 
   node.dataset.state = "selected";
   node.innerHTML = `
@@ -5580,7 +5596,7 @@ function renderProviderRegistry(): void {
         .join("");
 
       return `
-      <div class="provider-registry-card${isDefault ? " active" : ""}">
+      <div class="provider-registry-row${isDefault ? " active" : ""}">
         <div class="provider-registry-card-head">
           <div class="provider-registry-main-cell">
             <strong>${escapeHtml(provider.label)}</strong>
@@ -5615,7 +5631,7 @@ function renderProviderRegistry(): void {
     .join("");
 
   container.innerHTML = `
-    <div class="provider-registry-card-list">
+    <div class="provider-registry-row-list">
       ${rows}
     </div>
   `;
@@ -10014,48 +10030,10 @@ function renderAccessMemberModalKeys(consumerId?: string): void {
   const keys = (state.securitySettings?.accessControl.keys ?? []).filter(
     (key) => key.consumerId === consumerId,
   );
-  if (keys.length === 0) {
-    list.innerHTML = `<div class="empty-card">当前成员暂无 Key。可在下方新增一把独立 Key。</div>`;
-    return;
-  }
-  list.innerHTML = keys
-    .map((key) => {
-      const expiredByTime = isPastIsoDate(key.expiresAt);
-      const statusLabel = expiredByTime
-        ? "过期"
-        : formatAccessStatusLabel(key.status);
-      const toggleLabel = key.status === "paused" ? "启用 Key" : "暂停 Key";
-      return `
-        <div class="access-key-card">
-          <div class="access-key-card-head">
-            <div>
-              <strong>${escapeHtml(key.name || key.id)}</strong>
-              <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
-            </div>
-            <span class="badge ${accessKeyBadgeClass(key)}">${escapeHtml(statusLabel)}</span>
-          </div>
-          <div class="access-key-meta">
-            <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
-            <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
-            <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>
-            <span>轮换：${escapeHtml(formatAccessIsoDate(key.rotatedAt, "尚未轮换"))}</span>
-          </div>
-          <div class="access-key-actions">
-            <input
-              class="input-field"
-              type="datetime-local"
-              data-access-key-expiry="${escapeHtml(key.id)}"
-              value="${escapeHtml(formatAccessDateTimeLocalValue(key.expiresAt))}"
-              aria-label="Key 到期时间"
-            />
-            <button class="btn secondary mini" type="button" data-access-key-save-expiry="${escapeHtml(key.id)}">保存到期</button>
-            <button class="btn ghost mini" type="button" data-access-key-toggle="${escapeHtml(key.id)}">${toggleLabel}</button>
-            <button class="btn danger-ghost mini" type="button" data-access-key-rotate="${escapeHtml(key.id)}">轮换 Key</button>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+  list.innerHTML = renderAccessKeyRows(
+    keys,
+    "当前成员暂无 Key。可在上方新增一把独立 Key。",
+  );
 }
 
 function renderAccessMemberModal(): void {
@@ -10775,6 +10753,34 @@ async function rotateAccessKey(keyId: string): Promise<void> {
   setBanner("访问 Key 已轮换。请立即复制一次性 API Key。", "success");
 }
 
+async function deleteAccessKey(keyId: string): Promise<void> {
+  const current = getSecuritySettingsWithDefaults();
+  const target = current.accessControl.keys.find((item) => item.id === keyId);
+  if (!target) {
+    setBanner("未找到目标访问 Key。", "error");
+    return;
+  }
+  const consumer = current.accessControl.consumers.find(
+    (item) => item.id === target.consumerId,
+  );
+  const confirmed = await requestConfirmation({
+    title: "确认删除 API Key",
+    message: `即将删除“${target.name || keyId}”。删除后该 API Key 会立即失去本地网关调用能力；只影响访问控制配置，不会删除账号资产，也不会修改 Cockpit / OpenClaw 原始配置。${consumer ? `所属成员：${consumer.name || consumer.clientTag}` : ""} 是否继续？`,
+    confirmLabel: "删除 Key",
+    tone: "danger",
+  });
+  if (!confirmed) {
+    return;
+  }
+  const nextAccessControl = cloneAccessControlForSave(current.accessControl);
+  nextAccessControl.keys = nextAccessControl.keys.filter(
+    (key) => key.id !== keyId,
+  );
+  await saveAccessControlSettings(nextAccessControl);
+  renderAccessMemberModalKeys(state.editingAccessConsumerId);
+  setBanner("访问 Key 已删除，旧 Key 后续调用会被拒绝。", "success");
+}
+
 function removeSecurityClientMappingDraft(index: number): void {
   if (!state.securitySettings) {
     return;
@@ -11220,6 +11226,21 @@ function bindActions(): void {
         setBanner(`轮换访问 Key 失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(keyRotateTrigger, false);
+      }
+      return;
+    }
+
+    const keyDeleteTrigger = target.closest<HTMLButtonElement>(
+      "[data-access-key-delete]",
+    );
+    if (keyDeleteTrigger?.dataset.accessKeyDelete) {
+      try {
+        setButtonLoading(keyDeleteTrigger, true, "删除中");
+        await deleteAccessKey(keyDeleteTrigger.dataset.accessKeyDelete);
+      } catch (error) {
+        setBanner(`删除访问 Key 失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(keyDeleteTrigger, false);
       }
       return;
     }
