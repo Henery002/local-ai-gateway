@@ -12,6 +12,8 @@ const api = {
     ipcRenderer.invoke("gateway:acknowledge-all-access-alerts"),
   clearAcknowledgedAccessAlerts: () =>
     ipcRenderer.invoke("gateway:clear-acknowledged-access-alerts"),
+  showNativeNotification: (payload: { title: string; body?: string }) =>
+    ipcRenderer.invoke("gateway:show-native-notification", payload),
   getProviderSettings: () => ipcRenderer.invoke("gateway:get-provider-settings"),
   saveProviderSettings: (payload: unknown) =>
     ipcRenderer.invoke("gateway:save-provider-settings", payload),
@@ -47,6 +49,13 @@ const api = {
   copyOpenClawSnippet: () => ipcRenderer.invoke("gateway:copy-openclaw-snippet"),
   copyText: (text: string) => ipcRenderer.invoke("gateway:copy-text", text),
   openLogs: () => ipcRenderer.invoke("gateway:open-logs"),
+  getOperationsStatus: () => ipcRenderer.invoke("gateway:get-operations-status"),
+  readOperationsLog: (sourceId: string, maxLines?: number) =>
+    ipcRenderer.invoke("gateway:read-operations-log", sourceId, maxLines),
+  controlGatewayService: (action: string) =>
+    ipcRenderer.invoke("gateway:control-gateway-service", action),
+  controlCloudflareService: (action: string) =>
+    ipcRenderer.invoke("gateway:control-cloudflare-service", action),
   loginCodexOAuth: () => ipcRenderer.invoke("gateway:login-codex-oauth"),
   submitCodexOAuthInput: (input: string) =>
     ipcRenderer.invoke("gateway:submit-codex-oauth-input", input),

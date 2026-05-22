@@ -43,6 +43,12 @@ const ACTIVE_VIEW_STORAGE_KEY = "local-ai-gateway.desktop.active-view";
 const COLLAPSED_GROUPS_STORAGE_KEY =
   "local-ai-gateway.desktop.collapsed-groups";
 const EXPANDED_GROUPS_STORAGE_KEY = "local-ai-gateway.desktop.expanded-groups";
+const PUBLIC_VALIDATION_STORAGE_KEY =
+  "local-ai-gateway.desktop.public-validation";
+const NOTIFICATION_READ_STORAGE_KEY =
+  "local-ai-gateway.desktop.notification-read";
+const NOTIFICATION_NATIVE_PUSH_STORAGE_KEY =
+  "local-ai-gateway.desktop.notification-native-pushed";
 const STALE_QUOTA_AFTER_REFRESH_ERROR_MS = 15 * 60_000;
 
 declare global {
@@ -59,6 +65,9 @@ declare global {
       ) => Promise<{ ok: boolean; data: AccessAlertEvent }>;
       acknowledgeAllAccessAlerts: () => Promise<AccessAlertAcknowledgeAllResponse>;
       clearAcknowledgedAccessAlerts: () => Promise<AccessAlertClearAcknowledgedResponse>;
+      showNativeNotification?: (
+        payload: { title: string; body?: string },
+      ) => Promise<{ ok: boolean; supported?: boolean }>;
       getProviderSettings: () => Promise<ProviderSettingsResponse>;
       saveProviderSettings: (
         payload: ProviderSettings,
@@ -135,6 +144,17 @@ declare global {
       copyOpenClawSnippet: () => Promise<any>;
       copyText?: (text: string) => Promise<{ ok: boolean }>;
       openLogs: () => Promise<any>;
+      getOperationsStatus?: () => Promise<OperationsStatusResponse>;
+      readOperationsLog?: (
+        sourceId: string,
+        maxLines?: number,
+      ) => Promise<OperationsLogReadResponse>;
+      controlGatewayService?: (
+        action: "install" | "start" | "stop" | "restart",
+      ) => Promise<{ ok: boolean; data: OperationsStatus["gateway"] }>;
+      controlCloudflareService?: (
+        action: "start" | "stop" | "restart",
+      ) => Promise<{ ok: boolean; data: OperationsStatus["cloudflare"] }>;
       loginCodexOAuth: () => Promise<{
         ok: boolean;
         data: {
@@ -302,9 +322,11 @@ type UsageSummaryResponse = {
 
 type AccessAlertEvent = {
   id?: number;
+  dedupeKey?: string;
   timestamp: number;
   severity: "info" | "warning" | "critical";
   consumerId?: string;
+  consumerType?: SecurityAccessConsumer["type"];
   accessKeyId?: string;
   type: string;
   message: string;
@@ -384,6 +406,14 @@ type DashboardHealth = {
     enabledMappingCount?: number;
     lanAccess?: {
       enabled: boolean;
+    };
+    publicAccess?: {
+      enabled: boolean;
+      provider?: "cloudflare-tunnel" | "tailscale-funnel" | "manual-reverse-proxy";
+      publicBaseUrl?: string;
+      tunnelName?: string;
+      hostname?: string;
+      adminSurfaceExposed?: false;
     };
     accessControl?: {
       alertThresholds?: AccessPolicyAlertThresholds & {
@@ -506,6 +536,72 @@ type DashboardHealth = {
       consecutiveFailures: number;
     }>;
   }>;
+};
+
+type OperationsLogSource = {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  sizeBytes?: number;
+  updatedAt?: number;
+};
+
+type LaunchAgentStatus = {
+  label: string;
+  plistPath: string;
+  installed: boolean;
+  loaded: boolean;
+  running: boolean;
+  state?: string;
+  pid?: number;
+  lastExitStatus?: number;
+  error?: string;
+};
+
+type OperationsStatus = {
+  generatedAt: string;
+  gateway: LaunchAgentStatus & {
+    port: number;
+    baseUrl: string;
+    launcherPath: string;
+    outLogPath: string;
+    errLogPath: string;
+    endpointHealthy: boolean;
+    portProcess?: {
+      pid: number;
+      command: string;
+      localGateway: boolean;
+    };
+  };
+  cloudflare: LaunchAgentStatus & {
+    logPath: string;
+    outLogPath: string;
+    errLogPath: string;
+    publicBaseUrl?: string;
+    hostname?: string;
+    tunnelName?: string;
+  };
+  publicProbe?: {
+    url: string;
+    reachable: boolean;
+    status?: number;
+    expectedGatewayAuth?: boolean;
+    error?: string;
+  };
+  logs: OperationsLogSource[];
+};
+
+type OperationsStatusResponse = {
+  ok: boolean;
+  data: OperationsStatus;
+};
+
+type OperationsLogReadResponse = {
+  ok: boolean;
+  source: OperationsLogSource;
+  text: string;
+  maxLines: number;
 };
 
 type StartupCheckTone = "active" | "neutral" | "incomplete" | "disabled";
@@ -791,7 +887,7 @@ function formatPoolVisibilityLabel(
     return "局域网共享";
   }
   if (normalized === "public-ready") {
-    return "外网预留";
+    return "公网共享";
   }
   return "私有";
 }
@@ -803,6 +899,13 @@ type SecuritySettingsInput = {
   clientMappings?: SecurityClientMappingInput[];
   lanAccess?: {
     enabled?: boolean;
+  };
+  publicAccess?: {
+    enabled?: boolean;
+    provider?: "cloudflare-tunnel" | "tailscale-funnel" | "manual-reverse-proxy";
+    publicBaseUrl?: string;
+    tunnelName?: string;
+    hostname?: string;
   };
   accessControl?: SecurityAccessControlInput;
 };
@@ -853,6 +956,12 @@ type SecurityAccessKey = {
 type SecurityAccessKeyInput = SecurityAccessKey & {
   apiKey?: string;
 };
+
+function normalizeEditableAccessConsumerType(
+  value?: string,
+): Extract<SecurityAccessConsumer["type"], "lan-member" | "public-user"> {
+  return value === "public-user" ? "public-user" : "lan-member";
+}
 
 type SecurityAccessPolicy = {
   consumerId: string;
@@ -909,6 +1018,14 @@ type SecuritySettings = {
   clientMappings: SecurityClientMapping[];
   lanAccess: {
     enabled: boolean;
+  };
+  publicAccess: {
+    enabled: boolean;
+    provider: "cloudflare-tunnel" | "tailscale-funnel" | "manual-reverse-proxy";
+    publicBaseUrl?: string;
+    tunnelName?: string;
+    hostname?: string;
+    adminSurfaceExposed?: false;
   };
   accessControl: SecurityAccessControl;
 };
@@ -985,11 +1102,27 @@ type DashboardView =
   | "pools"
   | "models"
   | "usage"
+  | "notifications"
+  | "operations"
   | "system";
 type IntegrationTemplateKey = "openclaw" | "hermes" | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
 type UsageAlertStatusFilter = "all" | "unacknowledged" | "acknowledged";
 type UsageAlertSeverityFilter = "all" | AccessAlertEvent["severity"];
+type UsageAlertConsumerTypeFilter = "all" | SecurityAccessConsumer["type"];
+type NotificationFilter = "all" | "unread" | "read";
+type PublicValidationCheckId = "models" | "chat" | "stream";
+type PublicValidationState = Record<PublicValidationCheckId, boolean>;
+type NotificationItem = {
+  id: string;
+  title: string;
+  body: string;
+  severity: AccessAlertEvent["severity"];
+  source: "access-alert";
+  timestamp: number;
+  read: boolean;
+  alert?: AccessAlertEvent;
+};
 const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
@@ -1002,6 +1135,10 @@ const state: {
   securitySettings?: SecuritySettings;
   systemSettings?: SystemSettings;
   appDataStatus?: AppDataStatus;
+  operationsStatus?: OperationsStatus;
+  operationsLogSourceId?: string;
+  operationsLogText?: string;
+  operationsLogLoading?: boolean;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
   activeView: DashboardView;
@@ -1020,6 +1157,10 @@ const state: {
   usageTrendDimension: UsageTrendDimension;
   usageAlertStatusFilter: UsageAlertStatusFilter;
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
+  usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
+  notificationFilter: NotificationFilter;
+  notificationReadIds: Set<string>;
+  nativePushedNotificationIds: Set<string>;
   routingClientFilter: string;
   routingObserveWindow: RoutingObserveWindow;
   activePoolEventsModalId?: string;
@@ -1028,6 +1169,7 @@ const state: {
   usageDetailsModalOpen?: boolean;
   selectedAccessConsumerId?: string;
   editingAccessConsumerId?: string;
+  publicValidation?: PublicValidationState;
 } = {
   activeView: "overview",
   accountSearch: "",
@@ -1036,11 +1178,16 @@ const state: {
   runtimeDiagnostics: [],
   usageClientFilter: "all",
   usageObserveWindow: "daily",
-  usageTrendDimension: "all",
+  usageTrendDimension: "members",
   usageAlertStatusFilter: "all",
   usageAlertSeverityFilter: "all",
+  usageAlertConsumerTypeFilter: "all",
+  notificationFilter: "all",
+  notificationReadIds: new Set<string>(),
+  nativePushedNotificationIds: new Set<string>(),
   routingClientFilter: "all",
   routingObserveWindow: "5m",
+  operationsLogSourceId: "gateway-runtime",
 };
 
 const DEFAULT_ACCESS_ALERT_THRESHOLDS = {
@@ -1200,15 +1347,15 @@ function usageClientFilterLabel(filter: UsageClientFilter): string {
 
 function formatUsageTrendDimensionLabel(dimension: UsageTrendDimension): string {
   if (dimension === "members") {
-    return "成员";
+    return "成员观测";
   }
   if (dimension === "models") {
-    return "模型";
+    return "模型观测";
   }
   if (dimension === "attribution") {
     return "Key / 号池";
   }
-  return "全部";
+  return "总览";
 }
 
 function buildEmptyUsageCounters(): UsageCounters {
@@ -1626,6 +1773,8 @@ function loadPersistedView(): DashboardView {
       saved === "pools" ||
       saved === "models" ||
       saved === "usage" ||
+      saved === "notifications" ||
+      saved === "operations" ||
       saved === "system"
     ) {
       return saved;
@@ -1694,6 +1843,72 @@ function saveExpandedGroupIds(expandedIds: Set<string>): void {
   } catch {
     // ignore storage failures
   }
+}
+
+function loadPublicValidationState(): PublicValidationState {
+  try {
+    const raw = localStorage.getItem(PUBLIC_VALIDATION_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<PublicValidationState>) : {};
+    return {
+      models: Boolean(parsed.models),
+      chat: Boolean(parsed.chat),
+      stream: Boolean(parsed.stream),
+    };
+  } catch {
+    return {
+      models: false,
+      chat: false,
+      stream: false,
+    };
+  }
+}
+
+function savePublicValidationState(value: PublicValidationState): void {
+  try {
+    localStorage.setItem(PUBLIC_VALIDATION_STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function loadStringSet(storageKey: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function saveStringSet(storageKey: string, value: Set<string>): void {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(value).slice(-500)));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function loadNotificationState(): void {
+  state.notificationReadIds = loadStringSet(NOTIFICATION_READ_STORAGE_KEY);
+  state.nativePushedNotificationIds = loadStringSet(
+    NOTIFICATION_NATIVE_PUSH_STORAGE_KEY,
+  );
+}
+
+function saveNotificationReadState(): void {
+  saveStringSet(NOTIFICATION_READ_STORAGE_KEY, state.notificationReadIds);
+}
+
+function saveNativePushState(): void {
+  saveStringSet(
+    NOTIFICATION_NATIVE_PUSH_STORAGE_KEY,
+    state.nativePushedNotificationIds,
+  );
 }
 
 function initCollapsibleSettingsGroups(): void {
@@ -1967,6 +2182,7 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
   const liveOnly = Boolean(options?.liveOnly);
   renderTopSummary();
   renderUsageOverview();
+  updateNotificationUnreadBadge();
 
   if (state.activeView === "overview") {
     renderOverview();
@@ -2004,6 +2220,16 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
 
   if (state.activeView === "usage") {
     renderUsageWorkbench();
+    return;
+  }
+
+  if (state.activeView === "notifications") {
+    renderNotificationCenter();
+    return;
+  }
+
+  if (state.activeView === "operations") {
+    renderOperations();
     return;
   }
 
@@ -2496,6 +2722,30 @@ function renderDashboardPhaseTwoOverview(): void {
     state.securitySettings?.lanAccess?.enabled ??
       health?.inferenceAuth?.lanAccess?.enabled,
   );
+  const publicEnabled = Boolean(security?.publicAccess?.enabled);
+  const publicBaseUrl = security?.publicAccess?.publicBaseUrl?.trim() ?? "";
+  const publicReadyPoolCount = (state.poolSettings?.pools ?? []).filter(
+    (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "public-ready",
+  ).length;
+  const enabledPublicConsumerIds = new Set(
+    (state.securitySettings?.accessControl?.consumers ?? [])
+      .filter((consumer) => consumer.type === "public-user" && consumer.status === "enabled")
+      .map((consumer) => consumer.id),
+  );
+  const enabledPublicKeyCount = (state.securitySettings?.accessControl?.keys ?? []).filter(
+    (key) =>
+      key.status === "enabled" &&
+      key.hasKey &&
+      !isPastIsoDate(key.expiresAt) &&
+      enabledPublicConsumerIds.has(key.consumerId),
+  ).length;
+  const publicReady =
+    publicEnabled &&
+    hasCredential &&
+    publicBaseUrl.startsWith("https://") &&
+    publicReadyPoolCount > 0 &&
+    enabledPublicConsumerIds.size > 0 &&
+    enabledPublicKeyCount > 0;
   const lanBaseUrl = getLanAccessBaseUrl();
   const localStatus = health?.ok
     ? authEnabled
@@ -2526,11 +2776,34 @@ function renderDashboardPhaseTwoOverview(): void {
   setModeCardStatus(
     '[data-dashboard-mode="lan"]',
     lanEnabled ? (hasCredential ? "active" : "warning") : "disabled",
-    lanEnabled ? (hasCredential ? "二期可用" : "缺少 Key") : "默认关闭",
+    lanEnabled ? (hasCredential ? "已就绪" : "缺少 Key") : "默认关闭",
     lanEnabled ? (hasCredential ? "active" : "warning") : "neutral",
   );
   setText("dashboard-lan-tokens", "0 Token");
-  setText("dashboard-public-status", "三期预留，当前禁用");
+  setText(
+    "dashboard-public-status",
+    publicEnabled
+      ? publicReady
+        ? "公网入口已就绪"
+        : "公网配置待补齐"
+      : "未启用",
+  );
+  setText(
+    "dashboard-public-url",
+    publicEnabled ? publicBaseUrl || "待填写" : "未启用",
+  );
+  setText(
+    "dashboard-public-governance",
+    publicEnabled
+      ? `${enabledPublicConsumerIds.size} 成员 / ${enabledPublicKeyCount} Key / ${publicReadyPoolCount} 号池`
+      : "待启用",
+  );
+  setModeCardStatus(
+    '[data-dashboard-mode="public"]',
+    publicEnabled ? (publicReady ? "active" : "warning") : "disabled",
+    publicEnabled ? (publicReady ? "已就绪" : "待补齐") : "禁用",
+    publicEnabled ? (publicReady ? "active" : "warning") : "neutral",
+  );
   setText(
     "dashboard-token-window",
     summary ? usageWindowLabel(state.usageObserveWindow) : "暂无统计",
@@ -2548,6 +2821,8 @@ function renderAccessAndKeys(): void {
   const authEnabled = Boolean(security?.enabled);
   const hasCredential = hasAnyInferenceCredential(security);
   const lanEnabled = Boolean(security?.lanAccess?.enabled);
+  const publicEnabled = Boolean(security?.publicAccess?.enabled);
+  const publicBaseUrl = security?.publicAccess?.publicBaseUrl?.trim() ?? "";
   const lanBaseUrl = getLanAccessBaseUrl();
   const mappings = state.securitySettings?.clientMappings ?? [];
   const accessControl = state.securitySettings?.accessControl;
@@ -2582,7 +2857,7 @@ function renderAccessAndKeys(): void {
   setModeCardStatus(
     '[data-access-surface="lan"]',
     lanEnabled ? (hasCredential ? "active" : "warning") : "disabled",
-    lanEnabled ? (hasCredential ? "二期可用" : "缺少 Key") : "默认关闭",
+    lanEnabled ? (hasCredential ? "已就绪" : "缺少 Key") : "默认关闭",
     lanEnabled ? (hasCredential ? "active" : "warning") : "neutral",
   );
   setText(
@@ -2594,6 +2869,49 @@ function renderAccessAndKeys(): void {
             health?.inferenceAuth?.enabledMappingCount ??
             0,
         )} 个兼容 key`,
+  );
+  const publicReadyPoolCount = (state.poolSettings?.pools ?? []).filter(
+    (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "public-ready",
+  ).length;
+  const enabledPublicConsumerIds = new Set(
+    (accessControl?.consumers ?? [])
+      .filter((consumer) => consumer.type === "public-user" && consumer.status === "enabled")
+      .map((consumer) => consumer.id),
+  );
+  const enabledPublicKeyCount = (accessControl?.keys ?? []).filter(
+    (key) =>
+      key.status === "enabled" &&
+      key.hasKey &&
+      !isPastIsoDate(key.expiresAt) &&
+      enabledPublicConsumerIds.has(key.consumerId),
+  ).length;
+  const publicReady =
+    publicEnabled &&
+    hasCredential &&
+    publicBaseUrl.startsWith("https://") &&
+    publicReadyPoolCount > 0 &&
+    enabledPublicConsumerIds.size > 0 &&
+    enabledPublicKeyCount > 0;
+  setText(
+    "access-public-status",
+    publicEnabled
+      ? publicReady
+        ? "公网入口已就绪"
+        : "公网配置待补齐"
+      : "未启用",
+  );
+  setText("access-public-url", publicEnabled ? publicBaseUrl || "待填写" : "未启用");
+  setText(
+    "access-public-policy",
+    publicEnabled
+      ? `${enabledPublicConsumerIds.size} 成员 / ${enabledPublicKeyCount} Key / ${publicReadyPoolCount} 号池`
+      : "待配置",
+  );
+  setModeCardStatus(
+    '[data-access-surface="public"]',
+    publicEnabled ? (publicReady ? "active" : "warning") : "disabled",
+    publicEnabled ? (publicReady ? "已就绪" : "待补齐") : "禁用",
+    publicEnabled ? (publicReady ? "active" : "warning") : "neutral",
   );
 
   renderAccessConsumerList(mappings, accessControl);
@@ -2721,7 +3039,7 @@ function renderAccessConsumerList(
 
   if (mappings.length === 0) {
     node.innerHTML = `
-      <div class="empty-card">当前暂无访问者或客户端密钥映射。后续可在这里创建 LAN 成员并分发独立 API key。</div>
+      <div class="empty-card">当前暂无访问者或客户端密钥映射。可在这里创建成员并分发独立 API key。</div>
     `;
     return;
   }
@@ -3241,7 +3559,7 @@ function renderAccessMemberDrawer(
       : `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
   const keyRows = renderAccessKeyRows(
     keys,
-    "当前成员暂无 Key。可后续在成员弹窗里新增独立 Key。",
+    "当前成员暂无 Key。可在成员弹窗里新增独立 Key。",
   );
 
   node.dataset.state = "selected";
@@ -3408,6 +3726,30 @@ function renderAccessMemberDrawer(
           />
         </div>
         <div class="form-field">
+          <label>单请求输入 Token</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-max-input-tokens="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.limits?.maxInputTokens === "number" ? String(policy.limits.maxInputTokens) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
+          <label>单请求输出 Token</label>
+          <input
+            class="input-field"
+            type="number"
+            min="1"
+            step="1"
+            data-access-policy-max-output-tokens="${escapeHtml(selectedConsumer.id)}"
+            value="${typeof policy?.limits?.maxOutputTokens === "number" ? String(policy.limits.maxOutputTokens) : ""}"
+            placeholder="留空表示不限制"
+          />
+        </div>
+        <div class="form-field">
           <label>策略到期时间</label>
           <input
             class="input-field"
@@ -3509,7 +3851,9 @@ function renderAccessPolicyPreview(): void {
   const policiesWithRateLimit = policies.filter(
     (policy) =>
       typeof policy.limits?.requestsPerMinute === "number" ||
-      typeof policy.limits?.maxConcurrentRequests === "number",
+      typeof policy.limits?.maxConcurrentRequests === "number" ||
+      typeof policy.limits?.maxInputTokens === "number" ||
+      typeof policy.limits?.maxOutputTokens === "number",
   ).length;
   const policiesWithExpiry = policies.filter((policy) =>
     Boolean(policy.expiresAt),
@@ -3724,7 +4068,7 @@ function renderDashboardAlertSummary(): void {
       <div class="dashboard-summary-item">
         <div>
           <strong>暂无活动告警</strong>
-          <span>共享能力仍默认关闭，外网共享处于三期预留态。</span>
+          <span>共享能力仍默认关闭，公网共享尚未启用。</span>
         </div>
         <small>normal</small>
       </div>
@@ -3753,8 +4097,7 @@ function renderUsageOverview(): void {
     return;
   }
 
-  const shouldShowUsageOverview =
-    state.activeView === "overview" || state.activeView === "usage";
+  const shouldShowUsageOverview = state.activeView === "overview";
   container.hidden = !shouldShowUsageOverview;
   if (!shouldShowUsageOverview) {
     return;
@@ -3790,7 +4133,7 @@ function renderUsageOverview(): void {
       </div>
       <div class="usage-observe-controls">
         <button class="btn secondary mini" data-action="open-usage-details">查看明细</button>
-        <button class="btn secondary mini" data-action="reset-telemetry">清除统计</button>
+        <button class="btn secondary mini" data-action="reset-telemetry">清运行态</button>
         <div class="usage-filter-group">
           <label for="usage-client-filter">统计对象</label>
           <select id="usage-client-filter" class="input-field usage-select">
@@ -3858,6 +4201,8 @@ function renderUsageWorkbench(): void {
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
   renderUsageAlertEvents();
+  renderUsageAlertSummaryPreview();
+  renderUsageAlertEventsPreview();
 }
 
 function syncUsageTrendDimensionControls(): void {
@@ -3869,6 +4214,452 @@ function syncUsageTrendDimensionControls(): void {
           ? "true"
           : "false";
     });
+}
+
+type UsageRankingRow = {
+  id: string;
+  label: string;
+  detail: string;
+  usage: UsageCounters;
+};
+
+function getUsageRankingRows(summary: UsageWindowSummary): UsageRankingRow[] {
+  if (state.usageTrendDimension === "models") {
+    return summary.models.map((item) => ({
+      id: item.modelAlias,
+      label: item.modelAlias,
+      detail: `${formatCompactCount(item.usage.requestCount)} 次请求`,
+      usage: item.usage,
+    }));
+  }
+  if (state.usageTrendDimension === "attribution") {
+    const accessKeys = new Map(
+      (state.securitySettings?.accessControl?.keys ?? []).map((key) => [
+        key.id,
+        key,
+      ]),
+    );
+    const keyRows = summary.accessKeys.map((item) => {
+      const key = accessKeys.get(item.accessKeyId);
+      return {
+        id: `key:${item.accessKeyId}`,
+        label: key?.name || item.clientTag || item.accessKeyId,
+        detail: [
+          "Access Key",
+          key ? `${key.keyPrefix}...${key.keySuffix}` : undefined,
+          `${formatCompactCount(item.usage.requestCount)} 次请求`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        usage: item.usage,
+      };
+    });
+    const pools = new Map(
+      (state.poolSettings?.pools ?? []).map((pool) => [pool.id, pool]),
+    );
+    const poolRows = (summary.pools ?? []).map((item) => {
+      const pool = pools.get(item.poolId);
+      return {
+        id: `pool:${item.poolId}`,
+        label: pool?.name || item.poolId,
+        detail: [
+          "号池",
+          pool?.visibility ? formatPoolVisibilityLabel(pool.visibility) : undefined,
+          `${formatCompactCount(item.usage.requestCount)} 次请求`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        usage: item.usage,
+      };
+    });
+    return [...keyRows, ...poolRows];
+  }
+  if (state.usageTrendDimension === "all") {
+    return [
+      ...summary.consumers.map((item) => ({
+        id: `consumer:${item.consumerId}`,
+        label: getAccessConsumerDisplayName(item.consumerId, item.clientTag),
+        detail: `成员 · ${formatCompactCount(item.usage.requestCount)} 次请求`,
+        usage: item.usage,
+      })),
+      ...summary.models.map((item) => ({
+        id: `model:${item.modelAlias}`,
+        label: item.modelAlias,
+        detail: `模型 · ${formatCompactCount(item.usage.requestCount)} 次请求`,
+        usage: item.usage,
+      })),
+    ];
+  }
+  return summary.consumers.map((item) => ({
+    id: item.consumerId,
+    label: getAccessConsumerDisplayName(item.consumerId, item.clientTag),
+    detail: [
+      item.clientTag ? `clientTag: ${item.clientTag}` : undefined,
+      `${formatCompactCount(item.usage.requestCount)} 次请求`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    usage: item.usage,
+  }));
+}
+
+function getUsageTrendTimelinePoints(
+  summary: UsageWindowSummary,
+): Array<{ bucketStart: number; usage: UsageCounters }> {
+  if (state.usageObserveWindow !== "daily") {
+    return [];
+  }
+  const merge = new Map<number, UsageCounters>();
+  const addPoint = (bucketStart: number, usage: UsageCounters) => {
+    const current = merge.get(bucketStart) ?? buildEmptyUsageCounters();
+    merge.set(bucketStart, {
+      requestCount: current.requestCount + usage.requestCount,
+      successCount: current.successCount + usage.successCount,
+      failureCount: current.failureCount + usage.failureCount,
+      totalLatencyMs: current.totalLatencyMs + usage.totalLatencyMs,
+      inputTokens: current.inputTokens + usage.inputTokens,
+      outputTokens: current.outputTokens + usage.outputTokens,
+      totalTokens: current.totalTokens + usage.totalTokens,
+      cachedTokens: current.cachedTokens + usage.cachedTokens,
+      reasoningTokens: current.reasoningTokens + usage.reasoningTokens,
+    });
+  };
+  const pushTimeline = (
+    timeline:
+      | UsageConsumerTimelinePoint[]
+      | UsageModelTimelinePoint[]
+      | UsageAccessKeyTimelinePoint[]
+      | UsagePoolTimelinePoint[]
+      | undefined,
+  ) => {
+    for (const point of timeline ?? []) {
+      addPoint(point.bucketStart, point.usage);
+    }
+  };
+
+  if (state.usageTrendDimension === "models") {
+    pushTimeline(summary.modelTimeline);
+  } else if (state.usageTrendDimension === "attribution") {
+    pushTimeline(summary.accessKeyTimeline);
+    pushTimeline(summary.poolTimeline);
+  } else {
+    pushTimeline(summary.consumerTimeline);
+  }
+
+  const hourMs = 60 * 60 * 1000;
+  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
+  const firstBucketStart = currentHour - 23 * hourMs;
+  return Array.from({ length: 24 }, (_, index) => {
+    const bucketStart = firstBucketStart + index * hourMs;
+    return {
+      bucketStart,
+      usage: merge.get(bucketStart) ?? buildEmptyUsageCounters(),
+    };
+  });
+}
+
+function renderUsageTokenTrendLine(summary: UsageWindowSummary): string {
+  const points = getUsageTrendTimelinePoints(summary);
+  if (points.length === 0 || points.every((point) => point.usage.totalTokens <= 0)) {
+    return renderUsageTrendEmptyState(
+      "当前视角暂无小时曲线",
+      "日窗口会展示最近 24 小时走势；周、月和累计窗口先用于排行与构成观察。",
+    );
+  }
+  const width = 720;
+  const height = 220;
+  const paddingX = 24;
+  const paddingY = 18;
+  const maxValue = Math.max(...points.map((point) => point.usage.totalTokens), 1);
+  const coordinates = points.map((point, index) => {
+    const x =
+      paddingX +
+      (index / Math.max(points.length - 1, 1)) * (width - paddingX * 2);
+    const y =
+      height -
+      paddingY -
+      (point.usage.totalTokens / maxValue) * (height - paddingY * 2);
+    return { x, y, point };
+  });
+  const polyline = coordinates
+    .map((item) => `${item.x.toFixed(1)},${item.y.toFixed(1)}`)
+    .join(" ");
+  const latest = [...points].reverse().find((point) => point.usage.totalTokens > 0);
+  const peak = points.reduce((winner, point) =>
+    point.usage.totalTokens > winner.usage.totalTokens ? point : winner,
+  );
+
+  return `
+    <div class="usage-line-chart">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>Token 消耗走势</strong>
+          <span>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))} · 最近 24 小时</span>
+        </div>
+        <span class="badge neutral">曲线图</span>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Token 消耗走势曲线">
+        <polyline class="usage-line-grid" points="${paddingX},${height - paddingY} ${width - paddingX},${height - paddingY}"></polyline>
+        <polyline class="usage-line-series" points="${polyline}"></polyline>
+        ${coordinates
+          .filter((item) => item.point.usage.totalTokens > 0)
+          .map(
+            (item) => `
+              <circle
+                class="usage-line-point"
+                cx="${item.x.toFixed(1)}"
+                cy="${item.y.toFixed(1)}"
+                r="3.5"
+              >
+                <title>${escapeHtml(`${formatUsageHourLabel(item.point.bucketStart)} · ${formatCompactCount(item.point.usage.totalTokens)} Token`)}</title>
+              </circle>
+            `,
+          )
+          .join("")}
+      </svg>
+      <div class="usage-chart-legend">
+        <span>峰值：${escapeHtml(formatCompactCount(peak.usage.totalTokens))} Token · ${escapeHtml(formatUsageHourLabel(peak.bucketStart))}</span>
+        <span>最近非零小时：${escapeHtml(latest ? `${formatUsageHourLabel(latest.bucketStart)} · ${formatCompactCount(latest.usage.totalTokens)} Token` : "暂无")}</span>
+        <span>总量：${escapeHtml(formatCompactCount(summary.totals.totalTokens))} Token</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageRankingBars(summary: UsageWindowSummary): string {
+  const rows = getUsageRankingRows(summary)
+    .filter((row) => row.usage.totalTokens > 0 || row.usage.requestCount > 0)
+    .sort((left, right) => right.usage.totalTokens - left.usage.totalTokens)
+    .slice(0, 8);
+  if (rows.length === 0) {
+    return renderUsageTrendEmptyState(
+      "当前视角暂无排行数据",
+      "成员、模型、Key 或号池有真实请求后，这里会按 Token 消耗排序展示 Top 项。",
+    );
+  }
+  const maxValue = Math.max(...rows.map((row) => row.usage.totalTokens), 1);
+  return `
+    <div class="usage-ranking-chart">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}排行</strong>
+          <span>按 Token 消耗排序，辅助判断主要成本来源</span>
+        </div>
+        <span class="badge neutral">柱状图</span>
+      </div>
+      <div class="usage-ranking-list">
+        ${rows
+          .map((row, index) => {
+            const width = Math.max(4, Math.round((row.usage.totalTokens / maxValue) * 100));
+            return `
+              <div class="usage-ranking-row">
+                <span class="usage-ranking-index">${escapeHtml(String(index + 1))}</span>
+                <div class="usage-ranking-main">
+                  <div class="usage-ranking-meta">
+                    <strong>${escapeHtml(row.label)}</strong>
+                    <span>${escapeHtml(formatCompactCount(row.usage.totalTokens))} Token · ${escapeHtml(formatCompactCount(row.usage.requestCount))} 次</span>
+                  </div>
+                  <div class="usage-ranking-track">
+                    <div
+                      class="usage-ranking-bar"
+                      style="width: ${width}%"
+                      data-usage-tooltip="${escapeHtml(row.label)}"
+                      title="${escapeHtml(row.detail)}"
+                    ></div>
+                  </div>
+                  <small>${escapeHtml(row.detail)}</small>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageTokenMixDonut(summary: UsageWindowSummary): string {
+  const input = Math.max(0, summary.totals.inputTokens);
+  const output = Math.max(0, summary.totals.outputTokens);
+  const cached = Math.max(0, summary.totals.cachedTokens);
+  const reasoning = Math.max(0, summary.totals.reasoningTokens);
+  const total = Math.max(1, input + output + cached + reasoning);
+  const inputEnd = (input / total) * 100;
+  const outputEnd = inputEnd + (output / total) * 100;
+  const cachedEnd = outputEnd + (cached / total) * 100;
+  const style = `--input-end: ${inputEnd.toFixed(2)}%; --output-end: ${outputEnd.toFixed(2)}%; --cached-end: ${cachedEnd.toFixed(2)}%;`;
+  const segments = [
+    { label: "输入", value: input, className: "input" },
+    { label: "输出", value: output, className: "output" },
+    { label: "缓存", value: cached, className: "cached" },
+    { label: "思考", value: reasoning, className: "reasoning" },
+  ];
+
+  return `
+    <div class="usage-donut-chart">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>Token 构成</strong>
+          <span>输入、输出、缓存和思考 Token 的窗口占比</span>
+        </div>
+        <span class="badge neutral">饼图</span>
+      </div>
+      <div class="usage-donut-body">
+        <div class="usage-donut-visual" style="${escapeHtml(style)}">
+          <strong>${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</strong>
+          <span>Total</span>
+        </div>
+        <div class="usage-donut-legend">
+          ${segments
+            .map(
+              (segment) => `
+                <div class="usage-donut-legend-row">
+                  <span class="usage-donut-dot ${escapeHtml(segment.className)}"></span>
+                  <strong>${escapeHtml(segment.label)}</strong>
+                  <span>${escapeHtml(formatCompactCount(segment.value))}</span>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageOutcomeBars(summary: UsageWindowSummary): string {
+  const success = Math.max(0, summary.totals.successCount);
+  const failure = Math.max(0, summary.totals.failureCount);
+  const total = Math.max(1, success + failure);
+  const successWidth = Math.round((success / total) * 100);
+  const failureWidth = Math.round((failure / total) * 100);
+  return `
+    <div class="usage-outcome-chart">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>请求结果</strong>
+          <span>成功 / 失败请求占比，用于快速定位异常窗口</span>
+        </div>
+        <span class="badge neutral">堆叠条</span>
+      </div>
+      <div class="usage-outcome-track" role="img" aria-label="请求成功失败占比">
+        <div class="usage-outcome-segment success" style="width: ${successWidth}%"></div>
+        <div class="usage-outcome-segment failure" style="width: ${failureWidth}%"></div>
+      </div>
+      <div class="usage-chart-legend">
+        <span>成功：${escapeHtml(formatCompactCount(success))} · ${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
+        <span>失败：${escapeHtml(formatCompactCount(failure))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageLatencySnapshot(summary: UsageWindowSummary): string {
+  const averageLatency =
+    summary.totals.successCount > 0
+      ? summary.totals.totalLatencyMs / summary.totals.successCount
+      : 0;
+  const latencyBuckets = [
+    { label: "< 1s", value: Math.max(0, 1000 - averageLatency), tone: "success" },
+    { label: "平均", value: averageLatency, tone: "primary" },
+    { label: "失败量", value: summary.totals.failureCount * 100, tone: "warning" },
+  ];
+  const maxValue = Math.max(...latencyBuckets.map((item) => item.value), 1);
+  return `
+    <div class="usage-latency-chart">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>延迟与稳定性</strong>
+          <span>把平均延迟和失败压力放在同一观察区</span>
+        </div>
+        <span class="badge neutral">健康条</span>
+      </div>
+      <div class="usage-mini-bar-list">
+        ${latencyBuckets
+          .map((item) => {
+            const width = Math.max(6, Math.round((item.value / maxValue) * 100));
+            return `
+              <div class="usage-mini-bar-row">
+                <span>${escapeHtml(item.label)}</span>
+                <div class="usage-mini-bar-track">
+                  <div class="usage-mini-bar ${escapeHtml(item.tone)}" style="width: ${width}%"></div>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+      <div class="usage-chart-legend">
+        <span>平均延迟：${escapeHtml(formatUsageLatency(summary.totals))}</span>
+        <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageScopeMatrix(summary: UsageWindowSummary): string {
+  const items = [
+    { label: "成员", value: summary.consumers.length, detail: "consumer" },
+    { label: "Access Key", value: summary.accessKeys.length, detail: "key" },
+    { label: "号池", value: (summary.pools ?? []).length, detail: "pool" },
+    { label: "模型", value: summary.models.length, detail: "model" },
+  ];
+  return `
+    <div class="usage-scope-matrix">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>归因覆盖</strong>
+          <span>当前窗口已有数据的业务维度覆盖情况</span>
+        </div>
+        <span class="badge neutral">矩阵</span>
+      </div>
+      <div class="usage-scope-grid">
+        ${items
+          .map(
+            (item) => `
+              <div class="usage-scope-cell">
+                <small>${escapeHtml(item.label)}</small>
+                <strong>${escapeHtml(formatCompactCount(item.value))}</strong>
+                <span>${escapeHtml(item.detail)}</span>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
+  return `
+    <div id="usage-operations-dashboard" class="usage-operations-dashboard">
+      <div class="usage-operations-main">
+        ${renderUsageTokenTrendLine(summary)}
+      </div>
+      <div class="usage-operations-side">
+        ${renderUsageTokenMixDonut(summary)}
+      </div>
+      <div class="usage-operations-wide">
+        ${renderUsageRankingBars(summary)}
+      </div>
+      <div class="usage-operations-card">
+        ${renderUsageOutcomeBars(summary)}
+      </div>
+      <div class="usage-operations-card">
+        ${renderUsageLatencySnapshot(summary)}
+      </div>
+      <div class="usage-operations-wide">
+        ${renderUsageScopeMatrix(summary)}
+      </div>
+    </div>
+    <div class="usage-chart-legend">
+      <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
+      <span>观测：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
+      <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
+      <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
+      <span>平均延迟：${escapeHtml(formatUsageLatency(summary.totals))}</span>
+    </div>
+  `;
 }
 
 function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
@@ -3884,125 +4675,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     return;
   }
 
-  const consumerTimeline =
-    state.usageObserveWindow === "daily" ? summary.consumerTimeline ?? [] : [];
-  const modelTimeline =
-    state.usageObserveWindow === "daily" ? summary.modelTimeline ?? [] : [];
-  const accessKeyTimeline =
-    state.usageObserveWindow === "daily" ? summary.accessKeyTimeline ?? [] : [];
-  const poolTimeline =
-    state.usageObserveWindow === "daily" ? summary.poolTimeline ?? [] : [];
-  const shouldShowMembers =
-    state.usageTrendDimension === "all" ||
-    state.usageTrendDimension === "members";
-  const shouldShowModels =
-    state.usageTrendDimension === "all" ||
-    state.usageTrendDimension === "models";
-  const shouldShowAttribution =
-    state.usageTrendDimension === "all" ||
-    state.usageTrendDimension === "attribution";
-  if (
-    state.usageObserveWindow === "daily" &&
-    state.usageTrendDimension === "members" &&
-    consumerTimeline.length === 0
-  ) {
-    node.innerHTML = renderUsageTrendEmptyState(
-      "当前筛选维度暂无 24h 趋势数据",
-      "已存在窗口用量，但最近 24 小时还没有可归因到访问成员的请求。可切换到“全部”查看 Token 结构。",
-    );
-    return;
-  }
-  if (
-    state.usageObserveWindow === "daily" &&
-    state.usageTrendDimension === "models" &&
-    modelTimeline.length === 0
-  ) {
-    node.innerHTML = renderUsageTrendEmptyState(
-      "当前筛选维度暂无 24h 趋势数据",
-      "已存在窗口用量，但最近 24 小时还没有可聚合的模型维度记录。可切换到“全部”查看 Token 结构。",
-    );
-    return;
-  }
-  if (
-    state.usageObserveWindow === "daily" &&
-    state.usageTrendDimension === "attribution" &&
-    accessKeyTimeline.length === 0 &&
-    poolTimeline.length === 0
-  ) {
-    node.innerHTML = renderUsageTrendEmptyState(
-      "当前筛选维度暂无 24h 趋势数据",
-      "已存在窗口用量，但最近 24 小时还没有 Access Key 或号池归因记录。新成员 Key 请求经过后会自动出现在这里。",
-    );
-    return;
-  }
-  if (shouldShowMembers && consumerTimeline.length > 0) {
-    renderUsageConsumerTimelineChart(
-      node,
-      summary,
-      consumerTimeline,
-      shouldShowModels ? modelTimeline : [],
-      shouldShowAttribution ? accessKeyTimeline : [],
-      shouldShowAttribution ? poolTimeline : [],
-    );
-    return;
-  }
-
-  const bars = [
-    {
-      label: "输入",
-      value: summary.totals.inputTokens,
-      className: "primary",
-    },
-    {
-      label: "输出",
-      value: summary.totals.outputTokens,
-      className: "secondary",
-    },
-    {
-      label: "缓存",
-      value: summary.totals.cachedTokens,
-      className: "tertiary",
-    },
-    {
-      label: "思考",
-      value: summary.totals.reasoningTokens,
-      className: "quaternary",
-    },
-  ];
-  const maxValue = Math.max(...bars.map((item) => item.value), 1);
-
-  node.innerHTML = `
-    <div class="usage-chart-bars">
-      ${bars
-        .map((item) => {
-          const height = Math.max(10, Math.round((item.value / maxValue) * 100));
-          return `
-            <div class="usage-chart-bar-wrap">
-              <div class="usage-chart-bar-track">
-                <div
-                  class="usage-chart-bar ${item.className}"
-                  style="height: ${height}%"
-                  data-usage-tooltip="${escapeHtml(item.label)}"
-                  title="${escapeHtml(item.label)} ${escapeHtml(formatCompactCount(item.value))} Token"
-                ></div>
-              </div>
-              <strong>${escapeHtml(formatCompactCount(item.value))}</strong>
-              <span>${escapeHtml(item.label)}</span>
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-    <div class="usage-chart-legend">
-      <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
-      <span>趋势维度：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
-      <span>总 Token：${escapeHtml(formatCompactCount(summary.totals.totalTokens))}</span>
-      <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
-      <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
-    </div>
-    ${shouldShowModels ? renderUsageModelTimelinePanel(modelTimeline) : ""}
-    ${shouldShowAttribution ? renderUsageAttributionTimelinePanel(accessKeyTimeline, poolTimeline) : ""}
-  `;
+  node.innerHTML = renderUsageOperationsDashboard(summary);
 }
 
 function renderUsageTrendEmptyState(title: string, message: string): string {
@@ -4749,6 +5422,89 @@ function renderUsageAlertRules(summary: UsageWindowSummary | undefined): void {
     .join("");
 }
 
+function renderUsageAlertSummaryPreview(): void {
+  const node = document.getElementById("usage-alert-summary-preview");
+  if (!node) {
+    return;
+  }
+  const rules = Array.from(
+    document.querySelectorAll<HTMLElement>("#usage-alert-rule-list .usage-alert-rule"),
+  );
+  const needsAttention = rules.filter((rule) =>
+    rule.textContent?.includes("需检查") ||
+    rule.textContent?.includes("偏高") ||
+    rule.textContent?.includes("未确认") ||
+    rule.textContent?.includes("待配置"),
+  ).length;
+  node.textContent =
+    rules.length > 0
+      ? `${formatCompactCount(needsAttention)} 项需要关注，${formatCompactCount(rules.length)} 项治理规则`
+      : "暂无治理摘要。";
+}
+
+function renderUsageAlertEventsPreview(): void {
+  const node = document.getElementById("usage-alert-events-preview");
+  if (!node) {
+    return;
+  }
+  const events = state.accessAlerts ?? [];
+  const unread = deriveNotificationItems().filter((item) => !item.read).length;
+  const unacknowledged = events.filter((event) => !event.acknowledgedAt).length;
+  node.textContent =
+    events.length > 0
+      ? `${formatCompactCount(unacknowledged)} 条未确认，${formatCompactCount(unread)} 条未读消息`
+      : "暂无正式告警事件。";
+}
+
+function setModalVisibility(id: string, visible: boolean): void {
+  const modal = document.getElementById(id);
+  if (modal) {
+    modal.hidden = !visible;
+  }
+}
+
+function openUsageAlertsModal(): void {
+  renderUsageAlertRules(getActiveUsageWindowSummary());
+  renderUsageAlertSummaryPreview();
+  setModalVisibility("usage-alerts-modal", true);
+}
+
+function closeUsageAlertsModal(): void {
+  setModalVisibility("usage-alerts-modal", false);
+}
+
+function openUsageAlertEventsModal(): void {
+  renderUsageAlertEvents();
+  renderUsageAlertEventsPreview();
+  setModalVisibility("usage-alert-events-modal", true);
+}
+
+function closeUsageAlertEventsModal(): void {
+  setModalVisibility("usage-alert-events-modal", false);
+}
+
+function openSystemDiagnosticsModal(modalId: string): void {
+  if (!modalId.startsWith("system-")) {
+    return;
+  }
+  renderDiagnostics();
+  setModalVisibility(modalId, true);
+}
+
+function closeSystemDiagnosticsModal(modalId?: string): void {
+  const targetIds = modalId
+    ? [modalId]
+    : [
+        "system-lan-template-modal",
+        "system-public-template-modal",
+        "system-public-validation-modal",
+        "system-troubleshooting-modal",
+      ];
+  for (const id of targetIds) {
+    setModalVisibility(id, false);
+  }
+}
+
 function formatAccessAlertSeverityLabel(severity: AccessAlertEvent["severity"]): string {
   if (severity === "critical") {
     return "严重";
@@ -4769,6 +5525,48 @@ function accessAlertSeverityTone(severity: AccessAlertEvent["severity"]): string
   return "neutral";
 }
 
+function getAccessAlertConsumerType(
+  event: AccessAlertEvent,
+): SecurityAccessConsumer["type"] | undefined {
+  if (event.consumerType) {
+    return event.consumerType;
+  }
+  const value = event.details?.consumerType;
+  return value === "local-owner" ||
+    value === "lan-member" ||
+    value === "public-user" ||
+    value === "system-client"
+    ? value
+    : undefined;
+}
+
+function formatAccessAlertConsumerTypeLabel(
+  consumerType: SecurityAccessConsumer["type"],
+): string {
+  if (consumerType === "public-user") {
+    return "公网成员";
+  }
+  if (consumerType === "lan-member") {
+    return "LAN 成员";
+  }
+  if (consumerType === "local-owner") {
+    return "本机自用";
+  }
+  return "系统客户端";
+}
+
+function accessAlertConsumerTypeTone(
+  consumerType: SecurityAccessConsumer["type"],
+): string {
+  if (consumerType === "public-user") {
+    return "warning";
+  }
+  if (consumerType === "lan-member") {
+    return "active";
+  }
+  return "neutral";
+}
+
 function renderUsageAlertEvents(): void {
   const node = document.getElementById("usage-alert-event-list");
   if (!node) {
@@ -4781,14 +5579,21 @@ function renderUsageAlertEvents(): void {
   const severityFilter = document.getElementById(
     "usage-alert-severity-filter",
   ) as HTMLSelectElement | null;
+  const consumerTypeFilter = document.getElementById(
+    "usage-alert-consumer-type-filter",
+  ) as HTMLSelectElement | null;
   if (statusFilter) {
     statusFilter.value = state.usageAlertStatusFilter;
   }
   if (severityFilter) {
     severityFilter.value = state.usageAlertSeverityFilter;
   }
+  if (consumerTypeFilter) {
+    consumerTypeFilter.value = state.usageAlertConsumerTypeFilter;
+  }
 
   const events = (state.accessAlerts ?? []).filter((event) => {
+    const consumerType = getAccessAlertConsumerType(event);
     if (
       state.usageAlertStatusFilter === "unacknowledged" &&
       event.acknowledgedAt
@@ -4807,6 +5612,12 @@ function renderUsageAlertEvents(): void {
     ) {
       return false;
     }
+    if (
+      state.usageAlertConsumerTypeFilter !== "all" &&
+      consumerType !== state.usageAlertConsumerTypeFilter
+    ) {
+      return false;
+    }
     return true;
   });
   if (!events.length) {
@@ -4818,7 +5629,9 @@ function renderUsageAlertEvents(): void {
     const isAcknowledged = Boolean(event.acknowledgedAt);
     const occurrenceCount = event.occurrenceCount ?? 1;
     const lastSeenAt = event.lastSeenAt ?? event.timestamp;
+    const consumerType = getAccessAlertConsumerType(event);
     const meta = [
+      consumerType ? formatAccessAlertConsumerTypeLabel(consumerType) : undefined,
       event.consumerId ? `成员 ${event.consumerId}` : undefined,
       event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
       `首次 ${formatDate(event.timestamp)}`,
@@ -4840,6 +5653,7 @@ function renderUsageAlertEvents(): void {
             <div class="usage-alert-event-title">
               <strong>${escapeHtml(event.type)}</strong>
               <span class="badge ${escapeHtml(accessAlertSeverityTone(event.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(event.severity))}</span>
+              ${consumerType ? `<span class="badge ${escapeHtml(accessAlertConsumerTypeTone(consumerType))}">${escapeHtml(formatAccessAlertConsumerTypeLabel(consumerType))}</span>` : ""}
               <span class="badge ${isAcknowledged ? "active" : "warning"}">${escapeHtml(ackText)}</span>
             </div>
             <p>${escapeHtml(event.message)}</p>
@@ -4873,6 +5687,396 @@ function renderUsageAlertEvents(): void {
       `,
     )
     .join("");
+}
+
+function getNotificationIdForAlert(event: AccessAlertEvent): string {
+  return `access-alert:${event.id ?? event.dedupeKey ?? `${event.type}:${event.timestamp}`}`;
+}
+
+function deriveNotificationItems(): NotificationItem[] {
+  return (state.accessAlerts ?? []).map((event) => {
+    const id = getNotificationIdForAlert(event);
+    const consumerType = getAccessAlertConsumerType(event);
+    const parts = [
+      consumerType ? formatAccessAlertConsumerTypeLabel(consumerType) : undefined,
+      event.consumerId ? `成员 ${event.consumerId}` : undefined,
+      event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
+    ].filter(Boolean);
+    return {
+      id,
+      title: `${formatAccessAlertSeverityLabel(event.severity)} · ${event.type}`,
+      body: `${event.message}${parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}`,
+      severity: event.severity,
+      source: "access-alert",
+      timestamp: event.lastSeenAt ?? event.timestamp,
+      read: state.notificationReadIds.has(id) || Boolean(event.acknowledgedAt),
+      alert: event,
+    };
+  });
+}
+
+function updateNotificationUnreadBadge(): void {
+  const notificationUnreadBadge = document.getElementById("notification-unread-badge");
+  const badge = notificationUnreadBadge;
+  if (!badge) {
+    return;
+  }
+  const unread = deriveNotificationItems().filter((item) => !item.read).length;
+  badge.hidden = unread <= 0;
+  badge.textContent = unread <= 0 ? "" : unread > 99 ? "99+" : String(unread);
+}
+
+async function showNativeNotification(item: NotificationItem): Promise<void> {
+  const api = getGatewayApi();
+  if (typeof api.showNativeNotification !== "function") {
+    return;
+  }
+  try {
+    await api.showNativeNotification({
+      title: item.title,
+      body: item.body,
+    });
+  } catch {
+    // Native notification is a convenience channel; station messages remain visible.
+  }
+}
+
+function maybePushNativeNotifications(): void {
+  const candidates = deriveNotificationItems()
+    .filter((item) => !item.read)
+    .filter((item) => item.severity === "warning" || item.severity === "critical")
+    .slice(0, 3);
+  for (const item of candidates) {
+    if (state.nativePushedNotificationIds.has(item.id)) {
+      continue;
+    }
+    state.nativePushedNotificationIds.add(item.id);
+    void showNativeNotification(item);
+  }
+  saveNativePushState();
+}
+
+function markNotificationRead(notificationId: string): void {
+  state.notificationReadIds.add(notificationId);
+  saveNotificationReadState();
+  renderNotificationCenter();
+  updateNotificationUnreadBadge();
+  renderUsageAlertEventsPreview();
+}
+
+function markAllNotificationsRead(): void {
+  for (const item of deriveNotificationItems()) {
+    state.notificationReadIds.add(item.id);
+  }
+  saveNotificationReadState();
+  renderNotificationCenter();
+  updateNotificationUnreadBadge();
+  renderUsageAlertEventsPreview();
+}
+
+function renderNotificationCenter(): void {
+  const summaryNode = document.getElementById("notification-summary");
+  const listNode = document.getElementById("notification-list");
+  if (!summaryNode || !listNode) {
+    updateNotificationUnreadBadge();
+    return;
+  }
+  const allItems = deriveNotificationItems();
+  const unreadCount = allItems.filter((item) => !item.read).length;
+  const criticalCount = allItems.filter((item) => item.severity === "critical").length;
+  const warningCount = allItems.filter((item) => item.severity === "warning").length;
+  summaryNode.innerHTML = [
+    { label: "未读", value: unreadCount, detail: "需要查看" },
+    { label: "严重", value: criticalCount, detail: "critical" },
+    { label: "警告", value: warningCount, detail: "warning" },
+    { label: "全部", value: allItems.length, detail: "消息总量" },
+  ]
+    .map(
+      (item) => `
+        <div class="notification-summary-card">
+          <small>${escapeHtml(item.label)}</small>
+          <strong>${escapeHtml(formatCompactCount(item.value))}</strong>
+          <span>${escapeHtml(item.detail)}</span>
+        </div>
+      `,
+    )
+    .join("");
+
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-notification-filter]")
+    .forEach((button) => {
+      button.dataset.active =
+        button.dataset.notificationFilter === state.notificationFilter
+          ? "true"
+          : "false";
+    });
+
+  const items = allItems.filter((item) => {
+    if (state.notificationFilter === "unread") {
+      return !item.read;
+    }
+    if (state.notificationFilter === "read") {
+      return item.read;
+    }
+    return true;
+  });
+  if (items.length === 0) {
+    listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无消息通知。</div>";
+    updateNotificationUnreadBadge();
+    return;
+  }
+  listNode.innerHTML = items
+    .map(
+      (item) => `
+        <div class="notification-card ${item.read ? "read" : "unread"}">
+          <div class="notification-main">
+            <div class="notification-title">
+              <strong>${escapeHtml(item.title)}</strong>
+              <span class="badge ${escapeHtml(accessAlertSeverityTone(item.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(item.severity))}</span>
+              <span class="badge ${item.read ? "active" : "warning"}">${item.read ? "已读" : "未读"}</span>
+            </div>
+            <p>${escapeHtml(item.body)}</p>
+            <span>${escapeHtml(formatDate(item.timestamp))} · 站内消息 · ${escapeHtml(item.source === "access-alert" ? "访问告警" : "系统")}</span>
+          </div>
+          <div class="notification-actions">
+            ${item.read ? "" : `<button class="btn secondary mini" data-action="mark-notification-read" data-notification-id="${escapeHtml(item.id)}">标为已读</button>`}
+            ${item.alert?.id && !item.alert.acknowledgedAt ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(item.alert.id))}">确认告警</button>` : ""}
+          </div>
+        </div>
+      `,
+    )
+    .join("");
+  updateNotificationUnreadBadge();
+}
+
+function launchAgentTone(status: LaunchAgentStatus, healthy?: boolean): "active" | "warning" | "neutral" {
+  if (status.running && healthy !== false) {
+    return "active";
+  }
+  if (status.installed || status.loaded || healthy === false) {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function launchAgentLabel(status: LaunchAgentStatus, healthy?: boolean): string {
+  if (status.running && healthy !== false) {
+    return "运行中";
+  }
+  if (healthy === false && status.running) {
+    return "端口异常";
+  }
+  if (status.installed) {
+    return "未运行";
+  }
+  return "未安装";
+}
+
+function setOpsBadge(id: string, tone: "active" | "warning" | "neutral", label: string): void {
+  const node = document.getElementById(id);
+  if (!node) {
+    return;
+  }
+  node.className = `badge ${tone}`;
+  node.textContent = label;
+}
+
+function renderOpsFacts(id: string, rows: Array<[string, string | undefined]>): void {
+  const node = document.getElementById(id);
+  if (!node) {
+    return;
+  }
+  node.innerHTML = rows
+    .map(
+      ([label, value]) => `
+        <div class="ops-fact-row">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value || "待同步")}</strong>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function formatOpsPid(pid?: number): string {
+  return pid ? `PID ${pid}` : "无";
+}
+
+function renderOperationsLogSources(status: OperationsStatus): void {
+  const select = document.getElementById("ops-log-source") as HTMLSelectElement | null;
+  if (!select) {
+    return;
+  }
+  const current = state.operationsLogSourceId || status.logs[0]?.id || "gateway-runtime";
+  select.innerHTML = status.logs
+    .map(
+      (source) => `
+        <option value="${escapeHtml(source.id)}" ${source.id === current ? "selected" : ""}>
+          ${escapeHtml(source.label)}${source.exists ? ` · ${escapeHtml(formatBytes(source.sizeBytes))}` : " · 未生成"}
+        </option>
+      `,
+    )
+    .join("");
+  if (!status.logs.some((source) => source.id === current) && status.logs[0]) {
+    state.operationsLogSourceId = status.logs[0].id;
+    select.value = status.logs[0].id;
+  }
+}
+
+function renderOperations(): void {
+  const status = state.operationsStatus;
+  if (!status) {
+    renderOpsFacts("ops-gateway-facts", [["状态", "等待运维状态"]]);
+    renderOpsFacts("ops-cloudflare-facts", [["状态", "等待运维状态"]]);
+    renderOpsFacts("ops-public-probe-facts", [["状态", "等待探测"]]);
+    return;
+  }
+
+  setOpsBadge(
+    "ops-gateway-badge",
+    launchAgentTone(status.gateway, status.gateway.endpointHealthy),
+    status.gateway.endpointHealthy
+      ? "可访问"
+      : launchAgentLabel(status.gateway, status.gateway.endpointHealthy),
+  );
+  renderOpsFacts("ops-gateway-facts", [
+    ["LaunchAgent", status.gateway.installed ? "已安装" : "未安装"],
+    ["状态", `${status.gateway.state || "unknown"} · ${formatOpsPid(status.gateway.pid)}`],
+    ["端口", `${status.gateway.baseUrl}/v1`],
+    [
+      "端口进程",
+      status.gateway.portProcess
+        ? `${formatOpsPid(status.gateway.portProcess.pid)} · ${
+            status.gateway.portProcess.localGateway ? "网关进程" : "其他进程"
+          }`
+        : "未监听",
+    ],
+  ]);
+
+  setOpsBadge(
+    "ops-cloudflare-badge",
+    launchAgentTone(status.cloudflare),
+    launchAgentLabel(status.cloudflare),
+  );
+  renderOpsFacts("ops-cloudflare-facts", [
+    ["LaunchAgent", status.cloudflare.installed ? "已安装" : "未安装"],
+    ["状态", `${status.cloudflare.state || "unknown"} · ${formatOpsPid(status.cloudflare.pid)}`],
+    ["Tunnel", status.cloudflare.tunnelName || "未配置"],
+    ["Hostname", status.cloudflare.hostname || "未配置"],
+  ]);
+
+  const probe = status.publicProbe;
+  setOpsBadge(
+    "ops-public-probe-badge",
+    probe?.expectedGatewayAuth || probe?.status === 200
+      ? "active"
+      : probe?.reachable
+        ? "warning"
+        : "neutral",
+    probe
+      ? probe.expectedGatewayAuth
+        ? "401 鉴权正常"
+        : probe.reachable
+          ? `HTTP ${probe.status ?? "?"}`
+          : "不可达"
+      : "未配置",
+  );
+  renderOpsFacts("ops-public-probe-facts", [
+    ["公网 URL", status.cloudflare.publicBaseUrl || "未配置"],
+    ["探测目标", probe?.url],
+    ["结果", probe ? (probe.error || `HTTP ${probe.status ?? "?"}`) : "等待配置"],
+    ["更新时间", formatDate(Date.parse(status.generatedAt))],
+  ]);
+
+  renderOperationsLogSources(status);
+  const output = document.getElementById("ops-log-output");
+  if (output) {
+    output.textContent = state.operationsLogLoading
+      ? "正在读取日志..."
+      : state.operationsLogText || "选择日志来源后点击刷新。";
+  }
+  if (!state.operationsLogText && !state.operationsLogLoading) {
+    void readOperationsLog();
+  }
+}
+
+async function refreshOperationsStatus(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.getOperationsStatus) {
+    setBanner("当前桌面桥接未提供运维状态接口。", "error");
+    return;
+  }
+  const response = await api.getOperationsStatus();
+  state.operationsStatus = response.data;
+  renderOperations();
+}
+
+async function readOperationsLog(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.readOperationsLog) {
+    setBanner("当前桌面桥接未提供日志读取接口。", "error");
+    return;
+  }
+  const sourceSelect = document.getElementById("ops-log-source") as HTMLSelectElement | null;
+  const linesSelect = document.getElementById("ops-log-lines") as HTMLSelectElement | null;
+  const sourceId = sourceSelect?.value || state.operationsLogSourceId || "gateway-runtime";
+  const maxLines = Number(linesSelect?.value || 500);
+  state.operationsLogSourceId = sourceId;
+  state.operationsLogLoading = true;
+  renderOperations();
+  try {
+    const response = await api.readOperationsLog(sourceId, maxLines);
+    state.operationsLogText = response.text || "日志为空。";
+  } finally {
+    state.operationsLogLoading = false;
+    renderOperations();
+  }
+}
+
+async function controlGatewayService(
+  action: "install" | "start" | "stop" | "restart",
+): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.controlGatewayService) {
+    throw new Error("当前桌面桥接未提供网关服务控制接口。");
+  }
+  const labels: Record<typeof action, string> = {
+    install: "安装并启动",
+    start: "启动",
+    stop: "停止",
+    restart: "重启",
+  };
+  setBanner(`正在${labels[action]}网关常驻服务...`, "info");
+  await api.controlGatewayService(action);
+  await refreshOperationsStatus();
+  await readOperationsLog();
+  setBanner(`网关常驻服务已${labels[action]}。`, "success");
+}
+
+async function controlCloudflareService(action: "start" | "stop" | "restart"): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.controlCloudflareService) {
+    throw new Error("当前桌面桥接未提供 Cloudflare 控制接口。");
+  }
+  const labels: Record<typeof action, string> = {
+    start: "启动",
+    stop: "停止",
+    restart: "重启",
+  };
+  setBanner(`正在${labels[action]} Cloudflare Tunnel...`, "info");
+  await api.controlCloudflareService(action);
+  await refreshOperationsStatus();
+  await readOperationsLog();
+  setBanner(`Cloudflare Tunnel 已${labels[action]}。`, "success");
+}
+
+function handleAccessAlertsUpdated(): void {
+  updateNotificationUnreadBadge();
+  maybePushNativeNotifications();
+  renderUsageAlertEventsPreview();
+  if (state.activeView === "notifications") {
+    renderNotificationCenter();
+  }
 }
 
 function buildAccountUsageRankingMarkup(): string {
@@ -5665,10 +6869,78 @@ function buildLanAccessTemplateText(): string {
     "- API Key：粘贴该成员的专属 API Key",
     `- Model：${recommendedModel}`,
     `- 可用模型别名：${modelAliasText}`,
+    "- Codex App / CC Switch：wire_api = responses，requires_openai_auth = true",
     "",
     "cURL 验证：",
     `curl ${baseUrl}/models \\`,
     "  -H \"Authorization: Bearer <成员 API Key>\"",
+  ].join("\n");
+}
+
+function getPublicAccessBaseUrl(): string {
+  return (
+    state.securitySettings?.publicAccess?.publicBaseUrl?.trim() ||
+    "https://gateway.example.com/v1"
+  );
+}
+
+function buildPublicAccessTemplateText(): string {
+  const baseUrl = getPublicAccessBaseUrl();
+  const recommendedModel = getRecommendedModelAlias();
+  const modelAliases = getAvailableModelAliases();
+  const modelAliasText = modelAliases.length
+    ? modelAliases.join(", ")
+    : recommendedModel;
+  return [
+    "Local AI Gateway 公网接入模板",
+    "",
+    `base_url: ${baseUrl}`,
+    "api_key: <分发给该公网成员的一次性 API Key 明文>",
+    `model: ${recommendedModel}`,
+    "",
+    "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
+    `- Base URL：${baseUrl}`,
+    "- API Key：粘贴该公网成员的专属 API Key",
+    `- Model：${recommendedModel}`,
+    `- 可用模型别名：${modelAliasText}`,
+    "- Codex App / CC Switch：wire_api = responses，requires_openai_auth = true",
+    "- 普通成员不需要本机切换脚本；脚本只用于管理员本机在 Cockpit 与本网关之间保留完整 Codex 配置地切换",
+    "",
+    "cURL 验证：",
+    `curl ${baseUrl}/models \\`,
+    "  -H \"Authorization: Bearer <公网成员 API Key>\"",
+    "",
+    "流式验收：",
+    `curl ${baseUrl}/chat/completions \\`,
+    "  -H \"Authorization: Bearer <公网成员 API Key>\" \\",
+    "  -H \"Content-Type: application/json\" \\",
+    `  -d '{"model":"${recommendedModel}","stream":true,"messages":[{"role":"user","content":"ping"}]}'`,
+  ].join("\n");
+}
+
+function buildPublicValidationCommand(checkId: PublicValidationCheckId): string {
+  const baseUrl = getPublicAccessBaseUrl();
+  const recommendedModel = getRecommendedModelAlias();
+  if (checkId === "models") {
+    return [
+      `curl ${baseUrl}/models \\`,
+      "  -H \"Authorization: Bearer <公网成员 API Key>\"",
+    ].join("\n");
+  }
+  if (checkId === "chat") {
+    return [
+      `curl ${baseUrl}/chat/completions \\`,
+      "  -H \"Authorization: Bearer <公网成员 API Key>\" \\",
+      "  -H \"Content-Type: application/json\" \\",
+      `  -d '{"model":"${recommendedModel}","messages":[{"role":"user","content":"ping"}]}'`,
+    ].join("\n");
+  }
+  return [
+    `curl ${baseUrl}/chat/completions \\`,
+    "  -H \"Authorization: Bearer <公网成员 API Key>\" \\",
+    "  -H \"Content-Type: application/json\" \\",
+    `  -d '{"model":"${recommendedModel}","stream":true,"messages":[{"role":"user","content":"ping"}]}'`,
   ].join("\n");
 }
 
@@ -5716,6 +6988,117 @@ function renderLanAccessTemplate(): void {
   `;
 }
 
+function renderPublicAccessTemplate(): void {
+  const container = document.getElementById("public-access-template");
+  if (!container) {
+    return;
+  }
+
+  const security = state.securitySettings ?? state.health?.inferenceAuth;
+  const publicAccess = security?.publicAccess;
+  const publicEnabled = Boolean(publicAccess?.enabled);
+  const hasCredential = hasAnyInferenceCredential(security);
+  const baseUrl = getPublicAccessBaseUrl();
+  const hasHttpsBaseUrl = baseUrl.startsWith("https://");
+  const recommendedModel = getRecommendedModelAlias();
+  const availableModelAliases = getAvailableModelAliases();
+  const ready = publicEnabled && hasCredential && hasHttpsBaseUrl;
+  const status = publicEnabled
+    ? ready
+      ? "可分发模板"
+      : "缺少公网前置条件"
+    : "未启用";
+  const detail = publicEnabled
+    ? "将下面模板发给公网试用成员；真实 API Key 请从“访问与密钥”的 public-user 成员 Key 创建或轮换结果中单独分发。"
+    : "启用公网共享配置并填写 HTTPS Public Base URL 后，这里会生成公网成员接入模板。";
+
+  container.innerHTML = `
+    <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>公网成员接入模板</strong>
+          <span>${escapeHtml(detail)}</span>
+        </div>
+        <span class="badge ${ready ? "active" : "neutral"}">${escapeHtml(status)}</span>
+      </div>
+      <div class="diagnostic-fact-grid">
+        <div class="diagnostic-fact"><span>Base URL</span><strong>${escapeHtml(baseUrl)}</strong></div>
+        <div class="diagnostic-fact"><span>推荐 Model</span><strong>${escapeHtml(recommendedModel)}</strong></div>
+        <div class="diagnostic-fact"><span>可用模型别名</span><strong>${escapeHtml(availableModelAliases.length ? `${availableModelAliases.length} 个` : "待加载")}</strong></div>
+        <div class="diagnostic-fact"><span>适用入口</span><strong>Cloudflare Tunnel / HTTPS 反代</strong></div>
+      </div>
+      <pre class="template-preview">${escapeHtml(buildPublicAccessTemplateText())}</pre>
+      <div class="usage-alert-actions">
+        <button class="btn secondary mini" data-action="copy-public-access-template">复制公网模板</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicValidationChecklist(): void {
+  const container = document.getElementById("public-validation-checklist");
+  if (!container) {
+    return;
+  }
+
+  const validation = state.publicValidation ?? loadPublicValidationState();
+  state.publicValidation = validation;
+  const items: Array<{
+    id: PublicValidationCheckId;
+    title: string;
+    detail: string;
+  }> = [
+    {
+      id: "models",
+      title: "公网 /v1/models 验收",
+      detail: "确认 Cloudflare Tunnel / HTTPS 入口可从外部网络返回模型列表。",
+    },
+    {
+      id: "chat",
+      title: "公网非流式对话验收",
+      detail: "确认普通 JSON 响应能通过公网入口完成一次最小对话。",
+    },
+    {
+      id: "stream",
+      title: "公网 stream: true 验收",
+      detail: "确认公网入口不会截断 SSE / 长连接流式响应。",
+    },
+  ];
+
+  container.innerHTML = `
+    <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
+      <div class="diagnostic-card-header">
+        <div>
+          <strong>公网外部验收清单</strong>
+          <span>域名和 Tunnel 配好后，从非本机网络逐项复制命令验证；这里的通过状态只做人工记录。</span>
+        </div>
+        <span class="badge ${Object.values(validation).every(Boolean) ? "active" : "neutral"}">${Object.values(validation).filter(Boolean).length}/3</span>
+      </div>
+      <div class="troubleshooting-guide-grid">
+        ${items
+          .map((item) => {
+            const done = validation[item.id];
+            return `
+              <div class="troubleshooting-guide-item">
+                <div>
+                  <strong>${escapeHtml(item.title)}</strong>
+                  <span class="badge ${done ? "active" : "neutral"}">${done ? "已通过" : "待验收"}</span>
+                </div>
+                <p>${escapeHtml(item.detail)}</p>
+                <pre class="template-preview">${escapeHtml(buildPublicValidationCommand(item.id))}</pre>
+                <div class="usage-alert-actions">
+                  <button class="btn secondary mini" data-action="copy-public-validation-command" data-public-validation-id="${item.id}">复制命令</button>
+                  <button class="btn ${done ? "ghost" : "primary"} mini" data-action="toggle-public-validation-check" data-public-validation-id="${item.id}">${done ? "标记未通过" : "标记通过"}</button>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderRuntimeTroubleshootingGuide(): void {
   const container = document.getElementById("runtime-troubleshooting-guide");
   if (!container) {
@@ -5756,7 +7139,7 @@ function renderRuntimeTroubleshootingGuide(): void {
       status: "运行",
       detail:
         "LAN 共享依赖管理员这台 Mac 持续开机、联网并保持网关运行；睡眠、换网或重启会让成员请求中断。",
-      suggestion: "共享期间连接电源并避免睡眠；更长期使用再规划三期 server edition 或常驻主机。",
+      suggestion: "共享期间连接电源并避免睡眠；长期使用建议保持网关常驻并规划固定主机。",
     },
   ];
 
@@ -5799,6 +7182,8 @@ function renderDiagnostics(): void {
   renderStartupChecklist();
   renderAppDataStatus();
   renderLanAccessTemplate();
+  renderPublicAccessTemplate();
+  renderPublicValidationChecklist();
   renderRuntimeTroubleshootingGuide();
 
   const runtimeDiagnostics = state.runtimeDiagnostics;
@@ -5912,24 +7297,24 @@ function renderStartupChecklist(): void {
   const activeSession = sessions.data.find(
     (session) => session.id === sessions.activeSessionId,
   );
-  const totalRequestCount = sessions.data.reduce(
-    (sum, session) => sum + (session.activity?.requestCount ?? 0),
-    0,
-  );
-  const routingHitCount = health.routingObservability?.totalMatched ?? 0;
-  const localAccountCount = getAccountGroups().localImport;
   const hasRecentErrors =
     (state.health?.recentErrors?.length ?? 0) > 0 ||
     (state.lastUsageRefresh?.errors?.length ?? 0) > 0;
   const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const model =
     health.openclaw?.model ?? health.defaultModel ?? "codex-default";
+  const security = state.securitySettings ?? health.inferenceAuth;
+  const lanEnabled = Boolean(security?.lanAccess?.enabled);
+  const publicEnabled = Boolean(security?.publicAccess?.enabled);
+  const appDataSummary = state.appDataStatus
+    ? `${formatCompactCount(state.appDataStatus.fileCount)} 个文件 · ${formatBytes(state.appDataStatus.totalBytes)}`
+    : "加载中";
 
-  const firstStartChecks: StartupCheckItem[] = [
+  const checks: StartupCheckItem[] = [
     {
-      title: "本地网关状态",
+      title: "服务入口",
       description: health.ok
-        ? `当前服务已就绪，入口为 ${baseUrl}`
+        ? `${baseUrl} · v${health.version}`
         : "当前服务未完全就绪，请先处理顶部或诊断页中的异常提示。",
       badgeTone: health.ok ? "active" : "disabled",
       badgeLabel: health.ok ? "已就绪" : "需处理",
@@ -5937,58 +7322,25 @@ function renderStartupChecklist(): void {
     {
       title: "活动账号",
       description: activeSession
-        ? `当前活动账号为 ${getSessionTitle(activeSession)}，默认模型为 ${model}`
-        : "还没有选中活动账号。导入账号后，请在账号页将一个可用账号设为活动账号。",
+        ? `${getSessionTitle(activeSession)} · ${model}`
+        : "还没有选中活动账号。",
       badgeTone: activeSession ? "active" : "incomplete",
       badgeLabel: activeSession ? "已设置" : "未设置",
     },
     {
-      title: "真实第三方流量",
-      description:
-        totalRequestCount > 0
-          ? `当前已记录 ${totalRequestCount} 次真实请求，路由命中 ${routingHitCount} 次。`
-          : "当前尚未观测到任何真实第三方请求，建议先用接入模板完成一次联调。",
-      badgeTone: totalRequestCount > 0 ? "active" : "neutral",
-      badgeLabel: totalRequestCount > 0 ? "已验证" : "待联调",
+      title: "共享入口",
+      description: [
+        lanEnabled ? "LAN 已启用" : "LAN 关闭",
+        publicEnabled ? "公网配置已启用" : "公网关闭",
+      ].join(" · "),
+      badgeTone: lanEnabled || publicEnabled ? "active" : "neutral",
+      badgeLabel: lanEnabled || publicEnabled ? "已配置" : "本机优先",
     },
     {
-      title: "已导入桌面端账号",
-      description:
-        localAccountCount > 0
-          ? `当前已导入 ${localAccountCount} 个桌面端 Codex 账号，可继续做固定账号或灵活切号配置。`
-          : "当前尚未导入桌面端账号。可通过 OAuth、JSON 或扫描本地授权快速补齐。",
-      badgeTone: localAccountCount > 0 ? "active" : "incomplete",
-      badgeLabel: localAccountCount > 0 ? "已导入" : "待导入",
-    },
-  ];
-
-  const upgradeChecks: StartupCheckItem[] = [
-    {
-      title: "当前版本与运行方式",
-      description: `当前网关版本为 v${health.version}，控制模式为 ${health.managed ? "桌面托管" : "外部服务"}。`,
-      badgeTone: "neutral",
-      badgeLabel: "运行信息",
-    },
-    {
-      title: "升级后建议动作",
-      description:
-        "版本更新后，建议先查看一次“运行诊断与日志”，确认没有新的接入鉴权、端口或授权异常。",
+      title: "本地数据",
+      description: appDataSummary,
       badgeTone: hasRecentErrors ? "incomplete" : "active",
-      badgeLabel: hasRecentErrors ? "建议检查" : "正常",
-    },
-    {
-      title: "源码版发布前预检",
-      description:
-        "如果你是从源码运行或准备打包，建议执行 `npm run preflight:release`，一次性校验构建、测试、网关 smoke 与桌面目录包。",
-      badgeTone: "neutral",
-      badgeLabel: "推荐",
-    },
-    {
-      title: "端口与接入模板",
-      description:
-        "如果升级后修改了网关端口，请同步更新第三方客户端中的 baseUrl；总览页的接入模板会自动跟随当前端口和鉴权模式。",
-      badgeTone: "neutral",
-      badgeLabel: "避免遗漏",
+      badgeLabel: hasRecentErrors ? "需查看日志" : "持久化正常",
     },
   ];
 
@@ -6003,49 +7355,36 @@ function renderStartupChecklist(): void {
   `;
 
   container.innerHTML = `
-    <div class="startup-check-card">
-      <div class="startup-check-head">
-        <div>
-          <h3>首次启动检查</h3>
-          <p>用于确认本地网关、活动账号与第三方联调是否已经形成最小可用闭环。</p>
-        </div>
-        <span class="badge ${health.ok && activeSession ? "active" : "incomplete"}">${health.ok && activeSession ? "基础闭环已形成" : "仍需检查"}</span>
-      </div>
-      <div class="startup-check-list">
-        ${firstStartChecks.map(renderItem).join("")}
-      </div>
-    </div>
-    <div class="startup-check-card">
-      <div class="startup-check-head">
-        <div>
-          <h3>升级与发布前建议</h3>
-          <p>用于版本更新、重新打包或迁移环境后，快速确认哪些动作最值得优先做。</p>
-        </div>
-        <span class="badge neutral">维护清单</span>
-      </div>
-      <div class="startup-check-list">
-        ${upgradeChecks.map(renderItem).join("")}
-      </div>
-    </div>
+    ${checks.map(renderItem).join("")}
   `;
 }
 
 function buildIntegrationSnippets(
   health: DashboardHealth,
+  options?: {
+    baseUrl?: string;
+    apiKeyPlaceholder?: string;
+    clientTag?: string;
+    forceApiKey?: boolean;
+  },
 ): Record<IntegrationTemplateKey, string> {
-  const baseUrl = health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
+  const baseUrl = options?.baseUrl ?? health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const model = health.openclaw?.model ?? health.defaultModel ?? getRecommendedModelAlias();
   const provider = health.openclaw?.provider ?? "openai";
+  const apiKeyPlaceholder =
+    options?.apiKeyPlaceholder ?? "<你的 Gateway API Key 或成员 API Key>";
+  const clientTag = options?.clientTag ?? "openclaw";
   const requiresApiKey =
-    Boolean(state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
-    hasAnyInferenceCredential(state.securitySettings ?? health.inferenceAuth);
+    Boolean(options?.forceApiKey) ||
+    (Boolean(state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
+      hasAnyInferenceCredential(state.securitySettings ?? health.inferenceAuth));
 
   const openclaw = [
     `provider=${provider}`,
     `baseUrl=${baseUrl}`,
     `model=${model}`,
-    "clientTag=openclaw",
-    ...(requiresApiKey ? ["apiKey=<你的 Gateway API Key 或成员 API Key>"] : []),
+    `clientTag=${clientTag}`,
+    ...(requiresApiKey ? [`apiKey=${apiKeyPlaceholder}`] : []),
   ].join("\n");
 
   const hermes = [
@@ -6057,14 +7396,14 @@ function buildIntegrationSnippets(
     `- name: ${model}`,
     `  base_url: ${baseUrl}`,
     `  model: ${model}`,
-    ...(requiresApiKey ? ["  api_key: <你的 Gateway API Key 或成员 API Key>"] : []),
+    ...(requiresApiKey ? [`  api_key: ${apiKeyPlaceholder}`] : []),
   ].join("\n");
 
   const curlHeaders = [
     `-H "Content-Type: application/json"`,
-    `-H "x-client-tag: hermes"`,
+    `-H "x-client-tag: ${clientTag}"`,
     ...(requiresApiKey
-      ? [`-H "Authorization: Bearer <你的 Gateway API Key 或成员 API Key>"`]
+      ? [`-H "Authorization: Bearer ${apiKeyPlaceholder}"`]
       : []),
   ];
   const curl = [
@@ -6078,6 +7417,36 @@ function buildIntegrationSnippets(
     hermes,
     curl,
   };
+}
+
+function buildCombinedIntegrationSnippet(
+  health: DashboardHealth,
+  options?: Parameters<typeof buildIntegrationSnippets>[1],
+): string {
+  const snippets = buildIntegrationSnippets(health, options);
+  return [
+    "# OpenClaw",
+    snippets.openclaw,
+    "",
+    "# Hermes / Custom Provider",
+    snippets.hermes,
+    "",
+    "# cURL",
+    snippets.curl,
+  ].join("\n");
+}
+
+function buildPublicIntegrationSnippet(): string {
+  const health = state.health;
+  if (!health) {
+    throw new Error("控制台尚未完成初始化，请稍后重试。");
+  }
+  return buildCombinedIntegrationSnippet(health, {
+    baseUrl: getPublicAccessBaseUrl(),
+    apiKeyPlaceholder: "<公网成员 API Key>",
+    clientTag: "public-user",
+    forceApiKey: true,
+  });
 }
 
 function renderGuide(): void {
@@ -6118,12 +7487,8 @@ function renderGuide(): void {
 
   container.innerHTML = `
     <div class="card">
-      <h3 style="margin: 0 0 8px 0; font-size: 15px;">定位说明</h3>
-      <p style="margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">这是本地 AI Gateway 的桌面控制台，不是聊天窗口。当前主路径优先服务 OpenClaw 与 Hermes，负责本地服务管理、Provider 配置、桌面端 Codex 账号管理，以及本机可复用授权的导入与复用。</p>
-    </div>
-    <div class="card">
-      <h3 style="margin: 0 0 8px 0; font-size: 15px;">第三方接入模板</h3>
-      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">先在“Provider 配置”完成模型入口设定，必要时再到“策略路由 / 号池调度”补充分流规则，然后把 OpenClaw 或 Hermes 指向本地网关。每个模板都支持一键复制。</p>
+      <h3 style="margin: 0 0 8px 0; font-size: 15px;">接入模板</h3>
+      <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary); line-height: 1.6;">把客户端指向当前 Base URL、Model 和 API Key。每个模板都支持一键复制。</p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
         ${snippetRows
           .map((row) => {
@@ -6519,7 +7884,7 @@ function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
               <select class="input-field" data-field="pool-visibility">
                 <option value="private" ${poolVisibility === "private" ? "selected" : ""}>私有</option>
                 <option value="shared-lan" ${poolVisibility === "shared-lan" ? "selected" : ""}>局域网共享</option>
-                <option value="public-ready" ${poolVisibility === "public-ready" ? "selected" : ""}>外网预留</option>
+                <option value="public-ready" ${poolVisibility === "public-ready" ? "selected" : ""}>公网共享</option>
               </select>
             </div>
             <div class="form-field span-4">
@@ -6529,7 +7894,7 @@ function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
             </div>
             <div class="form-field span-8">
               <label>说明</label>
-              <input class="input-field" data-field="pool-description" placeholder="例如：给 LAN 成员或 OpenClaw 长任务预留的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
+              <input class="input-field" data-field="pool-description" placeholder="例如：给公网成员或 OpenClaw 长任务使用的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
             </div>
           </div>
         </section>
@@ -8497,9 +9862,29 @@ function applySecuritySettingsToForm(): void {
   const lanAccessStatusNode = document.getElementById(
     "gateway-lan-access-status",
   ) as HTMLElement | null;
+  const publicAccessNode = document.getElementById(
+    "gateway-public-access-enabled",
+  ) as HTMLInputElement | null;
+  const publicAccessProviderNode = document.getElementById(
+    "gateway-public-access-provider",
+  ) as HTMLSelectElement | null;
+  const publicBaseUrlNode = document.getElementById(
+    "gateway-public-base-url",
+  ) as HTMLInputElement | null;
+  const publicTunnelNameNode = document.getElementById(
+    "gateway-public-tunnel-name",
+  ) as HTMLInputElement | null;
+  const publicHostnameNode = document.getElementById(
+    "gateway-public-hostname",
+  ) as HTMLInputElement | null;
+  const publicAccessStatusNode = document.getElementById(
+    "gateway-public-access-status",
+  ) as HTMLElement | null;
 
   const mode = settings?.mode === "api-key" ? "api-key" : "none";
   const lanEnabled = Boolean(settings?.lanAccess?.enabled);
+  const publicAccess = settings?.publicAccess;
+  const publicEnabled = Boolean(publicAccess?.enabled);
   const hasCredential = hasAnyInferenceCredential(settings);
   if (modeNode) {
     modeNode.value = mode;
@@ -8534,6 +9919,32 @@ function applySecuritySettingsToForm(): void {
     } else {
       lanAccessStatusNode.textContent =
         "LAN 共享必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问成员 Key。";
+    }
+  }
+  if (publicAccessNode) {
+    publicAccessNode.checked = publicEnabled;
+  }
+  if (publicAccessProviderNode) {
+    publicAccessProviderNode.value = publicAccess?.provider ?? "cloudflare-tunnel";
+  }
+  if (publicBaseUrlNode) {
+    publicBaseUrlNode.value = publicAccess?.publicBaseUrl ?? "";
+  }
+  if (publicTunnelNameNode) {
+    publicTunnelNameNode.value = publicAccess?.tunnelName ?? "";
+  }
+  if (publicHostnameNode) {
+    publicHostnameNode.value = publicAccess?.hostname ?? "";
+  }
+  if (publicAccessStatusNode) {
+    if (publicEnabled) {
+      publicAccessStatusNode.textContent =
+        hasCredential && publicAccess?.publicBaseUrl?.startsWith("https://")
+          ? "公网共享配置已开启。请继续确认 public-ready 号池、公网成员 Key、额度包和外部 /v1 验收。"
+          : "公网共享配置已开启，但仍需要 API Key 鉴权和 HTTPS Public Base URL。";
+    } else {
+      publicAccessStatusNode.textContent =
+        "公网共享启用前必须具备 HTTPS Base URL、独立成员 Key、public-ready 号池和额度 / 限流策略。";
     }
   }
   renderSecurityClientMappings(settings?.clientMappings ?? []);
@@ -8624,11 +10035,22 @@ function updateRuntimeDiagnostics(
       .filter((consumer) => consumer.type === "lan-member" && consumer.status === "enabled")
       .map((consumer) => consumer.id),
   );
+  const enabledPublicConsumerIds = new Set(
+    (accessControl?.consumers ?? [])
+      .filter((consumer) => consumer.type === "public-user" && consumer.status === "enabled")
+      .map((consumer) => consumer.id),
+  );
   const enabledLanAccessKeyCount = (accessControl?.keys ?? []).filter(
     (key) =>
       key.status === "enabled" &&
       key.hasKey &&
       enabledLanConsumerIds.has(key.consumerId),
+  ).length;
+  const enabledPublicAccessKeyCount = (accessControl?.keys ?? []).filter(
+    (key) =>
+      key.status === "enabled" &&
+      key.hasKey &&
+      enabledPublicConsumerIds.has(key.consumerId),
   ).length;
   const sharedLanPoolCount = (state.poolSettings?.pools ?? []).filter(
     (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "shared-lan",
@@ -8647,6 +10069,9 @@ function updateRuntimeDiagnostics(
     inferenceAuthHasApiKey: hasAnyInferenceCredential(security),
     lanAccessEnabled: Boolean(security?.lanAccess?.enabled),
     lanBaseUrl: state.health?.desktopNetwork?.lanBaseUrl,
+    publicAccessEnabled: Boolean(security?.publicAccess?.enabled),
+    publicAccessProvider: security?.publicAccess?.provider,
+    publicBaseUrl: security?.publicAccess?.publicBaseUrl,
     gatewayHost: state.health?.host,
     gatewayPort: state.health?.port,
     localNetworkAddressCount:
@@ -8655,6 +10080,8 @@ function updateRuntimeDiagnostics(
     enabledLanConsumerCount: enabledLanConsumerIds.size,
     enabledLanAccessKeyCount,
     publicReadyPoolCount,
+    enabledPublicConsumerCount: enabledPublicConsumerIds.size,
+    enabledPublicAccessKeyCount,
     recentErrors: state.health?.recentErrors ?? [],
   });
 }
@@ -8842,6 +10269,37 @@ async function saveSecuritySettings(): Promise<SecuritySettings> {
         "gateway-lan-access-enabled",
       ) as HTMLInputElement | null
     )?.checked ?? false;
+  const publicAccessEnabled =
+    (
+      document.getElementById(
+        "gateway-public-access-enabled",
+      ) as HTMLInputElement | null
+    )?.checked ?? false;
+  const publicAccessProviderValue =
+    (
+      document.getElementById(
+        "gateway-public-access-provider",
+      ) as HTMLSelectElement | null
+    )?.value ?? "cloudflare-tunnel";
+  const publicAccessProvider =
+    publicAccessProviderValue === "tailscale-funnel" ||
+    publicAccessProviderValue === "manual-reverse-proxy"
+      ? publicAccessProviderValue
+      : "cloudflare-tunnel";
+  const publicBaseUrl =
+    (
+      document.getElementById("gateway-public-base-url") as HTMLInputElement | null
+    )?.value.trim() || undefined;
+  const publicTunnelName =
+    (
+      document.getElementById(
+        "gateway-public-tunnel-name",
+      ) as HTMLInputElement | null
+    )?.value.trim() || undefined;
+  const publicHostname =
+    (
+      document.getElementById("gateway-public-hostname") as HTMLInputElement | null
+    )?.value.trim() || undefined;
 
   const mappingRows = Array.from(
     document.querySelectorAll<HTMLElement>("[data-security-mapping-row]"),
@@ -8897,9 +10355,15 @@ async function saveSecuritySettings(): Promise<SecuritySettings> {
     apiKey,
     resolveClientTagByApiKey,
     clientMappings,
-    accessControl: state.securitySettings?.accessControl,
     lanAccess: {
       enabled: lanAccessEnabled,
+    },
+    publicAccess: {
+      enabled: publicAccessEnabled,
+      provider: publicAccessProvider,
+      publicBaseUrl,
+      tunnelName: publicTunnelName,
+      hostname: publicHostname,
     },
   };
   const previousLanEnabled = Boolean(state.securitySettings?.lanAccess?.enabled);
@@ -9348,7 +10812,11 @@ function bindNavigation(): void {
 }
 
 async function copySnippetWithFeedback(): Promise<void> {
-  await getGatewayApi().copyOpenClawSnippet();
+  if (state.health) {
+    await copyTextWithFallback(buildCombinedIntegrationSnippet(state.health));
+  } else {
+    await getGatewayApi().copyOpenClawSnippet();
+  }
   setBanner("接入片段已复制。", "success");
 }
 
@@ -9653,6 +11121,10 @@ function appendSecurityClientMappingDraft(): void {
     clientMappings: [],
     lanAccess: {
       enabled: false,
+    },
+    publicAccess: {
+      enabled: false,
+      provider: "cloudflare-tunnel",
     },
     accessControl: {
       consumers: [],
@@ -10081,11 +11553,15 @@ function openAccessMemberModal(
     "access-member-modal-subtitle",
     isEdit
       ? "修改成员信息、额度、模型、号池和 API Key；保存后立即影响该成员后续调用。"
-      : "创建 LAN 成员并一次性展示 API Key 明文；保存后本地只保留 hash。",
+      : "创建访问成员并一次性展示 API Key 明文；保存后本地只保留 hash。",
   );
   setAccessInputValue("access-member-editing-id", consumer?.id ?? "");
   setAccessInputValue("access-member-name", consumer?.name ?? "");
   setAccessInputValue("access-member-client-tag", consumer?.clientTag ?? "");
+  setAccessInputValue(
+    "access-member-type",
+    normalizeEditableAccessConsumerType(consumer?.type),
+  );
   setAccessInputValue("access-member-tags", (consumer?.tags ?? ["lan"]).join(", "));
   setAccessInputValue("access-member-note", consumer?.note ?? "");
   const quotaMode = resolveAccessMemberQuotaMode(policy);
@@ -10115,6 +11591,18 @@ function openAccessMemberModal(
     "access-member-max-concurrent",
     typeof policy?.limits?.maxConcurrentRequests === "number"
       ? String(policy.limits.maxConcurrentRequests)
+      : "",
+  );
+  setAccessInputValue(
+    "access-member-max-input-tokens",
+    typeof policy?.limits?.maxInputTokens === "number"
+      ? String(policy.limits.maxInputTokens)
+      : "",
+  );
+  setAccessInputValue(
+    "access-member-max-output-tokens",
+    typeof policy?.limits?.maxOutputTokens === "number"
+      ? String(policy.limits.maxOutputTokens)
       : "",
   );
   setAccessInputValue(
@@ -10185,6 +11673,10 @@ function getSecuritySettingsWithDefaults(): SecuritySettings {
     lanAccess: {
       enabled: false,
     },
+    publicAccess: {
+      enabled: false,
+      provider: "cloudflare-tunnel",
+    },
     accessControl: {
       consumers: [],
       keys: [],
@@ -10239,6 +11731,14 @@ function collectAccessMemberPolicyInput(
     "#access-member-max-concurrent",
     "最大并发请求数",
   );
+  const maxInputTokens = parseAccessPositiveIntegerInput(
+    "#access-member-max-input-tokens",
+    "单请求输入 Token",
+  );
+  const maxOutputTokens = parseAccessPositiveIntegerInput(
+    "#access-member-max-output-tokens",
+    "单请求输出 Token",
+  );
   const quota = { ...(existing?.quota ?? {}) };
   delete quota.dailyTokenLimit;
   delete quota.monthlyTokenLimit;
@@ -10279,6 +11779,16 @@ function collectAccessMemberPolicyInput(
   } else {
     delete limits.maxConcurrentRequests;
   }
+  if (typeof maxInputTokens === "number") {
+    limits.maxInputTokens = maxInputTokens;
+  } else {
+    delete limits.maxInputTokens;
+  }
+  if (typeof maxOutputTokens === "number") {
+    limits.maxOutputTokens = maxOutputTokens;
+  } else {
+    delete limits.maxOutputTokens;
+  }
 
   const policy: SecurityAccessPolicy = {
     ...(existing ?? { consumerId }),
@@ -10304,6 +11814,9 @@ async function createAccessMember(): Promise<void> {
   const editingId = readAccessInputValue("access-member-editing-id");
   const name = readAccessInputValue("access-member-name");
   const rawClientTag = readAccessInputValue("access-member-client-tag");
+  const consumerType = normalizeEditableAccessConsumerType(
+    readAccessInputValue("access-member-type"),
+  );
   const note = readAccessInputValue("access-member-note") || undefined;
   if (!name) {
     setBanner("请先填写成员名称。", "error");
@@ -10321,6 +11834,7 @@ async function createAccessMember(): Promise<void> {
 
   if (existingConsumer) {
     existingConsumer.name = name;
+    existingConsumer.type = consumerType;
     existingConsumer.clientTag = clientTag;
     existingConsumer.note = note;
     existingConsumer.tags = parseAccessTagsInput("#access-member-tags");
@@ -10330,7 +11844,7 @@ async function createAccessMember(): Promise<void> {
     nextAccessControl.consumers.push({
       id: consumerId,
       name,
-      type: "lan-member",
+      type: consumerType,
       status: "enabled",
       clientTag,
       note,
@@ -10580,6 +12094,14 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
     `[data-access-policy-max-concurrent="${consumerId}"]`,
     "最大并发请求数",
   );
+  const maxInputTokens = parseAccessPositiveIntegerInput(
+    `[data-access-policy-max-input-tokens="${consumerId}"]`,
+    "单请求输入 Token",
+  );
+  const maxOutputTokens = parseAccessPositiveIntegerInput(
+    `[data-access-policy-max-output-tokens="${consumerId}"]`,
+    "单请求输出 Token",
+  );
   policy.allowedModelAliases = parseAccessModelAliasesInput(
     `[data-access-policy-model-aliases="${consumerId}"]`,
   );
@@ -10612,6 +12134,16 @@ async function saveAccessPolicySettings(consumerId: string): Promise<void> {
     limits.maxConcurrentRequests = maxConcurrentRequests;
   } else {
     delete limits.maxConcurrentRequests;
+  }
+  if (typeof maxInputTokens === "number") {
+    limits.maxInputTokens = maxInputTokens;
+  } else {
+    delete limits.maxInputTokens;
+  }
+  if (typeof maxOutputTokens === "number") {
+    limits.maxOutputTokens = maxOutputTokens;
+  } else {
+    delete limits.maxOutputTokens;
   }
   policy.limits = Object.keys(limits).length > 0 ? limits : undefined;
   const expiresAt = parseAccessDateTimeLocalValue(
@@ -10943,6 +12475,18 @@ function bindActions(): void {
     } catch (error) {
       setBanner(`打开日志目录失败：${String(error)}`, "error");
     }
+  });
+
+  document.getElementById("ops-log-source")?.addEventListener("change", async (event) => {
+    const target = event.target as HTMLSelectElement | null;
+    state.operationsLogSourceId = target?.value || state.operationsLogSourceId;
+    state.operationsLogText = undefined;
+    await readOperationsLog();
+  });
+
+  document.getElementById("ops-log-lines")?.addEventListener("change", async () => {
+    state.operationsLogText = undefined;
+    await readOperationsLog();
   });
 
   document
@@ -11605,6 +13149,7 @@ function bindActions(): void {
           ? value
           : "all";
       renderUsageAlertEvents();
+      renderUsageAlertEventsPreview();
       return;
     }
 
@@ -11618,6 +13163,24 @@ function bindActions(): void {
           ? value
           : "all";
       renderUsageAlertEvents();
+      renderUsageAlertEventsPreview();
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
+      target.id === "usage-alert-consumer-type-filter"
+    ) {
+      const value = target.value;
+      state.usageAlertConsumerTypeFilter =
+        value === "local-owner" ||
+        value === "lan-member" ||
+        value === "public-user" ||
+        value === "system-client"
+          ? value
+          : "all";
+      renderUsageAlertEvents();
+      renderUsageAlertEventsPreview();
       return;
     }
 
@@ -11848,6 +13411,32 @@ function bindActions(): void {
     });
 
   document
+    .getElementById("usage-alerts-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeUsageAlertsModal();
+      }
+    });
+
+  document
+    .getElementById("usage-alert-events-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeUsageAlertEventsModal();
+      }
+    });
+
+  for (const systemModal of Array.from(
+    document.querySelectorAll<HTMLElement>("[id^='system-'][id$='-modal']"),
+  )) {
+    systemModal.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeSystemDiagnosticsModal(systemModal.id);
+      }
+    });
+  }
+
+  document
     .getElementById("close-pool-events-modal")
     ?.addEventListener("click", () => {
       closePoolEventsModal();
@@ -11940,6 +13529,25 @@ function bindActions(): void {
         closeUsageDetailsModal();
         return;
       }
+      const usageAlertsModal = document.getElementById("usage-alerts-modal");
+      if (usageAlertsModal && !usageAlertsModal.hidden) {
+        closeUsageAlertsModal();
+        return;
+      }
+      const usageAlertEventsModal = document.getElementById(
+        "usage-alert-events-modal",
+      );
+      if (usageAlertEventsModal && !usageAlertEventsModal.hidden) {
+        closeUsageAlertEventsModal();
+        return;
+      }
+      const openSystemModal = Array.from(
+        document.querySelectorAll<HTMLElement>("[id^='system-'][id$='-modal']"),
+      ).find((modal) => !modal.hidden);
+      if (openSystemModal) {
+        closeSystemDiagnosticsModal(openSystemModal.id);
+        return;
+      }
       const accessMemberModal = document.getElementById(
         "access-create-member-modal",
       );
@@ -12014,6 +13622,140 @@ function bindActions(): void {
 
     if (action === "open-usage-details") {
       openUsageDetailsModal();
+      return;
+    }
+
+    if (action === "open-usage-alerts-modal") {
+      openUsageAlertsModal();
+      return;
+    }
+
+    if (action === "close-usage-alerts-modal") {
+      closeUsageAlertsModal();
+      return;
+    }
+
+    if (action === "open-usage-alert-events-modal") {
+      openUsageAlertEventsModal();
+      return;
+    }
+
+    if (action === "close-usage-alert-events-modal") {
+      closeUsageAlertEventsModal();
+      return;
+    }
+
+    if (action === "open-system-modal" && button.dataset.systemModalId) {
+      openSystemDiagnosticsModal(button.dataset.systemModalId);
+      return;
+    }
+
+    if (action === "close-system-modal") {
+      closeSystemDiagnosticsModal(button.dataset.systemModalId);
+      return;
+    }
+
+    if (action === "ops-refresh") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "刷新中");
+        await refreshOperationsStatus();
+        await readOperationsLog();
+        setBanner("运维状态已刷新。", "success");
+      } catch (error) {
+        setBanner(`刷新运维状态失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "ops-log-refresh") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "读取中");
+        await readOperationsLog();
+        setBanner("日志已刷新。", "success");
+      } catch (error) {
+        setBanner(`读取日志失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action?.startsWith("gateway-service-")) {
+      const serviceAction = action.replace("gateway-service-", "") as
+        | "install"
+        | "start"
+        | "stop"
+        | "restart";
+      if (!["install", "start", "stop", "restart"].includes(serviceAction)) {
+        return;
+      }
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "执行中");
+        await controlGatewayService(serviceAction);
+      } catch (error) {
+        setBanner(`网关服务操作失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action?.startsWith("cloudflare-service-")) {
+      const serviceAction = action.replace("cloudflare-service-", "") as
+        | "start"
+        | "stop"
+        | "restart";
+      if (!["start", "stop", "restart"].includes(serviceAction)) {
+        return;
+      }
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "执行中");
+        await controlCloudflareService(serviceAction);
+      } catch (error) {
+        setBanner(`Cloudflare Tunnel 操作失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "open-logs") {
+      try {
+        await getGatewayApi().openLogs();
+        setBanner("已打开日志目录。", "success");
+      } catch (error) {
+        setBanner(`打开日志目录失败：${String(error)}`, "error");
+      }
+      return;
+    }
+
+    if (action === "copy-public-snippet") {
+      try {
+        await copyTextWithFallback(buildPublicIntegrationSnippet());
+        setBanner("公网接入片段已复制。", "success");
+      } catch (error) {
+        setBanner(`复制公网接入片段失败：${String(error)}`, "error");
+      }
+      return;
+    }
+
+    if (action === "notification-filter" && button.dataset.notificationFilter) {
+      const nextFilter = button.dataset.notificationFilter;
+      state.notificationFilter =
+        nextFilter === "unread" || nextFilter === "read" ? nextFilter : "all";
+      renderNotificationCenter();
+      return;
+    }
+
+    if (action === "mark-notification-read" && button.dataset.notificationId) {
+      markNotificationRead(button.dataset.notificationId);
+      return;
+    }
+
+    if (action === "mark-all-notifications-read") {
+      markAllNotificationsRead();
       return;
     }
 
@@ -12221,6 +13963,50 @@ function bindActions(): void {
       } catch (error) {
         setBanner(`复制 LAN 模板失败：${String(error)}`, "error");
       }
+    }
+
+    if (action === "copy-public-access-template") {
+      try {
+        await copyTextWithFallback(buildPublicAccessTemplateText());
+        setBanner("公网成员接入模板已复制。", "success");
+      } catch (error) {
+        setBanner(`复制公网模板失败：${String(error)}`, "error");
+      }
+    }
+
+    if (action === "copy-public-validation-command") {
+      const checkId = button.dataset.publicValidationId as
+        | PublicValidationCheckId
+        | undefined;
+      if (!checkId) {
+        return;
+      }
+      try {
+        await copyTextWithFallback(buildPublicValidationCommand(checkId));
+        setBanner("公网验收命令已复制。", "success");
+      } catch (error) {
+        setBanner(`复制公网验收命令失败：${String(error)}`, "error");
+      }
+    }
+
+    if (action === "toggle-public-validation-check") {
+      const checkId = button.dataset.publicValidationId as
+        | PublicValidationCheckId
+        | undefined;
+      if (!checkId) {
+        return;
+      }
+      const next = {
+        ...(state.publicValidation ?? loadPublicValidationState()),
+      };
+      next[checkId] = !next[checkId];
+      state.publicValidation = next;
+      savePublicValidationState(next);
+      renderPublicValidationChecklist();
+      setBanner(
+        next[checkId] ? "公网验收项已标记通过。" : "公网验收项已标记未通过。",
+        "success",
+      );
     }
 
     if (action === "account-clear-selection") {
@@ -12509,6 +14295,7 @@ async function refresh(): Promise<void> {
     securitySettingsResult,
     systemSettingsResult,
     appDataStatusResult,
+    operationsStatusResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
@@ -12521,6 +14308,9 @@ async function refresh(): Promise<void> {
     api.getSecuritySettings(),
     api.getSystemSettings(),
     api.getAppDataStatus(),
+    api.getOperationsStatus
+      ? api.getOperationsStatus()
+      : Promise.resolve(undefined),
   ]);
   const loadFailures: RuntimeDiagnosticLoadFailure[] = [];
 
@@ -12564,12 +14354,14 @@ async function refresh(): Promise<void> {
 
   if (accessAlertsResult.status === "fulfilled") {
     state.accessAlerts = normalizeAccessAlertEvents(accessAlertsResult.value);
+    handleAccessAlertsUpdated();
   } else {
     loadFailures.push({
       scope: "access-alerts",
       message: normalizeErrorMessage(accessAlertsResult.reason),
     });
     state.accessAlerts = [];
+    handleAccessAlertsUpdated();
   }
 
   if (providersResult.status === "fulfilled") {
@@ -12646,6 +14438,10 @@ async function refresh(): Promise<void> {
       lanAccess: {
         enabled: false,
       },
+      publicAccess: {
+        enabled: false,
+        provider: "cloudflare-tunnel",
+      },
       accessControl: {
         consumers: [],
         keys: [],
@@ -12665,6 +14461,19 @@ async function refresh(): Promise<void> {
     state.appDataStatus = undefined;
   }
 
+  if (
+    operationsStatusResult.status === "fulfilled" &&
+    operationsStatusResult.value
+  ) {
+    state.operationsStatus = operationsStatusResult.value.data;
+  } else if (operationsStatusResult.status === "rejected") {
+    loadFailures.push({
+      scope: "operations-status",
+      message: normalizeErrorMessage(operationsStatusResult.reason),
+    });
+    state.operationsStatus = undefined;
+  }
+
   updateRuntimeDiagnostics(loadFailures);
 
   renderActiveViewContent();
@@ -12682,17 +14491,20 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     state.activeView === "overview" ||
     state.activeView === "accounts" ||
     state.activeView === "usage" ||
+    state.activeView === "notifications" ||
     Boolean(state.usageDetailsModalOpen);
   const shouldFetchSessions =
     state.activeView === "overview" ||
     state.activeView === "accounts" ||
     state.activeView === "pools";
+  const shouldFetchOperations = state.activeView === "operations";
 
   const [
     healthResult,
     usageSummaryResult,
     accessAlertsResult,
     sessionsResult,
+    operationsStatusResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     shouldFetchUsage
@@ -12708,19 +14520,24 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     shouldFetchSessions
       ? api.getSessions()
       : Promise.resolve(state.sessions),
+    shouldFetchOperations && api.getOperationsStatus
+      ? api.getOperationsStatus()
+      : Promise.resolve(undefined),
   ]);
 
   if (
     healthResult.status !== "fulfilled" &&
     usageSummaryResult.status !== "fulfilled" &&
     accessAlertsResult.status !== "fulfilled" &&
-    sessionsResult.status !== "fulfilled"
+    sessionsResult.status !== "fulfilled" &&
+    operationsStatusResult.status !== "fulfilled"
   ) {
     throw (
       healthResult.reason ??
       usageSummaryResult.reason ??
       accessAlertsResult.reason ??
       sessionsResult.reason ??
+      operationsStatusResult.reason ??
       new Error("无法刷新桌面端运行态数据。")
     );
   }
@@ -12747,9 +14564,16 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     "data" in accessAlertsResult.value
   ) {
     state.accessAlerts = normalizeAccessAlertEvents(accessAlertsResult.value);
+    handleAccessAlertsUpdated();
   }
   if (sessionsResult.status === "fulfilled" && sessionsResult.value) {
     state.sessions = sessionsResult.value;
+  }
+  if (
+    operationsStatusResult.status === "fulfilled" &&
+    operationsStatusResult.value
+  ) {
+    state.operationsStatus = operationsStatusResult.value.data;
   }
   updateRuntimeDiagnostics([]);
   scheduleVisibleRefresh();
@@ -12765,6 +14589,7 @@ async function refreshUsageSummaryOnly(): Promise<void> {
   ]);
   state.usageSummary = normalizeUsageObservability(response.data);
   state.accessAlerts = normalizeAccessAlertEvents(alerts);
+  handleAccessAlertsUpdated();
   scheduleVisibleRefresh();
 }
 
@@ -12839,10 +14664,10 @@ async function resetTelemetryWithFeedback(
 ): Promise<void> {
   try {
     const confirmed = await requestConfirmation({
-      title: "确认清空统计",
+      title: "确认清理运行态",
       message:
-        "将清空路由命中、Token 用量与账号调用统计，但不会影响账号、配置和授权。是否继续？",
-      confirmLabel: "确认清空",
+        "将清理路由命中、账号调用活动、号池运行态和熔断状态；Token 用量、访问告警、成员、Key 和配置会保留。是否继续？",
+      confirmLabel: "确认清理",
       tone: "danger",
     });
     if (!confirmed) {
@@ -12851,11 +14676,11 @@ async function resetTelemetryWithFeedback(
     const api = getGatewayApi();
     if (typeof api.resetTelemetry !== "function") {
       throw new Error(
-        "当前桌面主进程版本暂不支持清空统计，请重启桌面端后重试。",
+        "当前桌面主进程版本暂不支持清理运行态，请重启桌面端后重试。",
       );
     }
     setButtonLoading(button ?? null, true, "清理中");
-    setBanner("正在清空统计数据...", "info");
+    setBanner("正在清理运行态数据...", "info");
     try {
       await api.resetTelemetry();
     } catch (error) {
@@ -12865,15 +14690,15 @@ async function resetTelemetryWithFeedback(
         message.includes("No handler registered")
       ) {
         throw new Error(
-          "当前桌面主进程仍是旧版本，尚未注册“清空统计”能力。请完全退出桌面端后重新启动。",
+          "当前桌面主进程仍是旧版本，尚未注册“清理运行态”能力。请完全退出桌面端后重新启动。",
         );
       }
       throw error;
     }
     await refresh();
-    setBanner("统计数据已清空。", "success");
+    setBanner("运行态数据已清理，Token 用量、访问告警和成员配置已保留。", "success");
   } catch (error) {
-    setBanner(`清空统计失败：${String(error)}`, "error");
+    setBanner(`清理运行态失败：${String(error)}`, "error");
   } finally {
     setButtonLoading(button ?? null, false);
   }
@@ -12901,6 +14726,7 @@ async function syncSessionActivitySilently(): Promise<void> {
 
 void (async () => {
   try {
+    loadNotificationState();
     state.activeView = loadPersistedView();
     bindNavigation();
     setActiveView(state.activeView);

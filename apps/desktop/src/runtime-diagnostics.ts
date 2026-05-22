@@ -20,7 +20,8 @@ export interface RuntimeDiagnosticLoadFailure {
     | "system-settings"
     | "app-data-status"
     | "usage-summary"
-    | "access-alerts";
+    | "access-alerts"
+    | "operations-status";
   message: string;
 }
 
@@ -43,6 +44,9 @@ export interface RuntimeDiagnosticContext {
   inferenceAuthHasApiKey?: boolean;
   lanAccessEnabled?: boolean;
   lanBaseUrl?: string;
+  publicAccessEnabled?: boolean;
+  publicAccessProvider?: string;
+  publicBaseUrl?: string;
   gatewayHost?: string;
   gatewayPort?: number;
   localNetworkAddressCount?: number;
@@ -50,6 +54,8 @@ export interface RuntimeDiagnosticContext {
   enabledLanConsumerCount?: number;
   enabledLanAccessKeyCount?: number;
   publicReadyPoolCount?: number;
+  enabledPublicConsumerCount?: number;
+  enabledPublicAccessKeyCount?: number;
   recentErrors?: Array<{
     level?: string;
     message: string;
@@ -143,6 +149,7 @@ export function classifyLoadFailure(
     "app-data-status": "应用数据概况加载失败",
     "usage-summary": "Token 用量统计加载失败",
     "access-alerts": "访问告警事件加载失败",
+    "operations-status": "运维状态加载失败",
   } as const;
 
   return {
@@ -266,10 +273,10 @@ export function buildRuntimeDiagnostics(
         id: "public-ready-placeholder",
         title: "检测到外网预留号池",
         message:
-          "当前存在 public-ready 号池配置，但二期桌面版仍不会开放公网共享入口，也不会把它分配给 LAN 成员使用。",
+          "当前存在 public-ready 号池配置；只有显式启用公网共享并配置 HTTPS Public Base URL 后，public-user 成员才可使用它。",
         severity: "info",
         suggestion:
-          "请只把 public-ready 当作三期治理预留标签；public-user 访问者在二期同样会被拒绝，真正公网共享需要 HTTPS、域名、反代、审计、滥用防护和独立部署边界。",
+          "LAN 成员仍只能访问 shared-lan 号池；公网成员必须使用独立 Key、额度包、过期时间、QPS / 并发和 public-ready 号池授权。",
       });
     }
 
@@ -289,6 +296,109 @@ export function buildRuntimeDiagnostics(
         severity: "success",
         suggestion:
           "请只把成员 API Key 分发给可信接入方，并优先在同一局域网内做一次 /v1/models 或对话请求验证。",
+      });
+    }
+  }
+
+  if (context.publicAccessEnabled) {
+    const publicBaseUrl = context.publicBaseUrl?.trim();
+    const publicReadyPoolCount = context.publicReadyPoolCount ?? 0;
+    const enabledPublicConsumerCount = context.enabledPublicConsumerCount ?? 0;
+    const enabledPublicAccessKeyCount = context.enabledPublicAccessKeyCount ?? 0;
+    const providerLabel =
+      context.publicAccessProvider === "tailscale-funnel"
+        ? "Tailscale Funnel"
+        : context.publicAccessProvider === "manual-reverse-proxy"
+          ? "手动反向代理"
+          : "Cloudflare Tunnel";
+
+    if (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey) {
+      diagnostics.push({
+        id: "public-api-key-required",
+        title: "公网共享缺少可用 Key 保护",
+        message: "公网共享已开启，但推理面还没有可用的 Gateway Key、客户端映射 Key 或公网成员 Key。",
+        severity: "warning",
+        suggestion:
+          "请先启用 API Key 鉴权，并为每个公网试用成员创建独立 Key；不要复用管理员自用 Gateway Key。",
+      });
+    }
+
+    if (!publicBaseUrl) {
+      diagnostics.push({
+        id: "public-base-url-missing",
+        title: "缺少 Public Base URL",
+        message: `公网共享已开启，但尚未配置 ${providerLabel} 对外 HTTPS 入口。`,
+        severity: "warning",
+        suggestion:
+          "域名准备好后填写类似 https://gateway.example.com/v1 的 Public Base URL；Quick Tunnel 只适合临时测试。",
+      });
+    } else if (!publicBaseUrl.startsWith("https://")) {
+      diagnostics.push({
+        id: "public-base-url-not-https",
+        title: "Public Base URL 不是 HTTPS",
+        message: `当前公网入口为 ${publicBaseUrl}，不符合公网共享的 HTTPS 边界。`,
+        severity: "warning",
+        suggestion:
+          "公网成员应只使用 HTTPS 入口；Cloudflare Tunnel 正式域名完成后再保存 Public Base URL。",
+      });
+    }
+
+    if (publicReadyPoolCount === 0) {
+      diagnostics.push({
+        id: "public-ready-pool-missing",
+        title: "缺少 public-ready 号池",
+        message: "公网共享已开启，但当前没有可供公网成员使用的 public-ready 动态号池。",
+        severity: "warning",
+        suggestion:
+          "请在“号池与路由”中准备独立 public-ready 号池，不要把 private 自用号池直接暴露给公网成员。",
+      });
+    }
+
+    if (enabledPublicConsumerCount === 0) {
+      diagnostics.push({
+        id: "public-user-missing",
+        title: "缺少启用中的公网成员",
+        message: "公网共享已开启，但当前没有启用中的 public-user 访问成员。",
+        severity: "warning",
+        suggestion:
+          "请在“访问与密钥”中创建公网试用成员，并设置过期时间、额度包、QPS / 并发、模型和号池授权。",
+      });
+    } else if (enabledPublicAccessKeyCount === 0) {
+      diagnostics.push({
+        id: "public-user-key-missing",
+        title: "公网成员缺少可用 Key",
+        message: "当前已有启用中的公网成员，但没有可用的成员 API Key。",
+        severity: "warning",
+        suggestion:
+          "请为每个公网试用成员创建独立 API Key；不要分发默认 Gateway Key 或管理员本机密钥。",
+      });
+    }
+
+    diagnostics.push({
+      id: "public-admin-surface-local-only",
+      title: "管理面保持本机访问",
+      message: "公网共享配置只面向 OpenAI-compatible 推理面 `/v1/*`，管理面 `/admin/*` 仍由本机 loopback guard 保护。",
+      severity: "info",
+      suggestion:
+        "Cloudflare 或反代规则应只作为推理入口使用；不要把桌面控制台或管理 token 当公网产品能力分发。",
+    });
+
+    if (
+      context.gatewayOk &&
+      context.inferenceAuthEnabled &&
+      context.inferenceAuthHasApiKey &&
+      publicBaseUrl?.startsWith("https://") &&
+      publicReadyPoolCount > 0 &&
+      enabledPublicConsumerCount > 0 &&
+      enabledPublicAccessKeyCount > 0
+    ) {
+      diagnostics.push({
+        id: "public-sharing-ready",
+        title: "公网共享入口配置已就绪",
+        message: `${providerLabel} 公网入口的关键本地条件已满足，可将 Base URL 分发为 ${publicBaseUrl}。`,
+        severity: "success",
+        suggestion:
+          "正式分发前请从外部网络分别验收 /v1/models、非流式对话和 stream: true 长连接；公司网络切换后允许短暂重连窗口。",
       });
     }
   }

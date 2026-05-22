@@ -276,9 +276,84 @@ describe("runtime diagnostics", () => {
         }),
         expect.objectContaining({
           id: "public-ready-placeholder",
-          message: expect.stringContaining("不会把它分配给 LAN 成员使用"),
-          suggestion: expect.stringContaining("public-user"),
+          message: expect.stringContaining("显式启用公网共享"),
+          suggestion: expect.stringContaining("LAN 成员仍只能访问 shared-lan 号池"),
           severity: "info",
+        }),
+      ]),
+    );
+  });
+
+  it("reports public sharing readiness and missing Cloudflare prerequisites", () => {
+    const incompleteDiagnostics = buildRuntimeDiagnostics({
+      gatewayOk: true,
+      activeSessionId: "session-1",
+      sessions: [
+        {
+          id: "session-1",
+          status: "available",
+          activity: {
+            requestCount: 1,
+          },
+        },
+      ],
+      loadFailures: [],
+      inferenceAuthEnabled: true,
+      inferenceAuthHasApiKey: true,
+      publicAccessEnabled: true,
+      publicAccessProvider: "cloudflare-tunnel",
+      publicBaseUrl: "",
+      publicReadyPoolCount: 0,
+      enabledPublicConsumerCount: 1,
+      enabledPublicAccessKeyCount: 0,
+    });
+
+    expect(incompleteDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "public-base-url-missing",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          id: "public-ready-pool-missing",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          id: "public-user-key-missing",
+          severity: "warning",
+        }),
+      ]),
+    );
+
+    const readyDiagnostics = buildRuntimeDiagnostics({
+      gatewayOk: true,
+      activeSessionId: "session-1",
+      sessions: [
+        {
+          id: "session-1",
+          status: "available",
+          activity: {
+            requestCount: 1,
+          },
+        },
+      ],
+      loadFailures: [],
+      inferenceAuthEnabled: true,
+      inferenceAuthHasApiKey: true,
+      publicAccessEnabled: true,
+      publicAccessProvider: "cloudflare-tunnel",
+      publicBaseUrl: "https://gateway.example.com/v1",
+      publicReadyPoolCount: 1,
+      enabledPublicConsumerCount: 1,
+      enabledPublicAccessKeyCount: 1,
+    });
+
+    expect(readyDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "public-sharing-ready",
+          severity: "success",
+          message: expect.stringContaining("https://gateway.example.com/v1"),
         }),
       ]),
     );

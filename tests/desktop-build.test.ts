@@ -26,7 +26,7 @@ describe("desktop build output", () => {
     expect(styles).not.toContain("color-scheme: dark");
   });
 
-  it("uses the phase two shared-gateway navigation structure", () => {
+  it("uses the shared-gateway navigation structure", () => {
     const indexHtml = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
@@ -39,6 +39,8 @@ describe("desktop build output", () => {
       ["pools", "号池与路由"],
       ["models", "模型与 Provider"],
       ["usage", "用量与告警"],
+      ["notifications", "消息通知"],
+      ["operations", "运维与日志"],
       ["system", "系统与诊断"],
     ];
 
@@ -47,7 +49,7 @@ describe("desktop build output", () => {
     )?.[1];
 
     expect(navGroup).toBeTruthy();
-    expect(navGroup?.match(/data-nav-target="/g) ?? []).toHaveLength(7);
+    expect(navGroup?.match(/data-nav-target="/g) ?? []).toHaveLength(9);
 
     for (const [target, label] of expectedNavItems) {
       expect(navGroup).toContain(`data-nav-target="${target}"`);
@@ -71,14 +73,16 @@ describe("desktop build output", () => {
     )?.[1];
 
     expect(navGroup).toBeTruthy();
-    expect(navGroup?.match(/<svg class="nav-icon-svg"/g) ?? []).toHaveLength(7);
-    expect(navGroup?.match(/aria-hidden="true"/g) ?? []).toHaveLength(7);
+    expect(navGroup?.match(/<svg class="nav-icon-svg"/g) ?? []).toHaveLength(9);
+    expect(navGroup?.match(/aria-hidden="true"/g) ?? []).toHaveLength(9);
     expect(navGroup).not.toContain('<span class="nav-icon">总</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">钥</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">账</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">池</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">模</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">量</span>');
+    expect(navGroup).not.toContain('<span class="nav-icon">消</span>');
+    expect(navGroup).not.toContain('<span class="nav-icon">运</span>');
     expect(navGroup).not.toContain('<span class="nav-icon">诊</span>');
 
     expect(indexHtml).toContain("class=\"account-assets-shell table-container-lite\"");
@@ -410,6 +414,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("access-member-period-token-limit");
     expect(rendererSource).toContain("access-member-requests-per-minute");
     expect(rendererSource).toContain("access-member-max-concurrent");
+    expect(rendererSource).toContain("access-member-max-input-tokens");
+    expect(rendererSource).toContain("access-member-max-output-tokens");
     expect(rendererSource).toContain("access-member-total-token-limit");
     expect(rendererSource).toContain("access-member-policy-expires-at");
     expect(rendererSource).toContain("access-member-model-aliases");
@@ -448,6 +454,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("totalTokenLimit");
     expect(rendererSource).toContain("requestsPerMinute");
     expect(rendererSource).toContain("maxConcurrentRequests");
+    expect(rendererSource).toContain("maxInputTokens");
+    expect(rendererSource).toContain("maxOutputTokens");
   });
 
   it("renders hot-effective access policy summary hooks", () => {
@@ -466,6 +474,22 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("总量包");
     expect(rendererSource).not.toContain("兼容客户端 key");
     expect(styleSource).toContain("access-policy-item-grid");
+  });
+
+  it("keeps access control out of the generic security save payload", () => {
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+
+    const saveSecuritySettingsBody = rendererSource.match(
+      /async function saveSecuritySettings\(\): Promise<SecuritySettings> \{([\s\S]*?)\nasync function saveSystemAndSecuritySettings/,
+    )?.[1];
+
+    expect(saveSecuritySettingsBody).toBeTruthy();
+    expect(saveSecuritySettingsBody).not.toContain("accessControl:");
+    expect(saveSecuritySettingsBody).toContain("publicAccess:");
+    expect(saveSecuritySettingsBody).toContain("lanAccess:");
   });
 
   it("renders the phase two account assets ownership skeleton", () => {
@@ -502,7 +526,7 @@ describe("desktop build output", () => {
     );
 
     const poolsView = indexHtml.match(
-      /<div class="view" data-view="pools" hidden>([\s\S]*?)<!-- View: System & Diagnostics -->/,
+      /<div class="view" data-view="pools" hidden>([\s\S]*?)<!-- View: Operations -->/,
     )?.[1];
 
     expect(poolsView).toBeTruthy();
@@ -559,6 +583,93 @@ describe("desktop build output", () => {
     expect(styles).not.toContain(".pool-member-scroll-panel {");
     expect(styles).toContain(".compact-pool-member-option {");
     expect(styles).toContain(".pool-card-header,");
+  });
+
+  it("renders the operations and logs workbench with service controls", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
+    const preloadSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/preload.ts"),
+      "utf8",
+    );
+    const staticPreloadSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/preload.cjs"),
+      "utf8",
+    );
+    const mainSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/main.ts"),
+      "utf8",
+    );
+
+    const operationsView = indexHtml.match(
+      /<div class="view" data-view="operations" hidden>([\s\S]*?)<!-- View: System & Diagnostics -->/,
+    )?.[1];
+
+    expect(operationsView).toBeTruthy();
+    expect(operationsView).toContain("class=\"operations-workbench\"");
+    expect(operationsView).toContain("id=\"ops-gateway-status\"");
+    expect(operationsView).toContain("id=\"ops-cloudflare-status\"");
+    expect(operationsView).toContain("id=\"ops-log-source\"");
+    expect(operationsView).toContain("id=\"ops-log-output\"");
+    expect(operationsView).toContain("data-action=\"gateway-service-install\"");
+    expect(operationsView).toContain("data-action=\"gateway-service-start\"");
+    expect(operationsView).toContain("data-action=\"gateway-service-stop\"");
+    expect(operationsView).toContain("data-action=\"gateway-service-restart\"");
+    expect(operationsView).toContain("data-action=\"cloudflare-service-restart\"");
+    expect(rendererSource).toContain("type OperationsStatus");
+    expect(rendererSource).toContain("renderOperations");
+    expect(rendererSource).toContain("refreshOperationsStatus");
+    expect(rendererSource).toContain("readOperationsLog");
+    expect(rendererSource).toContain("controlGatewayService");
+    expect(rendererSource).toContain("controlCloudflareService");
+    expect(rendererSource).toContain("buildPublicIntegrationSnippet");
+    expect(preloadSource).toContain("getOperationsStatus");
+    expect(preloadSource).toContain("readOperationsLog");
+    expect(preloadSource).toContain("controlGatewayService");
+    expect(preloadSource).toContain("controlCloudflareService");
+    expect(staticPreloadSource).toContain("getOperationsStatus");
+    expect(staticPreloadSource).toContain("readOperationsLog");
+    expect(staticPreloadSource).toContain("controlGatewayService");
+    expect(staticPreloadSource).toContain("controlCloudflareService");
+    expect(mainSource).toContain("com.local-ai-gateway.gateway");
+    expect(mainSource).toContain("gateway:get-operations-status");
+    expect(mainSource).toContain("gateway:read-operations-log");
+    expect(mainSource).toContain("gateway:control-gateway-service");
+    expect(mainSource).toContain("gateway:control-cloudflare-service");
+    expect(styles).toContain(".operations-workbench {");
+    expect(styles).toContain(".ops-status-grid {");
+    expect(styles).toContain(".ops-log-viewer {");
+    expect(styles).toContain(".ops-log-output {");
+  });
+
+  it("removes stale phase labels from active UI copy", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+
+    for (const source of [indexHtml, rendererSource]) {
+      expect(source).not.toContain("二期可用");
+      expect(source).not.toContain("三期可用");
+      expect(source).not.toContain("三期预留");
+      expect(source).not.toContain("二期开发入口");
+      expect(source).not.toContain("三期预留入口");
+      expect(source).not.toContain("待 server edition");
+    }
   });
 
   it("uses Figma hooks for the models and providers workbench", () => {
@@ -647,24 +758,49 @@ describe("desktop build output", () => {
     expect(systemView).toBeTruthy();
     expect(systemView).toContain("class=\"system-diagnostics-workbench\"");
     expect(systemView).toContain("class=\"card system-config-panel\"");
-    expect(systemView).toContain("class=\"system-config-form-grid\"");
+    expect(systemView).toContain("class=\"system-config-layout\"");
+    expect(systemView).toContain("class=\"system-config-fieldset\"");
+    expect(systemView).toContain("class=\"system-status-strip\"");
+    expect(systemView).toContain("class=\"system-action-grid\"");
     expect(systemView).toContain("class=\"diagnostics-shell table-container-lite\"");
     expect(systemView).toContain("id=\"service-diagnostics\"");
     expect(systemView).toContain("id=\"provider-diagnostics\"");
     expect(systemView).toContain("id=\"recent-errors\"");
-    expect(systemView).toContain("id=\"lan-access-template\"");
-    expect(systemView).toContain("id=\"runtime-troubleshooting-guide\"");
+    expect(systemView).toContain("data-action=\"open-system-modal\"");
+    expect(systemView).not.toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"system-public-template-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"system-public-validation-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"system-troubleshooting-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("class=\"modal-content figma-modal system-diagnostics-modal\"");
+    expect(indexHtml).toContain("data-action=\"close-system-modal\"");
+    expect(systemView).toContain("id=\"gateway-public-access-enabled\"");
+    expect(systemView).toContain("id=\"gateway-public-access-provider\"");
+    expect(systemView).toContain("id=\"gateway-public-base-url\"");
+    expect(systemView).toContain("id=\"gateway-public-tunnel-name\"");
+    expect(systemView).toContain("id=\"gateway-public-hostname\"");
     expect(rendererSource).toContain("diagnostic-card detail-drawer-panel");
     expect(rendererSource).toContain("diagnostic-card-header");
     expect(rendererSource).toContain("diagnostic-fact-grid");
     expect(rendererSource).toContain("renderLanAccessTemplate");
+    expect(rendererSource).toContain("renderPublicAccessTemplate");
+    expect(rendererSource).toContain("renderPublicValidationChecklist");
     expect(rendererSource).toContain("renderRuntimeTroubleshootingGuide");
+    expect(rendererSource).toContain("openSystemDiagnosticsModal");
+    expect(rendererSource).toContain("closeSystemDiagnosticsModal");
     expect(rendererSource).toContain("saveSystemAndSecuritySettings");
     expect(rendererSource).toContain("hasAnyInferenceCredential");
     expect(rendererSource).toContain("setModeCardStatus");
     expect(rendererSource).toContain("LAN 成员设备访问不通");
     expect(rendererSource).toContain("401 / 403 鉴权失败");
     expect(rendererSource).toContain("copy-lan-access-template");
+    expect(rendererSource).toContain("copy-public-access-template");
+    expect(rendererSource).toContain("copy-public-validation-command");
+    expect(rendererSource).toContain("toggle-public-validation-check");
+    expect(rendererSource).toContain("公网外部验收清单");
+    expect(rendererSource).toContain("公网 /v1/models 验收");
+    expect(rendererSource).toContain("公网非流式对话验收");
+    expect(rendererSource).toContain("公网 stream: true 验收");
     expect(rendererSource).toContain("cc_switch");
     expect(rendererSource).toContain("自定义 Provider");
     expect(rendererSource).toContain("recent-error-card");
@@ -673,14 +809,22 @@ describe("desktop build output", () => {
     expect(runtimeDiagnosticsSource).toContain("lan-firewall-verification");
     expect(runtimeDiagnosticsSource).toContain("lan-host-sleep-risk");
     expect(runtimeDiagnosticsSource).toContain("public-ready-placeholder");
+    expect(runtimeDiagnosticsSource).toContain("public-sharing-ready");
+    expect(runtimeDiagnosticsSource).toContain("public-base-url-missing");
     expect(rendererSource).toContain("sharedLanPoolCount");
     expect(rendererSource).toContain("enabledLanAccessKeyCount");
     expect(rendererSource).toContain("publicReadyPoolCount");
+    expect(rendererSource).toContain("enabledPublicAccessKeyCount");
+    expect(rendererSource).toContain("publicAccessEnabled");
     expect(rendererSource).toContain("localNetworkAddressCount");
     expect(rendererSource).toContain("lanBaseUrl");
     expect(styles).toContain(".system-diagnostics-workbench {");
     expect(styles).toContain(".system-config-panel {");
-    expect(styles).toContain(".system-config-form-grid {");
+    expect(styles).toContain(".system-config-layout {");
+    expect(styles).toContain(".system-config-fieldset {");
+    expect(styles).toContain(".system-status-strip {");
+    expect(styles).toContain(".system-action-grid {");
+    expect(styles).toContain(".system-diagnostics-modal {");
     expect(styles).toContain(".diagnostics-shell {");
     expect(styles).toContain(".troubleshooting-guide-grid {");
     expect(styles).toContain(".diagnostic-card {");
@@ -720,30 +864,60 @@ describe("desktop build output", () => {
     expect(usageView).toContain("class=\"usage-alerts-workbench\"");
     expect(usageView).toContain("class=\"usage-chart-panel\"");
     expect(usageView).toContain("class=\"usage-chart-frame\"");
-    expect(usageView).toContain("窗口用量结构");
+    expect(usageView).toContain("成员观测");
+    expect(usageView).toContain("id=\"usage-observe-mode\"");
     expect(usageView).toContain("id=\"usage-trend-dimension\"");
     expect(usageView).toContain("data-action=\"usage-trend-dimension\"");
     expect(usageView).toContain("id=\"usage-trend-chart\"");
+    expect(usageView).toContain("id=\"usage-operations-dashboard\"");
     expect(usageView).toContain("id=\"usage-dimension-insights\"");
-    expect(usageView).toContain("id=\"usage-alert-rule-list\"");
-    expect(usageView).toContain("id=\"usage-alert-event-list\"");
-    expect(usageView).toContain("告警事件列表");
-    expect(usageView).toContain("id=\"usage-alert-daily-threshold\"");
-    expect(usageView).toContain("id=\"usage-alert-runtime-threshold\"");
-    expect(usageView).toContain("id=\"usage-alert-failure-threshold\"");
-    expect(usageView).toContain("data-action=\"save-usage-alert-thresholds\"");
-    expect(usageView).toContain("id=\"usage-alert-status-filter\"");
-    expect(usageView).toContain("id=\"usage-alert-severity-filter\"");
+    expect(usageView).toContain("data-action=\"open-usage-alerts-modal\"");
+    expect(usageView).toContain("data-action=\"open-usage-alert-events-modal\"");
+    expect(usageView).toContain("id=\"usage-alert-summary-preview\"");
+    expect(usageView).toContain("id=\"usage-alert-events-preview\"");
+    expect(usageView).not.toContain("id=\"usage-alerts-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"usage-alerts-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"usage-alert-events-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("class=\"modal-content figma-modal usage-alert-modal\"");
+    expect(indexHtml).toContain("class=\"modal-content figma-modal usage-alert-events-modal\"");
+    expect(indexHtml).toContain("id=\"usage-alert-rule-list\"");
+    expect(indexHtml).toContain("id=\"usage-alert-event-list\"");
+    expect(indexHtml).toContain("告警事件列表");
+    expect(indexHtml).toContain("id=\"usage-alert-daily-threshold\"");
+    expect(indexHtml).toContain("id=\"usage-alert-runtime-threshold\"");
+    expect(indexHtml).toContain("id=\"usage-alert-failure-threshold\"");
+    expect(indexHtml).toContain("data-action=\"save-usage-alert-thresholds\"");
+    expect(indexHtml).toContain("id=\"usage-alert-status-filter\"");
+    expect(indexHtml).toContain("id=\"usage-alert-severity-filter\"");
+    expect(indexHtml).toContain("id=\"usage-alert-consumer-type-filter\"");
+    expect(indexHtml).toContain("公网成员");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
-    expect(usageView).toContain("class=\"usage-alert-rule-list\"");
-    expect(usageView).toContain("class=\"usage-alert-event-list\"");
-    expect(usageView).toContain("class=\"usage-alert-event-toolbar\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
     expect(rendererSource).toContain("normalizeUsageObservability");
     expect(rendererSource).toContain("normalizeAccessAlertEvents");
+    expect(rendererSource).toContain("formatAccessAlertConsumerTypeLabel");
+    expect(rendererSource).toContain("usageAlertConsumerTypeFilter");
     expect(rendererSource).toContain("renderUsageTrendChart");
+    expect(rendererSource).toContain("renderUsageOperationsDashboard");
+    expect(rendererSource).toContain("renderUsageTokenTrendLine");
+    expect(rendererSource).toContain("renderUsageRankingBars");
+    expect(rendererSource).toContain("renderUsageTokenMixDonut");
+    expect(rendererSource).toContain("renderUsageOutcomeBars");
+    expect(rendererSource).toContain("renderUsageLatencySnapshot");
+    expect(rendererSource).toContain("renderUsageScopeMatrix");
+    expect(rendererSource).toContain("renderUsageAlertSummaryPreview");
+    expect(rendererSource).toContain("openUsageAlertsModal");
+    expect(rendererSource).toContain("openUsageAlertEventsModal");
+    expect(rendererSource).toContain("renderNotificationCenter");
+    expect(rendererSource).toContain("deriveNotificationItems");
+    expect(rendererSource).toContain("notificationUnreadBadge");
+    expect(rendererSource).toContain("showNativeNotification");
+    expect(rendererSource).toContain("markNotificationRead");
     expect(rendererSource).toContain("UsageTrendDimension");
-    expect(rendererSource).toContain("usageTrendDimension");
+    expect(rendererSource).toContain("usageTrendDimension: \"members\"");
+    expect(rendererSource).not.toContain(
+      "state.activeView === \"overview\" || state.activeView === \"usage\"",
+    );
     expect(rendererSource).toContain("renderUsageConsumerTimelineChart");
     expect(rendererSource).toContain("renderUsageModelTimelinePanel");
     expect(rendererSource).toContain("renderUsageAttributionTimelinePanel");
@@ -756,7 +930,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("class=\"usage-trend-empty-state\"");
     expect(rendererSource).toContain("renderUsageTrendEmptyState");
     expect(rendererSource).toContain("data-usage-tooltip");
-    expect(rendererSource).toContain("当前筛选维度暂无 24h 趋势数据");
+    expect(rendererSource).toContain("当前视角暂无小时曲线");
+    expect(rendererSource).toContain("当前视角暂无排行数据");
     expect(rendererSource).toContain("ensureUsageTooltip");
     expect(rendererSource).toContain("showUsageTooltip");
     expect(rendererSource).toContain("hideUsageTooltip");
@@ -796,19 +971,36 @@ describe("desktop build output", () => {
     expect(preloadSource).toContain("acknowledgeAccessAlert");
     expect(preloadSource).toContain("acknowledgeAllAccessAlerts");
     expect(preloadSource).toContain("clearAcknowledgedAccessAlerts");
+    expect(preloadSource).toContain("showNativeNotification");
     expect(staticPreloadSource).toContain("getAccessAlerts");
     expect(staticPreloadSource).toContain("acknowledgeAccessAlert");
     expect(staticPreloadSource).toContain("acknowledgeAllAccessAlerts");
     expect(staticPreloadSource).toContain("clearAcknowledgedAccessAlerts");
+    expect(staticPreloadSource).toContain("showNativeNotification");
     expect(mainSource).toContain("gateway:acknowledge-access-alert");
     expect(mainSource).toContain("gateway:acknowledge-all-access-alerts");
     expect(mainSource).toContain("gateway:clear-acknowledged-access-alerts");
+    expect(mainSource).toContain("gateway:show-native-notification");
+    expect(mainSource).toContain("new Notification");
     expect(mainSource).toContain("/admin/access/alerts/acknowledge-all");
     expect(mainSource).toContain("/admin/access/alerts/clear-acknowledged");
     expect(mainSource).toContain("/admin/access/alerts/");
     expect(styles).toContain(".usage-alerts-workbench {");
     expect(styles).toContain(".usage-chart-panel {");
     expect(styles).toContain(".usage-chart-frame {");
+    expect(styles).toContain(".usage-operations-dashboard {");
+    expect(styles).toContain(".usage-line-chart {");
+    expect(styles).toContain(".usage-ranking-chart {");
+    expect(styles).toContain(".usage-donut-chart {");
+    expect(styles).toContain(".usage-outcome-chart {");
+    expect(styles).toContain(".usage-latency-chart {");
+    expect(styles).toContain(".usage-scope-matrix {");
+    expect(styles).toContain("height: 8px;");
+    expect(styles).toContain(".usage-alert-modal,");
+    expect(styles).toContain(".system-diagnostics-modal {");
+    expect(styles).toContain(".usage-alert-action-grid {");
+    expect(styles).toContain(".notification-list {");
+    expect(styles).toContain(".notification-unread-badge {");
     expect(styles).toContain(".usage-chart-bars {");
     expect(styles).toContain(".usage-timeline-bars {");
     expect(styles).toContain(".usage-alert-rule em {");
@@ -841,7 +1033,7 @@ describe("desktop build output", () => {
   );
 
   it(
-    "does not keep packaged gateway startup on ELECTRON_RUN_AS_NODE child mode",
+    "uses packaged Electron node mode for the persistent gateway service",
     () => {
       execFileSync("npx", ["tsc", "-b", "apps/desktop", "--force"], {
         cwd: process.cwd(),
@@ -853,9 +1045,19 @@ describe("desktop build output", () => {
         "utf8",
       );
 
-      expect(mainOutput).not.toContain("ELECTRON_RUN_AS_NODE");
+      expect(mainOutput).toContain("ELECTRON_RUN_AS_NODE");
+      expect(mainOutput).toContain("gateway-service-runner.mjs");
+      expect(mainOutput).toContain("app.getPath(\"exe\")");
       expect(mainOutput).toContain("gateway/dist/server.js");
       expect(mainOutput).toContain("startGatewayServer");
+      expect(mainOutput).toContain("await gatewayManager.stopManaged()");
+      expect(mainOutput).toContain("knownGatewayPids");
+      expect(mainOutput).toContain("isKnownLocalGatewayProcess");
+      expect(mainOutput).toContain("parseLaunchAgentStatus(");
+      expect(mainOutput).toContain("GATEWAY_HEALTH_WAIT_TIMEOUT_MS");
+      expect(mainOutput).toContain("45_000");
+      expect(mainOutput).toContain("ensureGatewayForWindowStartup");
+      expect(mainOutput).toContain("仍打开控制台以便修复");
     },
     15_000,
   );

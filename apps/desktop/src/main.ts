@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { networkInterfaces } from "node:os";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -25,6 +26,7 @@ import {
   nativeImage,
   nativeTheme,
   net,
+  Notification,
   shell,
 } from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
@@ -82,6 +84,21 @@ const iconAssetDir = join(__dirname, "../assets/icons/generated");
 const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
 const desktopMainLogPath = join(gatewayPaths.logsDir, "desktop-main.log");
+const launchAgentsDir = join(app.getPath("home"), "Library", "LaunchAgents");
+const GATEWAY_SERVICE_LABEL = "com.local-ai-gateway.gateway";
+const CLOUDFLARED_SERVICE_LABEL = "com.local-ai-gateway.cloudflared";
+const gatewayServiceDir = join(gatewayPaths.rootDir, "service");
+const gatewayServiceLauncherPath = join(gatewayServiceDir, "gateway-launcher.mjs");
+const gatewayServiceRunnerPath = join(gatewayServiceDir, "gateway-service-runner.mjs");
+const gatewayServicePlistPath = join(launchAgentsDir, `${GATEWAY_SERVICE_LABEL}.plist`);
+const gatewayServiceOutLogPath = join(gatewayPaths.logsDir, "gateway-service.out.log");
+const gatewayServiceErrLogPath = join(gatewayPaths.logsDir, "gateway-service.err.log");
+const ELECTRON_RUN_AS_NODE_ENV_KEY = "ELECTRON_RUN_AS_NODE";
+const cloudflaredPlistPath = join(launchAgentsDir, `${CLOUDFLARED_SERVICE_LABEL}.plist`);
+const cloudflaredDir = join(gatewayPaths.rootDir, "cloudflared");
+const cloudflaredLogPath = join(cloudflaredDir, "local-ai-gateway-dev.log");
+const cloudflaredOutLogPath = join(cloudflaredDir, "local-ai-gateway-dev.launchd.out.log");
+const cloudflaredErrLogPath = join(cloudflaredDir, "local-ai-gateway-dev.launchd.err.log");
 const BetterSqlite3 = require("better-sqlite3") as new (path: string) => {
   pragma: (sql: string) => void;
   prepare: (sql: string) => {
@@ -101,6 +118,7 @@ const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
 const IGNORABLE_STDIO_ERROR_CODES = new Set(["EIO", "EPIPE", "ENXIO"]);
+const GATEWAY_HEALTH_WAIT_TIMEOUT_MS = 45_000;
 
 type TrayVisualState = "idle" | "active" | "error";
 type TraySnapshot = {
@@ -326,6 +344,728 @@ process.on("unhandledRejection", (reason) => {
   }
 });
 
+type LaunchAgentStatus = {
+  label: string;
+  plistPath: string;
+  installed: boolean;
+  loaded: boolean;
+  running: boolean;
+  state?: string;
+  pid?: number;
+  lastExitStatus?: number;
+  error?: string;
+};
+
+type GatewayServiceStatus = LaunchAgentStatus & {
+  port: number;
+  baseUrl: string;
+  launcherPath: string;
+  outLogPath: string;
+  errLogPath: string;
+  endpointHealthy: boolean;
+  portProcess?: {
+    pid: number;
+    command: string;
+    localGateway: boolean;
+  };
+};
+
+type OperationsLogSource = {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  sizeBytes?: number;
+  updatedAt?: number;
+};
+
+type GatewayServiceAction = "install" | "start" | "stop" | "restart";
+type CloudflareServiceAction = "start" | "stop" | "restart";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function getLaunchctlDomain(): string {
+  const uid =
+    typeof process.getuid === "function"
+      ? process.getuid()
+      : Number(execFileSync("id", ["-u"], { encoding: "utf8" }).trim());
+  return `gui/${uid}`;
+}
+
+function getLaunchctlServiceTarget(label: string): string {
+  return `${getLaunchctlDomain()}/${label}`;
+}
+
+function execText(command: string, args: string[]): string {
+  return execFileSync(command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function tryExecText(command: string, args: string[]): string | undefined {
+  try {
+    return execText(command, args);
+  } catch {
+    return undefined;
+  }
+}
+
+function findListeningProcessId(port: number): number | undefined {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-ti", `tcp:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .find(Boolean);
+    if (!output) {
+      return undefined;
+    }
+    const pid = Number(output);
+    return Number.isFinite(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readProcessCommand(pid: number): string {
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function looksLikeLocalGatewayCommand(command: string): boolean {
+  if (!command) {
+    return false;
+  }
+  return (
+    command.includes(gatewayEntrypoint) ||
+    command.includes(gatewayServerEntrypoint) ||
+    command.includes(gatewayServiceLauncherPath) ||
+    command.includes(gatewayServiceRunnerPath) ||
+    command.includes("apps/gateway/dist/cli.js") ||
+    command.includes("apps/gateway/dist/server.js") ||
+    command.includes("app.asar/apps/gateway/dist/cli.js") ||
+    command.includes("app.asar/apps/gateway/dist/server.js")
+  );
+}
+
+function isKnownLocalGatewayProcess(pid: number, knownGatewayPids?: Iterable<number | undefined>): boolean {
+  if (!knownGatewayPids) {
+    return false;
+  }
+  for (const knownPid of knownGatewayPids) {
+    if (typeof knownPid === "number" && Number.isFinite(knownPid) && knownPid === pid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function waitUntilPortFree(port: number, timeoutMs = 5_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!findListeningProcessId(port)) {
+      return true;
+    }
+    await sleep(200);
+  }
+  return !findListeningProcessId(port);
+}
+
+async function killLocalGatewayProcessOnPort(
+  port: number,
+  options: { knownGatewayPids?: Iterable<number | undefined> } = {},
+): Promise<{ killed: boolean; pid?: number; command?: string; blocked?: boolean }> {
+  const deadline = Date.now() + 3_000;
+
+  while (Date.now() < deadline) {
+    const pid = findListeningProcessId(port);
+    if (!pid || pid === process.pid) {
+      return { killed: false };
+    }
+
+    const command = readProcessCommand(pid);
+    const localGateway =
+      looksLikeLocalGatewayCommand(command) ||
+      isKnownLocalGatewayProcess(pid, options.knownGatewayPids);
+
+    if (!command && !localGateway) {
+      await sleep(200);
+      continue;
+    }
+
+    if (!localGateway) {
+      return { killed: false, pid, command, blocked: true };
+    }
+
+    try {
+      process.kill(pid, "SIGTERM");
+      const stopped = await waitUntilPortFree(port);
+      if (!stopped) {
+        process.kill(pid, "SIGKILL");
+        await waitUntilPortFree(port, 2_000);
+      }
+      return { killed: true, pid, command };
+    } catch {
+      return { killed: false, pid, command, blocked: true };
+    }
+  }
+
+  const pid = findListeningProcessId(port);
+  return { killed: false, pid, command: pid ? readProcessCommand(pid) : undefined };
+}
+
+function parseLaunchAgentStatus(
+  label: string,
+  plistPath: string,
+): LaunchAgentStatus {
+  const installed = existsSync(plistPath);
+  const target = getLaunchctlServiceTarget(label);
+  try {
+    const output = execText("launchctl", ["print", target]);
+    const state = output.match(/\bstate = ([^\n]+)/)?.[1]?.trim();
+    const pidText = output.match(/\bpid = (\d+)/)?.[1];
+    const lastExitText = output.match(/\blast exit code = (-?\d+)/)?.[1];
+    const pid = pidText ? Number(pidText) : undefined;
+    const lastExitStatus = lastExitText ? Number(lastExitText) : undefined;
+    return {
+      label,
+      plistPath,
+      installed,
+      loaded: true,
+      running: state === "running",
+      state,
+      pid: Number.isFinite(pid) ? pid : undefined,
+      lastExitStatus: Number.isFinite(lastExitStatus) ? lastExitStatus : undefined,
+    };
+  } catch (error) {
+    return {
+      label,
+      plistPath,
+      installed,
+      loaded: false,
+      running: false,
+      state: installed ? "unloaded" : "missing",
+      error: installed ? undefined : toErrorMessage(error),
+    };
+  }
+}
+
+function bootstrapLaunchAgent(label: string, plistPath: string): void {
+  execFileSync("launchctl", ["bootstrap", getLaunchctlDomain(), plistPath], {
+    stdio: "pipe",
+  });
+  execFileSync("launchctl", ["enable", getLaunchctlServiceTarget(label)], {
+    stdio: "pipe",
+  });
+}
+
+function bootoutLaunchAgent(label: string): void {
+  try {
+    execFileSync("launchctl", ["bootout", getLaunchctlServiceTarget(label)], {
+      stdio: "pipe",
+    });
+  } catch {
+    // Already unloaded.
+  }
+}
+
+function kickstartLaunchAgent(label: string): void {
+  execFileSync("launchctl", ["kickstart", "-k", getLaunchctlServiceTarget(label)], {
+    stdio: "pipe",
+  });
+}
+
+function resolveNodeExecutable(): string {
+  const candidates = [
+    process.env.LOCAL_AI_GATEWAY_NODE_PATH,
+    process.env.npm_node_execpath,
+    basename(process.execPath) === "node" ? process.execPath : undefined,
+    tryExecText("/bin/zsh", ["-lc", "command -v node"])?.trim(),
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+  ].filter((item): item is string => Boolean(item && item.trim()));
+
+  for (const candidate of Array.from(new Set(candidates))) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    "未找到可用于 LaunchAgent 的 Node.js 可执行文件。请确认 `node` 已安装，或设置 LOCAL_AI_GATEWAY_NODE_PATH。",
+  );
+}
+
+function resolveGatewayEntrypointCandidates(): string[] {
+  const devRepoEntrypoint = join(
+    app.getPath("home"),
+    "code/local-ai-gateway/apps/gateway/dist/cli.js",
+  );
+  return Array.from(
+    new Set([
+      gatewayEntrypoint,
+      devRepoEntrypoint,
+    ]),
+  );
+}
+
+function resolveGatewayServerEntrypointCandidates(): string[] {
+  const installedAppServerEntrypoint = join(
+    "/Applications",
+    "Local AI Gateway.app",
+    "Contents",
+    "Resources",
+    "app.asar",
+    "apps/gateway/dist/server.js",
+  );
+  const devRepoServerEntrypoint = join(
+    app.getPath("home"),
+    "code/local-ai-gateway/apps/gateway/dist/server.js",
+  );
+  return Array.from(
+    new Set([
+      gatewayServerEntrypoint,
+      installedAppServerEntrypoint,
+      devRepoServerEntrypoint,
+    ]),
+  );
+}
+
+function writeGatewayServiceLauncher(): void {
+  mkdirSync(gatewayServiceDir, { recursive: true });
+  mkdirSync(gatewayPaths.logsDir, { recursive: true });
+  const candidates = JSON.stringify(resolveGatewayEntrypointCandidates(), null, 2);
+  const script = `#!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
+
+const port = Number(process.env.LOCAL_AI_GATEWAY_PORT || "${DEFAULT_PORT}");
+const candidates = ${candidates};
+
+function read(command, args) {
+  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+}
+
+function findListeningPid() {
+  try {
+    const output = read("lsof", ["-ti", \`tcp:\${port}\`, "-sTCP:LISTEN"]).trim().split("\\n").find(Boolean);
+    const pid = Number(output);
+    return Number.isFinite(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readCommand(pid) {
+  try {
+    return read("ps", ["-p", String(pid), "-o", "command="]).trim();
+  } catch {
+    return "";
+  }
+}
+
+function looksLikeGateway(command) {
+  return command.includes("apps/gateway/dist/cli.js") ||
+    command.includes("apps/gateway/dist/server.js") ||
+    command.includes("app.asar/apps/gateway/dist/cli.js") ||
+    command.includes("app.asar/apps/gateway/dist/server.js") ||
+    command.includes("gateway-launcher.mjs") ||
+    command.includes("gateway-service-runner.mjs");
+}
+
+async function waitForPortFree(timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!findListeningPid()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return !findListeningPid();
+}
+
+const pid = findListeningPid();
+if (pid && pid !== process.pid) {
+  const command = readCommand(pid);
+  if (looksLikeGateway(command)) {
+    try {
+      process.kill(pid, "SIGTERM");
+      const stopped = await waitForPortFree();
+      if (!stopped) {
+        process.kill(pid, "SIGKILL");
+        await waitForPortFree(2000);
+      }
+    } catch (error) {
+      console.error("[gateway-service] failed to stop previous gateway process:", error?.message || error);
+    }
+  }
+}
+
+const entrypoint = candidates.find((candidate) => existsSync(candidate));
+if (!entrypoint) {
+  console.error("[gateway-service] gateway entrypoint not found:", candidates.join(", "));
+  process.exit(75);
+}
+
+const child = spawn(process.execPath, [entrypoint], {
+  cwd: dirname(entrypoint),
+  env: {
+    ...process.env,
+    LOCAL_AI_GATEWAY_PORT: String(port),
+    LOCAL_AI_GATEWAY_SERVICE: "1",
+  },
+  stdio: "inherit",
+});
+
+child.on("exit", (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+    return;
+  }
+  process.exit(typeof code === "number" ? code : 1);
+});
+`;
+  writeFileSync(gatewayServiceLauncherPath, script, "utf8");
+  chmodSync(gatewayServiceLauncherPath, 0o755);
+}
+
+function writeGatewayServiceRunner(): void {
+  mkdirSync(gatewayServiceDir, { recursive: true });
+  mkdirSync(gatewayPaths.logsDir, { recursive: true });
+  const candidates = JSON.stringify(resolveGatewayServerEntrypointCandidates(), null, 2);
+  const script = `#!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+const port = Number(process.env.LOCAL_AI_GATEWAY_PORT || "${DEFAULT_PORT}");
+const candidates = ${candidates};
+
+function read(command, args) {
+  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+}
+
+function findListeningPid() {
+  try {
+    const output = read("lsof", ["-ti", \`tcp:\${port}\`, "-sTCP:LISTEN"]).trim().split("\\n").find(Boolean);
+    const pid = Number(output);
+    return Number.isFinite(pid) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readCommand(pid) {
+  try {
+    return read("ps", ["-p", String(pid), "-o", "command="]).trim();
+  } catch {
+    return "";
+  }
+}
+
+function looksLikeGateway(command) {
+  return command.includes("apps/gateway/dist/cli.js") ||
+    command.includes("apps/gateway/dist/server.js") ||
+    command.includes("app.asar/apps/gateway/dist/cli.js") ||
+    command.includes("app.asar/apps/gateway/dist/server.js") ||
+    command.includes("gateway-launcher.mjs") ||
+    command.includes("gateway-service-runner.mjs");
+}
+
+async function waitForPortFree(timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!findListeningPid()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return !findListeningPid();
+}
+
+const pid = findListeningPid();
+if (pid && pid !== process.pid) {
+  const command = readCommand(pid);
+  if (looksLikeGateway(command)) {
+    try {
+      process.kill(pid, "SIGTERM");
+      const stopped = await waitForPortFree();
+      if (!stopped) {
+        process.kill(pid, "SIGKILL");
+        await waitForPortFree(2000);
+      }
+    } catch (error) {
+      console.error("[gateway-service] failed to stop previous gateway process:", error?.message || error);
+    }
+  }
+}
+
+const entrypoint = candidates.find((candidate) => existsSync(candidate));
+if (!entrypoint) {
+  console.error("[gateway-service] gateway server entrypoint not found:", candidates.join(", "));
+  process.exit(75);
+}
+
+const { startGatewayServer } = await import(pathToFileURL(entrypoint).href);
+const handle = await startGatewayServer({
+  env: {
+    ...process.env,
+    LOCAL_AI_GATEWAY_PORT: String(port),
+    LOCAL_AI_GATEWAY_SERVICE: "1",
+  },
+  port,
+});
+
+console.log("[gateway-service] gateway server started", JSON.stringify({ host: handle.host, port: handle.port, pid: process.pid }));
+
+let closing = false;
+async function close(signal) {
+  if (closing) {
+    return;
+  }
+  closing = true;
+  try {
+    await handle.close(signal);
+  } catch (error) {
+    console.error("[gateway-service] failed to close gateway server:", error?.message || error);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.once("SIGTERM", () => void close("SIGTERM"));
+process.once("SIGINT", () => void close("SIGINT"));
+process.once("SIGHUP", () => void close("SIGHUP"));
+`;
+  writeFileSync(gatewayServiceRunnerPath, script, "utf8");
+  chmodSync(gatewayServiceRunnerPath, 0o755);
+}
+
+function writeGatewayServiceFiles(): void {
+  if (app.isPackaged) {
+    writeGatewayServiceRunner();
+    return;
+  }
+  writeGatewayServiceLauncher();
+}
+
+function getGatewayServiceProgramArguments(): string[] {
+  if (app.isPackaged) {
+    return [app.getPath("exe"), gatewayServiceRunnerPath];
+  }
+  return [resolveNodeExecutable(), gatewayServiceLauncherPath];
+}
+
+function getGatewayServiceEnvironment(port: number): Record<string, string> {
+  return {
+    LOCAL_AI_GATEWAY_PORT: String(port),
+    LOCAL_AI_GATEWAY_SERVICE: "1",
+    ...(app.isPackaged ? { [ELECTRON_RUN_AS_NODE_ENV_KEY]: "1" } : {}),
+  };
+}
+
+function writeGatewayServicePlist(): void {
+  mkdirSync(launchAgentsDir, { recursive: true });
+  mkdirSync(gatewayPaths.logsDir, { recursive: true });
+  const port = getConfiguredGatewayPort();
+  const programArguments = getGatewayServiceProgramArguments()
+    .map((item) => `    <string>${xmlEscape(item)}</string>`)
+    .join("\n");
+  const environmentVariables = Object.entries(getGatewayServiceEnvironment(port))
+    .map(
+      ([key, value]) =>
+        `    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`,
+    )
+    .join("\n");
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${xmlEscape(GATEWAY_SERVICE_LABEL)}</string>
+  <key>ProgramArguments</key>
+  <array>
+${programArguments}
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+${environmentVariables}
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>WorkingDirectory</key>
+  <string>${xmlEscape(gatewayPaths.rootDir)}</string>
+  <key>StandardOutPath</key>
+  <string>${xmlEscape(gatewayServiceOutLogPath)}</string>
+  <key>StandardErrorPath</key>
+  <string>${xmlEscape(gatewayServiceErrLogPath)}</string>
+</dict>
+</plist>
+`;
+  writeFileSync(gatewayServicePlistPath, plist, "utf8");
+}
+
+function getPortProcess(port: number): GatewayServiceStatus["portProcess"] {
+  const pid = findListeningProcessId(port);
+  if (!pid) {
+    return undefined;
+  }
+  const command = readProcessCommand(pid);
+  return {
+    pid,
+    command,
+    localGateway: looksLikeLocalGatewayCommand(command),
+  };
+}
+
+function buildGatewayServiceStatus(endpointHealthy = false): GatewayServiceStatus {
+  const port = getConfiguredGatewayPort();
+  return {
+    ...parseLaunchAgentStatus(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath),
+    port,
+    baseUrl: buildGatewayBaseUrl(port),
+    launcherPath: app.isPackaged ? gatewayServiceRunnerPath : gatewayServiceLauncherPath,
+    outLogPath: gatewayServiceOutLogPath,
+    errLogPath: gatewayServiceErrLogPath,
+    endpointHealthy,
+    portProcess: getPortProcess(port),
+  };
+}
+
+class GatewayServiceManager {
+  isInstalled(): boolean {
+    return existsSync(gatewayServicePlistPath);
+  }
+
+  async status(): Promise<GatewayServiceStatus> {
+    const port = getConfiguredGatewayPort();
+    return buildGatewayServiceStatus(await isGatewayEndpointHealthy(port));
+  }
+
+  async installAndStart(): Promise<GatewayServiceStatus> {
+    const port = getConfiguredGatewayPort();
+    const previousServicePid = parseLaunchAgentStatus(
+      GATEWAY_SERVICE_LABEL,
+      gatewayServicePlistPath,
+    ).pid;
+    writeGatewayServiceFiles();
+    writeGatewayServicePlist();
+    bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    const duplicate = await killLocalGatewayProcessOnPort(port, {
+      knownGatewayPids: [previousServicePid],
+    });
+    if (duplicate.blocked) {
+      throw new Error(
+        `端口 ${port} 已被非网关进程占用，无法启动常驻服务。PID=${duplicate.pid}`,
+      );
+    }
+    bootstrapLaunchAgent(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath);
+    kickstartLaunchAgent(GATEWAY_SERVICE_LABEL);
+    await waitForGatewayEndpointHealthy(port);
+    return this.status();
+  }
+
+  async start(): Promise<GatewayServiceStatus> {
+    const port = getConfiguredGatewayPort();
+    const previousServicePid = parseLaunchAgentStatus(
+      GATEWAY_SERVICE_LABEL,
+      gatewayServicePlistPath,
+    ).pid;
+    writeGatewayServiceFiles();
+    writeGatewayServicePlist();
+    bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    const duplicate = await killLocalGatewayProcessOnPort(port, {
+      knownGatewayPids: [previousServicePid],
+    });
+    if (duplicate.blocked) {
+      throw new Error(
+        `端口 ${port} 已被非网关进程占用，无法启动常驻服务。PID=${duplicate.pid}`,
+      );
+    }
+    bootstrapLaunchAgent(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath);
+    kickstartLaunchAgent(GATEWAY_SERVICE_LABEL);
+    await waitForGatewayEndpointHealthy(port);
+    return this.status();
+  }
+
+  async stop(): Promise<GatewayServiceStatus> {
+    bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    return this.status();
+  }
+
+  async restart(): Promise<GatewayServiceStatus> {
+    const port = getConfiguredGatewayPort();
+    const previousServicePid = parseLaunchAgentStatus(
+      GATEWAY_SERVICE_LABEL,
+      gatewayServicePlistPath,
+    ).pid;
+    writeGatewayServiceFiles();
+    writeGatewayServicePlist();
+    bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    const duplicate = await killLocalGatewayProcessOnPort(port, {
+      knownGatewayPids: [previousServicePid],
+    });
+    if (duplicate.blocked) {
+      throw new Error(
+        `端口 ${port} 已被非网关进程占用，无法重启常驻服务。PID=${duplicate.pid}`,
+      );
+    }
+    bootstrapLaunchAgent(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath);
+    kickstartLaunchAgent(GATEWAY_SERVICE_LABEL);
+    await waitForGatewayEndpointHealthy(port);
+    return this.status();
+  }
+}
+
+async function isGatewayEndpointHealthy(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`${buildGatewayBaseUrl(port)}/healthz`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForGatewayEndpointHealthy(port: number): Promise<void> {
+  const deadline = Date.now() + GATEWAY_HEALTH_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await isGatewayEndpointHealthy(port)) {
+      return;
+    }
+    await sleep(300);
+  }
+  throw new Error(
+    `Gateway service did not become healthy within ${GATEWAY_HEALTH_WAIT_TIMEOUT_MS / 1000} seconds.`,
+  );
+}
+
+const gatewayServiceManager = new GatewayServiceManager();
+
 class GatewayProcessManager {
   private child?: ChildProcess;
   private hostedGateway?: HostedGatewayHandle;
@@ -343,6 +1083,12 @@ class GatewayProcessManager {
     }
 
     this.ensuring = (async () => {
+      if (gatewayServiceManager.isInstalled()) {
+        await gatewayServiceManager.start();
+        this.managed = false;
+        return { managed: false };
+      }
+
       if (!existsSync(app.isPackaged ? gatewayServerEntrypoint : gatewayEntrypoint)) {
         throw new Error("Gateway build output was not found. Run `npm run build` first.");
       }
@@ -395,13 +1141,18 @@ class GatewayProcessManager {
       return true;
     }
 
-    const pid = this.findListeningProcessId(port);
+    if (gatewayServiceManager.isInstalled()) {
+      await gatewayServiceManager.restart();
+      return true;
+    }
+
+    const pid = findListeningProcessId(port);
     if (!pid) {
       return false;
     }
 
-    const command = this.readProcessCommand(pid);
-    if (!this.looksLikeLocalGatewayCommand(command)) {
+    const command = readProcessCommand(pid);
+    if (!looksLikeLocalGatewayCommand(command)) {
       return false;
     }
 
@@ -426,6 +1177,13 @@ class GatewayProcessManager {
 
   private async startManagedGateway(): Promise<void> {
     const port = getConfiguredGatewayPort();
+    const duplicate = await killLocalGatewayProcessOnPort(port);
+    if (duplicate.blocked) {
+      throw new Error(
+        `本地端口 ${port} 已被其他进程占用，网关无法启动。请在系统配置中更换网关端口或释放该端口后重试。`,
+      );
+    }
+
     if (app.isPackaged) {
       if (this.hostedGateway) {
         await this.hostedGateway.close("restart");
@@ -476,7 +1234,7 @@ class GatewayProcessManager {
   }
 
   private async waitForHealthy(port: number): Promise<void> {
-    const deadline = Date.now() + 15_000;
+    const deadline = Date.now() + GATEWAY_HEALTH_WAIT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (await this.isHealthy(port)) {
         return;
@@ -490,7 +1248,9 @@ class GatewayProcessManager {
       );
     }
 
-    throw new Error("Gateway did not become healthy within 15 seconds.");
+    throw new Error(
+      `Gateway did not become healthy within ${GATEWAY_HEALTH_WAIT_TIMEOUT_MS / 1000} seconds.`,
+    );
   }
 
   private async isHealthy(port: number): Promise<boolean> {
@@ -555,14 +1315,7 @@ class GatewayProcessManager {
   }
 
   private looksLikeLocalGatewayCommand(command: string): boolean {
-    if (!command) {
-      return false;
-    }
-    return (
-      command.includes(gatewayEntrypoint) ||
-      (command.includes("apps/gateway/dist/cli.js") &&
-        command.includes("local-ai-gateway"))
-    );
+    return looksLikeLocalGatewayCommand(command);
   }
 }
 
@@ -798,6 +1551,201 @@ async function buildOpenClawSnippet(): Promise<string> {
     lines.push("apiKey=<你的 Gateway API Key 或成员 API Key>");
   }
   return lines.join("\n");
+}
+
+function getOperationsLogSources(): OperationsLogSource[] {
+  return [
+    {
+      id: "gateway-runtime",
+      label: "网关运行日志",
+      path: gatewayPaths.logFilePath,
+    },
+    {
+      id: "gateway-service-out",
+      label: "网关常驻 stdout",
+      path: gatewayServiceOutLogPath,
+    },
+    {
+      id: "gateway-service-err",
+      label: "网关常驻 stderr",
+      path: gatewayServiceErrLogPath,
+    },
+    {
+      id: "cloudflare-tunnel",
+      label: "Cloudflare Tunnel",
+      path: cloudflaredLogPath,
+    },
+    {
+      id: "cloudflare-launchd-out",
+      label: "Cloudflare launchd stdout",
+      path: cloudflaredOutLogPath,
+    },
+    {
+      id: "cloudflare-launchd-err",
+      label: "Cloudflare launchd stderr",
+      path: cloudflaredErrLogPath,
+    },
+    {
+      id: "desktop-main",
+      label: "桌面主进程",
+      path: desktopMainLogPath,
+    },
+  ].map((source) => {
+    const stat = statSafe(source.path);
+    return {
+      ...source,
+      exists: Boolean(stat),
+      sizeBytes: normalizeStatNumber(stat?.size),
+      updatedAt: normalizeStatNumber(stat?.mtimeMs),
+    };
+  });
+}
+
+function getOperationLogSource(sourceId: string): OperationsLogSource | undefined {
+  return getOperationsLogSources().find((source) => source.id === sourceId);
+}
+
+function readOperationLog(sourceId: string, maxLinesInput?: number): {
+  ok: boolean;
+  source: OperationsLogSource;
+  text: string;
+  maxLines: number;
+} {
+  const source = getOperationLogSource(sourceId);
+  if (!source) {
+    throw new Error("未知日志来源。");
+  }
+  const maxLines =
+    typeof maxLinesInput === "number" && Number.isFinite(maxLinesInput)
+      ? Math.max(20, Math.min(2_000, Math.round(maxLinesInput)))
+      : 300;
+  if (!source.exists) {
+    return {
+      ok: true,
+      source,
+      text: "日志文件暂不存在。",
+      maxLines,
+    };
+  }
+  const text = execFileSync("tail", ["-n", String(maxLines), source.path], {
+    encoding: "utf8",
+  });
+  return {
+    ok: true,
+    source,
+    text,
+    maxLines,
+  };
+}
+
+function buildCloudflareServiceStatus() {
+  const config = readGatewayConfig();
+  const publicAccess = config.inferenceAuthSettings?.publicAccess;
+  const status = parseLaunchAgentStatus(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
+  return {
+    ...status,
+    logPath: cloudflaredLogPath,
+    outLogPath: cloudflaredOutLogPath,
+    errLogPath: cloudflaredErrLogPath,
+    publicBaseUrl: publicAccess?.publicBaseUrl,
+    hostname: publicAccess?.hostname,
+    tunnelName: publicAccess?.tunnelName,
+  };
+}
+
+function buildPublicModelsProbeUrl(publicBaseUrl?: string): string | undefined {
+  const normalized = publicBaseUrl?.trim().replace(/\/+$/, "");
+  if (!normalized || !normalized.startsWith("https://")) {
+    return undefined;
+  }
+  return `${normalized}/models`;
+}
+
+async function probePublicModelsEndpoint(publicBaseUrl?: string): Promise<
+  | {
+      url: string;
+      reachable: boolean;
+      status?: number;
+      expectedGatewayAuth?: boolean;
+      error?: string;
+    }
+  | undefined
+> {
+  const url = buildPublicModelsProbeUrl(publicBaseUrl);
+  if (!url) {
+    return undefined;
+  }
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "manual",
+    });
+    return {
+      url,
+      reachable: true,
+      status: response.status,
+      expectedGatewayAuth: response.status === 401,
+    };
+  } catch (error) {
+    return {
+      url,
+      reachable: false,
+      error: toErrorMessage(error),
+    };
+  }
+}
+
+async function buildOperationsStatus() {
+  const gateway = await gatewayServiceManager.status();
+  const cloudflare = buildCloudflareServiceStatus();
+  const publicProbe = await probePublicModelsEndpoint(cloudflare.publicBaseUrl);
+  return {
+    ok: true,
+    data: {
+      generatedAt: toIsoNow(),
+      gateway,
+      cloudflare,
+      publicProbe,
+      logs: getOperationsLogSources(),
+    },
+  };
+}
+
+async function controlGatewayService(action: GatewayServiceAction) {
+  if (action === "install" || action === "start" || action === "restart") {
+    await gatewayManager.stopManaged();
+  }
+  if (action === "install") {
+    return gatewayServiceManager.installAndStart();
+  }
+  if (action === "start") {
+    return gatewayServiceManager.start();
+  }
+  if (action === "stop") {
+    return gatewayServiceManager.stop();
+  }
+  return gatewayServiceManager.restart();
+}
+
+function controlCloudflareService(action: CloudflareServiceAction) {
+  if (!existsSync(cloudflaredPlistPath)) {
+    throw new Error("尚未发现 Cloudflare Tunnel LaunchAgent，请先完成 Tunnel 常驻配置。");
+  }
+  if (action === "stop") {
+    bootoutLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    return buildCloudflareServiceStatus();
+  }
+  if (action === "restart") {
+    bootoutLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
+    kickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    return buildCloudflareServiceStatus();
+  }
+  if (!parseLaunchAgentStatus(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath).loaded) {
+    bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
+  }
+  kickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+  return buildCloudflareServiceStatus();
 }
 
 function getTrayAppearance(): "dark" | "light" {
@@ -1549,8 +2497,19 @@ function applyDesktopZoom(window: BrowserWindow): void {
   });
 }
 
+async function ensureGatewayForWindowStartup(): Promise<void> {
+  try {
+    await gatewayManager.ensureRunning();
+  } catch (error) {
+    console.error(
+      "[desktop] 网关启动失败，仍打开控制台以便修复:",
+      toErrorMessage(error),
+    );
+  }
+}
+
 async function createWindow(): Promise<void> {
-  await gatewayManager.ensureRunning();
+  await ensureGatewayForWindowStartup();
 
   if (process.platform === "darwin" && existsSync(appIconPath)) {
     app.dock?.setIcon(appIconPath);
@@ -1745,6 +2704,23 @@ ipcMain.handle("gateway:clear-acknowledged-access-alerts", async () => {
   return callAdmin("/admin/access/alerts/clear-acknowledged", {
     method: "POST",
   });
+});
+
+ipcMain.handle("gateway:show-native-notification", async (_event, payload: unknown) => {
+  const input = (payload ?? {}) as { title?: string; body?: string };
+  const title = typeof input.title === "string" && input.title.trim()
+    ? input.title.trim()
+    : "Local AI Gateway";
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!Notification.isSupported()) {
+    return { ok: false, supported: false };
+  }
+  new Notification({
+    title,
+    body,
+    silent: false,
+  }).show();
+  return { ok: true, supported: true };
 });
 
 ipcMain.handle("gateway:get-provider-settings", async () => {
@@ -1964,6 +2940,13 @@ ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string)
 });
 
 ipcMain.handle("gateway:restart", async () => {
+  if (gatewayServiceManager.isInstalled()) {
+    await gatewayManager.stopManaged();
+    const status = await gatewayServiceManager.restart();
+    void refreshTrayStatus();
+    return { ok: true, restarted: true, managed: false, service: status };
+  }
+
   await gatewayManager.ensureRunning();
 
   if (gatewayManager.isManaged()) {
@@ -1993,6 +2976,40 @@ ipcMain.handle("gateway:copy-text", async (_event, text: string) => {
 ipcMain.handle("gateway:open-logs", async () => {
   return shell.openPath(gatewayPaths.logsDir);
 });
+
+ipcMain.handle("gateway:get-operations-status", async () => {
+  return buildOperationsStatus();
+});
+
+ipcMain.handle(
+  "gateway:read-operations-log",
+  async (_event, sourceId: string, maxLines?: number) =>
+    readOperationLog(String(sourceId ?? ""), maxLines),
+);
+
+ipcMain.handle(
+  "gateway:control-gateway-service",
+  async (_event, action: GatewayServiceAction) => {
+    const normalized = String(action ?? "") as GatewayServiceAction;
+    if (!["install", "start", "stop", "restart"].includes(normalized)) {
+      throw new Error("不支持的网关服务操作。");
+    }
+    const data = await controlGatewayService(normalized);
+    void refreshTrayStatus();
+    return { ok: true, data };
+  },
+);
+
+ipcMain.handle(
+  "gateway:control-cloudflare-service",
+  async (_event, action: CloudflareServiceAction) => {
+    const normalized = String(action ?? "") as CloudflareServiceAction;
+    if (!["start", "stop", "restart"].includes(normalized)) {
+      throw new Error("不支持的 Cloudflare Tunnel 操作。");
+    }
+    return { ok: true, data: controlCloudflareService(normalized) };
+  },
+);
 
 ipcMain.handle("gateway:login-codex-oauth", async () => {
   if (codexOAuthInProgress) {
