@@ -371,12 +371,26 @@ export interface GatewayLanAccessSettings {
   enabled?: boolean;
 }
 
+export type GatewayPublicAccessProvider =
+  | "cloudflare-tunnel"
+  | "tailscale-funnel"
+  | "manual-reverse-proxy";
+
+export interface GatewayPublicAccessSettings {
+  enabled?: boolean;
+  provider?: GatewayPublicAccessProvider;
+  publicBaseUrl?: string;
+  tunnelName?: string;
+  hostname?: string;
+}
+
 export interface GatewayInferenceAuthSettings {
   mode?: GatewayInferenceAuthMode;
   apiKey?: string;
   resolveClientTagByApiKey?: boolean;
   clientMappings?: GatewayInferenceAuthClientMapping[];
   lanAccess?: GatewayLanAccessSettings;
+  publicAccess?: GatewayPublicAccessSettings;
   accessControl?: GatewayAccessControlSettings;
 }
 
@@ -398,6 +412,11 @@ export interface GatewayInferenceAuthPublicSettings {
   clientMappings: GatewayInferenceAuthPublicClientMapping[];
   lanAccess: {
     enabled: boolean;
+  };
+  publicAccess: GatewayPublicAccessSettings & {
+    enabled: boolean;
+    provider: GatewayPublicAccessProvider;
+    adminSurfaceExposed: false;
   };
   accessControl: GatewayAccessControlPublicSettings;
 }
@@ -637,6 +656,7 @@ export interface GatewayAccessAlertEvent {
   timestamp: number;
   severity: GatewayAccessAlertSeverity;
   consumerId?: string;
+  consumerType?: GatewayAccessConsumerType;
   accessKeyId?: string;
   type: string;
   message: string;
@@ -954,7 +974,7 @@ export function isSupportedCodexUpstreamModel(
 export function normalizeCodexUpstreamModel(
   value: string | undefined,
 ): SupportedCodexUpstreamModel | undefined {
-  const trimmed = value?.trim();
+  const trimmed = value?.trim().toLowerCase();
   if (!trimmed) {
     return undefined;
   }

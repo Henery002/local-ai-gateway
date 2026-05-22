@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildChatCompletionResponse,
+  buildModelsResponse,
+  chatCompletionSseToResponsesApiSse,
   parseChatCompletionsRequest,
   streamChatCompletionChunks,
   toGatewayConversationContext,
@@ -9,6 +11,34 @@ import {
 import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
 
 describe("openai compat", () => {
+  it("builds model lists for OpenAI clients and Codex Desktop", () => {
+    const response = buildModelsResponse([
+      {
+        alias: "codex-5.4",
+        displayName: "Codex 5.4",
+        provider: "openai-codex",
+        providerModelId: "gpt-5.4",
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+
+    expect(response.data[0]).toMatchObject({
+      id: "codex-5.4",
+      object: "model",
+      owned_by: "openai-codex",
+    });
+    expect(response.models[0]).toMatchObject({
+      slug: "codex-5.4",
+      display_name: "Codex 5.4",
+      visibility: "list",
+      default_reasoning_level: "medium",
+      prefer_websockets: false,
+    });
+  });
+
   it("parses chat completions payloads into gateway context", () => {
     const request = parseChatCompletionsRequest({
       model: "codex-default",
@@ -133,5 +163,73 @@ describe("openai compat", () => {
     expect(chunks.some((chunk) => chunk.includes("\"lookup_weather\""))).toBe(true);
     expect(chunks.at(-1)).toBe("data: [DONE]\n\n");
   });
-});
 
+  it("converts chat completion SSE into Codex-compatible Responses SSE events", () => {
+    const chatSse = [
+      `data: ${JSON.stringify({
+        choices: [{ delta: { role: "assistant" }, finish_reason: null }],
+      })}`,
+      "",
+      `data: ${JSON.stringify({
+        choices: [{ delta: { content: "OK" }, finish_reason: null }],
+      })}`,
+      "",
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "lookup_weather", arguments: "{\"city\":\"Shanghai\"}" },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+
+    const responsesSse = chatCompletionSseToResponsesApiSse(chatSse, "gpt-5.5");
+    const events = responsesSse
+      .split("\n\n")
+      .filter(Boolean)
+      .map((frame) => {
+        const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+        return JSON.parse(dataLine?.slice("data: ".length) ?? "{}");
+      });
+
+    expect(events.map((event) => event.type)).toEqual([
+      "response.created",
+      "response.in_progress",
+      "response.output_item.added",
+      "response.content_part.added",
+      "response.output_text.delta",
+      "response.output_text.done",
+      "response.content_part.done",
+      "response.output_item.done",
+      "response.output_item.added",
+      "response.function_call_arguments.delta",
+      "response.function_call_arguments.done",
+      "response.output_item.done",
+      "response.completed",
+    ]);
+
+    const delta = events.find((event) => event.type === "response.output_text.delta");
+    const done = events.find(
+      (event) => event.type === "response.output_item.done" && event.item?.type === "message",
+    );
+    expect(delta.item_id).toBe(done.item.id);
+    expect(delta.response_id).toBeUndefined();
+    expect(events.at(-1).response).toMatchObject({
+      status: "completed",
+      model: "gpt-5.5",
+      output_text: "OK",
+    });
+  });
+});

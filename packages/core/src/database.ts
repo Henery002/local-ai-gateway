@@ -94,6 +94,7 @@ type AccessAlertEventRow = {
   timestamp: number;
   severity: GatewayAccessAlertEvent["severity"];
   consumer_id: string | null;
+  consumer_type: GatewayAccessAlertEvent["consumerType"] | null;
   access_key_id: string | null;
   type: string;
   message: string;
@@ -115,6 +116,7 @@ function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEve
     timestamp: row.timestamp,
     severity: row.severity,
     consumerId: row.consumer_id ?? undefined,
+    consumerType: row.consumer_type ?? undefined,
     accessKeyId: row.access_key_id ?? undefined,
     type: row.type,
     message: row.message,
@@ -153,6 +155,7 @@ function buildAccessAlertDedupeKey(event: GatewayAccessAlertEvent): string {
   return [
     normalizeAccessAlertDedupePart(event.type),
     normalizeAccessAlertDedupePart(event.consumerId),
+    normalizeAccessAlertDedupePart(event.consumerType),
     normalizeAccessAlertDedupePart(event.accessKeyId),
     normalizeAccessAlertDedupePart(poolId),
     normalizeAccessAlertDedupePart(modelAlias),
@@ -215,6 +218,7 @@ export class GatewayDatabase {
         email TEXT,
         client_tag TEXT,
         consumer_id TEXT,
+        consumer_type TEXT,
         access_key_id TEXT,
         pool_id TEXT,
         provider_id TEXT NOT NULL,
@@ -292,6 +296,12 @@ export class GatewayDatabase {
       "inference_usage_events",
       "pool_id",
       "pool_id TEXT",
+    );
+    ensureColumnIfMissing(
+      this.db,
+      "access_alert_events",
+      "consumer_type",
+      "consumer_type TEXT",
     );
     ensureColumnIfMissing(
       this.db,
@@ -488,6 +498,7 @@ export class GatewayDatabase {
               SET
                 severity = ?,
                 consumer_id = ?,
+                consumer_type = ?,
                 access_key_id = ?,
                 type = ?,
                 message = ?,
@@ -500,6 +511,7 @@ export class GatewayDatabase {
           .run(
             event.severity,
             event.consumerId ?? null,
+            event.consumerType ?? null,
             event.accessKeyId ?? null,
             event.type,
             event.message,
@@ -519,6 +531,7 @@ export class GatewayDatabase {
             timestamp,
             severity,
             consumer_id,
+            consumer_type,
             access_key_id,
             type,
             message,
@@ -529,13 +542,14 @@ export class GatewayDatabase {
             occurrence_count,
             last_seen_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         event.timestamp,
         event.severity,
         event.consumerId ?? null,
+        event.consumerType ?? null,
         event.accessKeyId ?? null,
         event.type,
         event.message,
@@ -557,6 +571,7 @@ export class GatewayDatabase {
             timestamp,
             severity,
             consumer_id,
+            consumer_type,
             access_key_id,
             type,
             message,
@@ -585,6 +600,7 @@ export class GatewayDatabase {
             timestamp,
             severity,
             consumer_id,
+            consumer_type,
             access_key_id,
             type,
             message,
@@ -1949,20 +1965,6 @@ export class GatewayDatabase {
       .prepare(
         `
           DELETE FROM pool_member_runtime_snapshots
-        `,
-      )
-      .run();
-    this.db
-      .prepare(
-        `
-          DELETE FROM inference_usage_events
-        `,
-      )
-      .run();
-    this.db
-      .prepare(
-        `
-          DELETE FROM access_alert_events
         `,
       )
       .run();

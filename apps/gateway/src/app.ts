@@ -5,9 +5,14 @@ import Fastify from "fastify";
 import {
   buildChatCompletionResponse,
   buildModelsResponse,
+  buildResponsesApiResponseFromChatCompletion,
+  chatCompletionSseToResponsesApiSse,
+  type ChatCompletionsRequest,
   parseChatCompletionsRequest,
+  parseResponsesApiRequest,
   serializeSse,
   streamChatCompletionChunks,
+  toChatCompletionsRequestFromResponsesApi,
   toGatewayConversationContext,
 } from "@local-ai-gateway/openai-compat";
 import {
@@ -20,6 +25,8 @@ import {
   GatewayInferenceAuthSettings,
   GatewayPoolFailureClass,
   GatewayProviderSettings,
+  GatewayPublicAccessProvider,
+  GatewayPublicAccessSettings,
   GatewayPoolVisibility,
   GatewayRoutingAccessDecision,
   GatewayRoutingPreviewInput,
@@ -27,6 +34,7 @@ import {
   GatewayRoutingSettings,
   GatewaySessionPoolSettings,
   GatewayUsageClientFilter,
+  getCodexAliasForUpstreamModel,
   SessionSummary,
 } from "@local-ai-gateway/shared";
 
@@ -74,7 +82,9 @@ function isAccessAlertError(error: GatewayError | Error): error is GatewayError 
     error instanceof GatewayError &&
     (error.code.startsWith("access_policy_") ||
       error.code.startsWith("access_key_") ||
-      error.code.startsWith("access_consumer_"))
+      error.code.startsWith("access_consumer_") ||
+      error.code.startsWith("request_") ||
+      error.code.startsWith("session_safety_"))
   );
 }
 
@@ -95,6 +105,10 @@ function recordAccessAlertForError(
     severity: resolveAccessAlertSeverity(error),
     consumerId:
       typeof details.consumerId === "string" ? details.consumerId : undefined,
+    consumerType:
+      typeof details.consumerType === "string"
+        ? normalizeAccessConsumerType(details.consumerType)
+        : undefined,
     accessKeyId:
       typeof details.accessKeyId === "string" ? details.accessKeyId : undefined,
     type: error.code,
@@ -252,6 +266,17 @@ type AccessControlInput = Partial<GatewayAccessControlSettings> & {
   keys?: AccessKeyInput[];
 };
 
+const PUBLIC_REQUEST_GUARD_LIMITS = {
+  maxBodyBytes: 8 * 1_024 * 1_024,
+  maxMessages: 1_000,
+  maxTools: 128,
+  maxToolSchemaBytes: 1_024 * 1_024,
+  maxEstimatedInputTokens: 1_050_000,
+  maxOutputTokens: 128_000,
+  maxSingleTextChars: 4 * 1_024 * 1_024,
+  maxToolResultChars: 4 * 1_024 * 1_024,
+};
+
 type AccessCredentialContext = {
   consumerId: string;
   consumerName: string;
@@ -349,6 +374,51 @@ function normalizePoolSettingsForSave(
       ...pool,
       visibility: normalizePoolVisibility(pool.visibility),
     })),
+  };
+}
+
+function normalizePublicAccessProvider(
+  value: unknown,
+): GatewayPublicAccessProvider {
+  if (value === "tailscale-funnel" || value === "manual-reverse-proxy") {
+    return value;
+  }
+  return "cloudflare-tunnel";
+}
+
+function normalizePublicBaseUrl(value: unknown): string | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return undefined;
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+function normalizeOptionalTrimmedString(value: unknown): string | undefined {
+  const normalized = String(value ?? "").trim();
+  return normalized || undefined;
+}
+
+function normalizePublicAccessSettingsForSave(
+  input: GatewayPublicAccessSettings | undefined,
+  previous: GatewayPublicAccessSettings | undefined,
+): GatewayPublicAccessSettings {
+  if (!input) {
+    return {
+      enabled: Boolean(previous?.enabled),
+      provider: previous?.provider ?? "cloudflare-tunnel",
+      publicBaseUrl: previous?.publicBaseUrl,
+      tunnelName: previous?.tunnelName,
+      hostname: previous?.hostname,
+    };
+  }
+
+  return {
+    enabled: Boolean(input.enabled),
+    provider: normalizePublicAccessProvider(input.provider),
+    publicBaseUrl: normalizePublicBaseUrl(input.publicBaseUrl),
+    tunnelName: normalizeOptionalTrimmedString(input.tunnelName),
+    hostname: normalizeOptionalTrimmedString(input.hostname),
   };
 }
 
@@ -506,7 +576,7 @@ function resolveAccessCredential(
   if (consumer.status === "expired") {
     throw new GatewayError(403, "access_consumer_expired", "Access consumer is expired.");
   }
-  assertPublicUserDisabledForPhaseTwo(consumer, accessKey.id);
+  assertPublicUserAllowedForPublicAccess(consumer, settings, accessKey.id);
 
   return {
     consumerId: consumer.id,
@@ -521,11 +591,12 @@ function resolveAccessCredential(
   };
 }
 
-function assertPublicUserDisabledForPhaseTwo(
+function assertPublicUserAllowedForPublicAccess(
   consumer:
     | Pick<GatewayAccessConsumer, "id" | "type">
     | AccessCredentialContext
     | undefined,
+  settings: GatewayInferenceAuthSettings,
   accessKeyId?: string,
 ): void {
   if (!consumer) {
@@ -536,16 +607,23 @@ function assertPublicUserDisabledForPhaseTwo(
   if (consumerType !== "public-user") {
     return;
   }
+  if (
+    settings.publicAccess?.enabled &&
+    settings.publicAccess.publicBaseUrl?.startsWith("https://")
+  ) {
+    return;
+  }
 
   throw new GatewayError(
     403,
     "access_policy_public_user_disabled",
-    "Public-user access consumers are reserved for the future public gateway phase.",
+    "Public-user access consumers require explicitly enabled public sharing.",
     {
       consumerId: "consumerId" in consumer ? consumer.consumerId : consumer.id,
       ...(accessKeyId ? { accessKeyId } : {}),
       consumerType: "public-user",
-      phase: "phase-two",
+      phase: "phase-three",
+      publicAccessEnabled: Boolean(settings.publicAccess?.enabled),
     },
   );
 }
@@ -553,6 +631,7 @@ function assertPublicUserDisabledForPhaseTwo(
 function assertAccessPolicyAllowsModel(
   accessContext: AccessCredentialContext | undefined,
   requestedModelAlias: string,
+  originalModelAlias = requestedModelAlias,
 ): void {
   const allowed = accessContext?.policy?.allowedModelAliases;
   if (!allowed?.length) {
@@ -563,8 +642,38 @@ function assertAccessPolicyAllowsModel(
       403,
       "access_policy_model_denied",
       "Requested model is not allowed for this access consumer.",
+      {
+        consumerId: accessContext?.consumerId,
+        accessKeyId: accessContext?.accessKeyId,
+        requestedModelAlias: originalModelAlias,
+        resolvedModelAlias: requestedModelAlias,
+      },
     );
   }
+}
+
+function resolveCompatibleModelAlias(
+  runtime: GatewayRuntime,
+  requestedModelAlias: string,
+): string {
+  const trimmed = requestedModelAlias.trim();
+  if (runtime.getProviderAdapterForModel(trimmed)) {
+    return trimmed;
+  }
+
+  const caseMatchedAlias = runtime.modelRegistry
+    .list()
+    .find((model) => model.alias.toLowerCase() === trimmed.toLowerCase())?.alias;
+  if (caseMatchedAlias && runtime.getProviderAdapterForModel(caseMatchedAlias)) {
+    return caseMatchedAlias;
+  }
+
+  const codexAlias = getCodexAliasForUpstreamModel(trimmed);
+  if (codexAlias && runtime.getProviderAdapterForModel(codexAlias)) {
+    return codexAlias;
+  }
+
+  return trimmed;
 }
 
 function assertAccessPolicyNotExpired(
@@ -852,6 +961,234 @@ function assertAccessPolicyWithinRequestLimits(
   }
 }
 
+function getSerializedByteLength(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function flattenRequestTextLength(
+  content: string | null | Array<{ type: "text"; text: string }>,
+): number {
+  if (content === null) {
+    return 0;
+  }
+  if (typeof content === "string") {
+    return content.length;
+  }
+  return content.reduce((sum, item) => sum + item.text.length, 0);
+}
+
+function getRequestTextStats(request: ChatCompletionsRequest): {
+  totalTextChars: number;
+  maxSingleTextChars: number;
+  maxToolResultChars: number;
+} {
+  let totalTextChars = 0;
+  let maxSingleTextChars = 0;
+  let maxToolResultChars = 0;
+  for (const message of request.messages) {
+    const length = flattenRequestTextLength(message.content ?? "");
+    totalTextChars += length;
+    maxSingleTextChars = Math.max(maxSingleTextChars, length);
+    if (message.role === "tool") {
+      maxToolResultChars = Math.max(maxToolResultChars, length);
+    }
+  }
+  return {
+    totalTextChars,
+    maxSingleTextChars,
+    maxToolResultChars,
+  };
+}
+
+function estimateRequestInputTokens(request: ChatCompletionsRequest): number {
+  const textStats = getRequestTextStats(request);
+  const toolSchemaBytes = getSerializedByteLength(request.tools ?? []);
+  return Math.ceil((textStats.totalTextChars + toolSchemaBytes) / 4);
+}
+
+function assertPublicRequestPayloadWithinLimits(
+  accessContext: AccessCredentialContext | undefined,
+  request: ChatCompletionsRequest,
+  rawBody: unknown,
+): void {
+  if (accessContext?.consumerType !== "public-user") {
+    return;
+  }
+
+  const bodyBytes = getSerializedByteLength(rawBody);
+  if (bodyBytes > PUBLIC_REQUEST_GUARD_LIMITS.maxBodyBytes) {
+    throw new GatewayError(
+      413,
+      "request_body_limit_exceeded",
+      "Public-user request body is too large.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limitBytes: PUBLIC_REQUEST_GUARD_LIMITS.maxBodyBytes,
+        requestBytes: bodyBytes,
+      },
+    );
+  }
+
+  if (request.messages.length > PUBLIC_REQUEST_GUARD_LIMITS.maxMessages) {
+    throw new GatewayError(
+      413,
+      "request_messages_limit_exceeded",
+      "Public-user request contains too many messages.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limit: PUBLIC_REQUEST_GUARD_LIMITS.maxMessages,
+        messageCount: request.messages.length,
+      },
+    );
+  }
+
+  const toolCount = request.tools?.length ?? 0;
+  if (toolCount > PUBLIC_REQUEST_GUARD_LIMITS.maxTools) {
+    throw new GatewayError(
+      413,
+      "request_tools_limit_exceeded",
+      "Public-user request contains too many tool definitions.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limit: PUBLIC_REQUEST_GUARD_LIMITS.maxTools,
+        toolCount,
+      },
+    );
+  }
+
+  const toolSchemaBytes = getSerializedByteLength(request.tools ?? []);
+  if (toolSchemaBytes > PUBLIC_REQUEST_GUARD_LIMITS.maxToolSchemaBytes) {
+    throw new GatewayError(
+      413,
+      "request_tool_schema_limit_exceeded",
+      "Public-user request tool schema is too large.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limitBytes: PUBLIC_REQUEST_GUARD_LIMITS.maxToolSchemaBytes,
+        toolSchemaBytes,
+      },
+    );
+  }
+
+  const textStats = getRequestTextStats(request);
+  if (textStats.maxSingleTextChars > PUBLIC_REQUEST_GUARD_LIMITS.maxSingleTextChars) {
+    throw new GatewayError(
+      413,
+      "request_message_text_limit_exceeded",
+      "Public-user request contains an oversized message.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limitChars: PUBLIC_REQUEST_GUARD_LIMITS.maxSingleTextChars,
+        maxTextChars: textStats.maxSingleTextChars,
+      },
+    );
+  }
+  if (textStats.maxToolResultChars > PUBLIC_REQUEST_GUARD_LIMITS.maxToolResultChars) {
+    throw new GatewayError(
+      413,
+      "request_tool_result_limit_exceeded",
+      "Public-user request contains an oversized tool result.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limitChars: PUBLIC_REQUEST_GUARD_LIMITS.maxToolResultChars,
+        maxToolResultChars: textStats.maxToolResultChars,
+      },
+    );
+  }
+}
+
+function assertAccessPolicyTokenLimits(
+  accessContext: AccessCredentialContext | undefined,
+  request: ChatCompletionsRequest,
+): void {
+  if (!accessContext) {
+    return;
+  }
+
+  const maxOutputTokens = resolveEffectiveMaxOutputTokens(accessContext);
+  if (
+    typeof maxOutputTokens === "number" &&
+    typeof request.max_tokens === "number" &&
+    request.max_tokens > maxOutputTokens
+  ) {
+    throw new GatewayError(
+      403,
+      "access_policy_output_token_limit_exceeded",
+      "Requested max_tokens exceeds this access consumer output token limit.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        limit: maxOutputTokens,
+        requestedOutputTokens: request.max_tokens,
+      },
+    );
+  }
+  if (
+    typeof maxOutputTokens === "number" &&
+    typeof request.max_tokens !== "number"
+  ) {
+    request.max_tokens = maxOutputTokens;
+  }
+
+  const maxInputTokens = resolveEffectiveMaxInputTokens(accessContext);
+  if (typeof maxInputTokens === "number") {
+    const estimatedInputTokens = estimateRequestInputTokens(request);
+    if (estimatedInputTokens > maxInputTokens) {
+      throw new GatewayError(
+        403,
+        "access_policy_input_token_limit_exceeded",
+        "Estimated input tokens exceed this access consumer input token limit.",
+        {
+          consumerId: accessContext.consumerId,
+          accessKeyId: accessContext.accessKeyId,
+          limit: maxInputTokens,
+          estimatedInputTokens,
+        },
+      );
+    }
+  }
+}
+
+function resolveEffectiveMaxOutputTokens(
+  accessContext: AccessCredentialContext,
+): number | undefined {
+  const configured = normalizePolicyLimit(
+    accessContext.policy?.limits?.maxOutputTokens,
+  );
+  if (typeof configured === "number" && configured > 0) {
+    return configured;
+  }
+  if (accessContext.consumerType === "public-user") {
+    return PUBLIC_REQUEST_GUARD_LIMITS.maxOutputTokens;
+  }
+  return undefined;
+}
+
+function resolveEffectiveMaxInputTokens(
+  accessContext: AccessCredentialContext,
+): number | undefined {
+  const configured = normalizePolicyLimit(
+    accessContext.policy?.limits?.maxInputTokens,
+  );
+  if (typeof configured === "number" && configured > 0) {
+    return configured;
+  }
+  if (accessContext.consumerType === "public-user") {
+    return PUBLIC_REQUEST_GUARD_LIMITS.maxEstimatedInputTokens;
+  }
+  return undefined;
+}
+
 function assertAccessPolicyAllowsPool(
   accessContext: AccessCredentialContext | undefined,
   poolId: string | undefined,
@@ -898,6 +1235,52 @@ function assertAccessPolicyAllowsPool(
       },
     );
   }
+  if (
+    accessContext?.consumerType === "public-user" &&
+    poolVisibility !== "public-ready"
+  ) {
+    throw new GatewayError(
+      403,
+      "access_policy_pool_visibility_denied",
+      "Requested pool visibility is not available for this access consumer.",
+      {
+        consumerId: accessContext.consumerId,
+        accessKeyId: accessContext.accessKeyId,
+        poolId: normalizedPoolId,
+        visibility: poolVisibility,
+        requiredVisibility: "public-ready",
+        phase: "phase-three",
+      },
+    );
+  }
+  if (
+    poolVisibility === "public-ready" &&
+    accessContext?.consumerType !== "public-user"
+  ) {
+    throw new GatewayError(
+      403,
+      "access_policy_public_pool_requires_member_key",
+      "Public-ready pools require a public-user member access key.",
+      {
+        consumerId: accessContext?.consumerId,
+        accessKeyId: accessContext?.accessKeyId,
+        consumerType: accessContext?.consumerType,
+        poolId: normalizedPoolId,
+        visibility: poolVisibility,
+        requiredConsumerType: "public-user",
+        phase: "phase-three",
+      },
+    );
+  }
+}
+
+function resolvePolicyDefaultPoolId(
+  accessContext: AccessCredentialContext | undefined,
+): string | undefined {
+  const allowedPoolIds = accessContext?.policy?.allowedPoolIds
+    ?.map((item) => item.trim())
+    .filter((item, index, list) => item.length > 0 && list.indexOf(item) === index);
+  return allowedPoolIds?.length === 1 ? allowedPoolIds[0] : undefined;
 }
 
 function getPoolVisibility(
@@ -924,7 +1307,8 @@ function buildRoutingAccessDecision(
     return undefined;
   }
 
-  const accessControl = runtime.configStore.getInferenceAuthSettings().accessControl;
+  const settings = runtime.configStore.getInferenceAuthSettings();
+  const accessControl = settings.accessControl;
   const consumer = accessControl?.consumers?.find((item) => item.id === consumerId);
   if (!consumer) {
     return {
@@ -976,7 +1360,7 @@ function buildRoutingAccessDecision(
   };
 
   try {
-    assertPublicUserDisabledForPhaseTwo(accessContext);
+    assertPublicUserAllowedForPublicAccess(accessContext, settings);
   } catch (error) {
     if (error instanceof GatewayError) {
       return {
@@ -1210,6 +1594,15 @@ function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
   }
 
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (
+    message.includes("usage_limit_reached") ||
+    message.includes("usage limit has been reached") ||
+    message.includes("quota exhausted") ||
+    message.includes("quota_exhausted") ||
+    message.includes("reset later")
+  ) {
+    return "quota_exhausted";
+  }
   const taggedStatus = message.match(/\[status:(\d{3})\]/);
   if (taggedStatus?.[1]) {
     const statusCode = Number.parseInt(taggedStatus[1], 10);
@@ -1230,15 +1623,6 @@ function classifyPoolFailure(error: unknown): GatewayPoolFailureClass {
     message.includes("oauth 刷新被上游拒绝")
   ) {
     return "auth_invalid";
-  }
-  if (
-    message.includes("usage_limit_reached") ||
-    message.includes("usage limit has been reached") ||
-    message.includes("quota exhausted") ||
-    message.includes("quota_exhausted") ||
-    message.includes("reset later")
-  ) {
-    return "quota_exhausted";
   }
   if (message.includes("rate limit") || message.includes("429")) {
     return "rate_limited";
@@ -1310,6 +1694,36 @@ function isRetryableFinalMessageError(message: string | undefined): boolean {
   return isRetryablePoolFailureClass(classifyPoolFailure(message));
 }
 
+function buildUpstreamGatewayError(
+  message: string | undefined,
+  retryAfterSeconds?: number,
+): GatewayError {
+  const normalizedMessage = message ?? "Codex request failed.";
+  const failureClass = classifyPoolFailure(normalizedMessage);
+  if (failureClass === "quota_exhausted") {
+    return new GatewayError(
+      429,
+      "upstream_quota_exhausted",
+      normalizedMessage,
+      retryAfterSeconds ? { retryAfterSeconds } : undefined,
+    );
+  }
+  if (failureClass === "rate_limited") {
+    return new GatewayError(
+      429,
+      "upstream_rate_limited",
+      normalizedMessage,
+      retryAfterSeconds ? { retryAfterSeconds } : undefined,
+    );
+  }
+  return new GatewayError(
+    502,
+    "upstream_error",
+    normalizedMessage,
+    retryAfterSeconds ? { retryAfterSeconds } : undefined,
+  );
+}
+
 function resolvePoolAttemptLimit(
   poolSettings: GatewaySessionPoolSettings,
   poolId: string | undefined,
@@ -1331,6 +1745,67 @@ function readClientApiKey(request: FastifyRequest): string | undefined {
     }
   }
   return getFirstHeaderValue(request, "x-api-key");
+}
+
+function buildForwardedInferenceHeaders(
+  request: FastifyRequest,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  for (const key of [
+    "authorization",
+    "x-api-key",
+    "user-agent",
+    "x-local-ai-client-tag",
+    "x-client-tag",
+    "x-source-app",
+  ]) {
+    const value = getFirstHeaderValue(request, key);
+    if (value) {
+      headers[key] = value;
+    }
+  }
+  return headers;
+}
+
+function parseInjectedJsonBody(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new GatewayError(
+      502,
+      "invalid_gateway_response",
+      "Gateway compatibility adapter returned invalid JSON.",
+    );
+  }
+}
+
+function forwardInjectedError(
+  reply: FastifyReply,
+  statusCode: number,
+  body: string,
+) {
+  reply.status(statusCode);
+  try {
+    const parsed = JSON.parse(body);
+    const retryAfterSeconds = parsed?.error?.details?.retryAfterSeconds;
+    if (
+      typeof retryAfterSeconds === "number" &&
+      Number.isFinite(retryAfterSeconds) &&
+      retryAfterSeconds > 0
+    ) {
+      reply.header("Retry-After", String(Math.ceil(retryAfterSeconds)));
+    }
+    return parsed;
+  } catch {
+    return {
+      error: {
+        type: "gateway_compat_error",
+        message: body || `Gateway compatibility request failed with ${statusCode}.`,
+      },
+    };
+  }
 }
 
 export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
@@ -1373,6 +1848,45 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     return buildModelsResponse(runtime.modelRegistry.list());
   });
 
+  app.post("/v1/responses", async (request, reply) => {
+    requireInferenceNetworkAccess(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    const parsed = parseResponsesApiRequest(request.body);
+    const chatPayload = toChatCompletionsRequestFromResponsesApi(parsed);
+    assertPublicRequestPayloadWithinLimits(
+      authContext.accessContext,
+      chatPayload,
+      request.body,
+    );
+
+    const injected = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: buildForwardedInferenceHeaders(request),
+      payload: chatPayload,
+    });
+
+    if (injected.statusCode >= 400) {
+      return forwardInjectedError(reply, injected.statusCode, injected.body);
+    }
+
+    if (parsed.stream) {
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      });
+      reply.raw.end(
+        chatCompletionSseToResponsesApiSse(injected.body, chatPayload.model),
+      );
+      return reply;
+    }
+
+    return buildResponsesApiResponseFromChatCompletion(
+      parseInjectedJsonBody(injected.body),
+    );
+  });
+
   app.post("/v1/chat/completions", async (request, reply) => {
     requireInferenceNetworkAccess(runtime, request);
     const authContext = resolveAuthAndClientTag(runtime, request);
@@ -1392,20 +1906,36 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       );
     }
     const parsed = parseChatCompletionsRequest(request.body);
+    const requestedModelAlias = parsed.model;
+    const normalizedModelAlias = resolveCompatibleModelAlias(
+      runtime,
+      requestedModelAlias,
+    );
+    assertPublicRequestPayloadWithinLimits(
+      authContext.accessContext,
+      parsed,
+      request.body,
+    );
     assertAccessPolicyNotExpired(authContext.accessContext);
-    assertAccessPolicyAllowsModel(authContext.accessContext, parsed.model);
+    assertAccessPolicyAllowsModel(
+      authContext.accessContext,
+      normalizedModelAlias,
+      requestedModelAlias,
+    );
+    assertAccessPolicyTokenLimits(authContext.accessContext, parsed);
     assertAccessPolicyWithinDailyQuota(runtime, authContext.accessContext);
     assertAccessPolicyWithinPeriodQuota(runtime, authContext.accessContext);
     assertAccessPolicyWithinTotalQuota(runtime, authContext.accessContext);
     assertAccessPolicyWithinRequestLimits(runtime, authContext.accessContext);
     const routingPreview = runtime.previewRouting({
       clientTag,
-      requestedModelAlias: parsed.model,
-      currentModelAlias: parsed.model,
+      accessConsumerId: authContext.accessContext?.consumerId,
+      requestedModelAlias: normalizedModelAlias,
+      currentModelAlias: normalizedModelAlias,
       currentSessionId,
     });
 
-    let resolvedModelAlias = parsed.model;
+    let resolvedModelAlias = normalizedModelAlias;
     let resolvedSessionId = currentSessionId;
     const routingWarnings = [...routingPreview.warnings];
     const matchedRule =
@@ -1414,8 +1944,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
             .getRoutingSettings()
             .rules?.find((rule) => rule.id === routingPreview.matchedRuleId)
         : undefined;
-    const dispatchMode = runtime.getEffectiveDispatchMode(matchedRule?.target);
-    const targetPoolId = matchedRule?.target?.poolId?.trim();
+    const policyDefaultPoolId =
+      routingPreview.reason === "rule_matched"
+        ? undefined
+        : resolvePolicyDefaultPoolId(authContext.accessContext);
+    const dispatchMode = policyDefaultPoolId
+      ? "dynamic-pool"
+      : runtime.getEffectiveDispatchMode(matchedRule?.target);
+    const targetPoolId = matchedRule?.target?.poolId?.trim() ?? policyDefaultPoolId;
     assertAccessPolicyAllowsPool(
       authContext.accessContext,
       targetPoolId,
@@ -1439,10 +1975,11 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     let selectedByPoolMember = Boolean(
       dispatchMode === "dynamic-pool" &&
         targetPoolId &&
-        routingPreview.reason === "rule_matched" &&
-        routingPreview.resolvedPoolId === targetPoolId &&
-        routingPreview.selectionReason &&
-        routingPreview.selectionReason !== "fallback-to-active-session",
+        ((routingPreview.reason === "rule_matched" &&
+          routingPreview.resolvedPoolId === targetPoolId &&
+          routingPreview.selectionReason &&
+          routingPreview.selectionReason !== "fallback-to-active-session") ||
+          Boolean(policyDefaultPoolId)),
     );
 
     if (routingPreview.enabled && routingPreview.reason === "rule_matched") {
@@ -1451,7 +1988,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         resolvedModelAlias = routingPreview.resolvedModelAlias;
       } else {
         runtime.logger.error("routing_model_fallback", {
-          requestedModel: parsed.model,
+          requestedModel: requestedModelAlias,
           routedModel: routingPreview.resolvedModelAlias,
           reason: "model_not_found",
           matchedRuleId: routingPreview.matchedRuleId,
@@ -1489,12 +2026,46 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       }
     }
 
+    if (policyDefaultPoolId) {
+      const selection = runtime.selectSessionFromPool({
+        poolId: policyDefaultPoolId,
+        currentSessionId,
+        consumerType: authContext.accessContext?.consumerType,
+      });
+      routingWarnings.push(...selection.warnings);
+      routingWarnings.push(...selection.rejectedCandidates.map((item) => item.reason));
+      if (!selection.selectedSessionId) {
+        throw new GatewayError(
+          503,
+          "pool_no_available_session",
+          `号池 ${selection.poolName} 当前没有可用账号。`,
+          {
+            poolId: policyDefaultPoolId,
+            candidateCount: selection.candidateCount,
+            rejectedCandidates: selection.rejectedCandidates,
+          },
+        );
+      }
+      resolvedSessionId = selection.selectedSessionId;
+      selectedByPoolMember =
+        selection.selectionReason !== "fallback-to-active-session";
+      routingWarnings.push(
+        `已按成员策略自动路由到号池 ${selection.poolName}。`,
+      );
+    }
+
     let usedSessionId = resolvedSessionId;
     let hasRecordedResult = false;
     const resolved = runtime.getProviderAdapterForModel(resolvedModelAlias);
     if (!resolved) {
       throw new GatewayError(400, "model_not_found", "Requested model alias is not configured.");
     }
+    runtime.assertSessionSafetyAllowsRequest({
+      sessionId: resolvedSessionId,
+      consumerType: authContext.accessContext?.consumerType,
+      consumerId: authContext.accessContext?.consumerId,
+      accessKeyId: authContext.accessContext?.accessKeyId,
+    });
     const inferenceRequestId = runtime.beginInferenceActivity({
       clientTag,
       consumerId: authContext.accessContext?.consumerId,
@@ -1514,14 +2085,14 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       }
 
       const finalSessionId = sessionId ?? resolvedSessionId;
-      const modelApplied = resolvedModelAlias !== parsed.model;
+      const modelApplied = resolvedModelAlias !== normalizedModelAlias;
       const sessionApplied = Boolean(
         finalSessionId && finalSessionId !== currentSessionId,
       );
       runtime.recordRoutingHit({
         timestamp: Date.now(),
         clientTag,
-        requestedModelAlias: parsed.model,
+        requestedModelAlias,
         resolvedModelAlias,
         resolvedSessionId: finalSessionId,
         matchedRuleId: routingPreview.matchedRuleId ?? "unknown-rule",
@@ -1534,7 +2105,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         matchedRuleId: routingPreview.matchedRuleId,
         matchedRuleName: routingPreview.matchedRuleName,
         clientTag,
-        requestedModel: parsed.model,
+        requestedModel: requestedModelAlias,
         resolvedModelAlias,
         resolvedSessionId: finalSessionId,
         warnings: routingWarnings,
@@ -1607,6 +2178,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         poolId: targetPoolId,
         currentSessionId,
         attemptedSessionIds,
+        consumerType: authContext.accessContext?.consumerType,
       });
       routingWarnings.push(...nextSelection.warnings);
       if (
@@ -1631,7 +2203,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           poolName: nextSelection.poolName,
           eventType: "failover",
           clientTag,
-          requestedModelAlias: parsed.model,
+          requestedModelAlias,
           fromSessionId: failedSessionId,
           toSessionId: nextSelection.selectedSessionId,
           selectedSessionId: nextSelection.selectedSessionId,
@@ -1659,7 +2231,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         poolName: targetPoolName ?? targetPoolId,
         eventType: "selected",
         clientTag,
-        requestedModelAlias: parsed.model,
+        requestedModelAlias,
         selectedSessionId: sessionId,
         reason: routingPreview.selectionReason,
       });
@@ -1746,6 +2318,12 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           throw error;
         }
         resolvedSessionId = fallbackSessionId;
+        runtime.assertSessionSafetyAllowsRequest({
+          sessionId: resolvedSessionId,
+          consumerType: authContext.accessContext?.consumerType,
+          consumerId: authContext.accessContext?.consumerId,
+          accessKeyId: authContext.accessContext?.accessKeyId,
+        });
         runtime.updateInferenceActivity(inferenceRequestId, {
           sessionId: resolvedSessionId,
           poolId: targetPoolId,
@@ -1801,6 +2379,12 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
               throw error;
             }
             resolvedSessionId = fallbackSessionId;
+            runtime.assertSessionSafetyAllowsRequest({
+              sessionId: resolvedSessionId,
+              consumerType: authContext.accessContext?.consumerType,
+              consumerId: authContext.accessContext?.consumerId,
+              accessKeyId: authContext.accessContext?.accessKeyId,
+            });
             runtime.updateInferenceActivity(inferenceRequestId, {
               sessionId: resolvedSessionId,
               poolId: targetPoolId,
@@ -1869,6 +2453,12 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           selectFallbackSessionId(usedSessionId);
         if (fallbackSessionId) {
           resolvedSessionId = fallbackSessionId;
+          runtime.assertSessionSafetyAllowsRequest({
+            sessionId: resolvedSessionId,
+            consumerType: authContext.accessContext?.consumerType,
+            consumerId: authContext.accessContext?.consumerId,
+            accessKeyId: authContext.accessContext?.accessKeyId,
+          });
           runtime.updateInferenceActivity(inferenceRequestId, {
             sessionId: resolvedSessionId,
             poolId: targetPoolId,
@@ -1907,11 +2497,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
           });
           hasRecordedResult = true;
         }
-        throw new GatewayError(
-          502,
-          "upstream_error",
-          finalMessage.errorMessage ?? "Codex request failed.",
-        );
+        throw buildUpstreamGatewayError(finalMessage.errorMessage);
       }
 
       if (usedSessionId) {
@@ -1994,9 +2580,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         retryAfterSeconds &&
         !(error instanceof GatewayError)
       ) {
-        throw new GatewayError(502, "upstream_error", String(error), {
-          retryAfterSeconds,
-        });
+        throw buildUpstreamGatewayError(String(error), retryAfterSeconds);
       }
       throw error;
     } finally {
@@ -2202,6 +2786,11 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     const resolveClientTagByApiKey = Boolean(body.resolveClientTagByApiKey);
     const lanAccessEnabled =
       body.lanAccess?.enabled ?? previous.lanAccess?.enabled ?? false;
+    const normalizedPublicAccess = normalizePublicAccessSettingsForSave(
+      body.publicAccess,
+      previous.publicAccess,
+    );
+    const publicAccessEnabled = Boolean(normalizedPublicAccess.enabled);
 
     const previousMappings = normalizeInferenceClientMappings(previous);
     const previousApiKeyByIdentity = new Map<string, string>();
@@ -2279,6 +2868,27 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         "启用局域网共享前必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问者密钥。",
       );
     }
+    if (
+      publicAccessEnabled &&
+      (mode !== "api-key" ||
+        (!nextApiKey && normalizedMappings.length === 0 && !hasAccessKey))
+    ) {
+      throw new GatewayError(
+        400,
+        "public_api_key_required",
+        "启用公网共享前必须启用 API Key 鉴权，并配置默认 API Key、客户端密钥映射或访问者密钥。",
+      );
+    }
+    if (
+      publicAccessEnabled &&
+      !normalizedPublicAccess.publicBaseUrl?.startsWith("https://")
+    ) {
+      throw new GatewayError(
+        400,
+        "public_https_required",
+        "启用公网共享前必须配置 HTTPS Public Base URL。",
+      );
+    }
 
     runtime.configStore.setInferenceAuthSettings({
       mode,
@@ -2288,6 +2898,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       lanAccess: {
         enabled: lanAccessEnabled,
       },
+      publicAccess: normalizedPublicAccess,
       accessControl: normalizedAccessControl,
     });
     runtime.logger.info("inference_auth_settings_saved", {

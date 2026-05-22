@@ -12,10 +12,12 @@ import {
   APP_VERSION,
   DEFAULT_HOST,
   DEFAULT_PORT,
+  GatewayAccessConsumerType,
   GatewayAccessAlertEvent,
   GatewayHealth,
   GatewayInferenceObservability,
   GatewayInferenceAuthPublicSettings,
+  GatewayError,
   GatewayPoolFailureClass,
   GatewayPoolMemberObservability,
   GatewayPoolObservability,
@@ -94,6 +96,14 @@ type ClientCircuitState = {
   lastFailureClass?: GatewayPoolFailureClass;
 };
 
+type SessionSafetyLimits = {
+  maxConcurrentRequests: number;
+  requestsPerMinute: number;
+};
+
+const SESSION_SAFETY_WINDOW_MS = 60_000;
+const SESSION_SAFETY_RETRY_AFTER_SECONDS = 30;
+
 function normalizeRuntimePolicyLimit(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return undefined;
@@ -119,6 +129,7 @@ export class GatewayRuntime {
   private inferenceRequestSequence = 0;
   private lastInferenceFinishedAt?: number;
   private readonly clientCircuitState = new Map<string, ClientCircuitState>();
+  private readonly sessionAdmissionStarts = new Map<string, number[]>();
   private readonly clientCircuitThreshold = 4;
   private readonly clientCircuitWindowMs = 45_000;
   private readonly clientCircuitCooldownMs = 45_000;
@@ -379,6 +390,7 @@ export class GatewayRuntime {
       sessionId: input.sessionId,
       poolId: input.poolId,
     });
+    this.recordSessionAdmission(input.sessionId);
     return requestId;
   }
 
@@ -393,11 +405,15 @@ export class GatewayRuntime {
     if (!current) {
       return;
     }
+    const nextSessionId = patch.sessionId ?? current.sessionId;
     this.inFlightRequests.set(requestId, {
       ...current,
-      sessionId: patch.sessionId ?? current.sessionId,
+      sessionId: nextSessionId,
       poolId: patch.poolId ?? current.poolId,
     });
+    if (nextSessionId && nextSessionId !== current.sessionId) {
+      this.recordSessionAdmission(nextSessionId);
+    }
   }
 
   finishInferenceActivity(requestId: string): void {
@@ -410,6 +426,166 @@ export class GatewayRuntime {
     return Array.from(this.inFlightRequests.values()).filter(
       (item) => item.consumerId === consumerId,
     ).length;
+  }
+
+  assertSessionSafetyAllowsRequest(input: {
+    sessionId?: string;
+    consumerType?: GatewayAccessConsumerType;
+    consumerId?: string;
+    accessKeyId?: string;
+  }): void {
+    const sessionId = input.sessionId?.trim();
+    if (!sessionId) {
+      return;
+    }
+
+    const loadKey = this.resolveSessionLoadKey(sessionId);
+    if (!loadKey) {
+      return;
+    }
+
+    const limits = this.resolveSessionSafetyLimits(input.consumerType);
+    if (!limits) {
+      return;
+    }
+    const inFlightRequests = this.countInFlightRequestsForSessionLoad(loadKey);
+    if (inFlightRequests >= limits.maxConcurrentRequests) {
+      throw new GatewayError(
+        429,
+        "session_safety_concurrency_exceeded",
+        "Upstream account concurrent request limit has been reached.",
+        {
+          sessionId,
+          sessionLoadKey: loadKey,
+          consumerType: input.consumerType,
+          consumerId: input.consumerId,
+          accessKeyId: input.accessKeyId,
+          limit: limits.maxConcurrentRequests,
+          inFlightRequests,
+          retryAfterSeconds: SESSION_SAFETY_RETRY_AFTER_SECONDS,
+        },
+      );
+    }
+
+    const recentRequests = this.countRecentSessionAdmissions(
+      loadKey,
+      SESSION_SAFETY_WINDOW_MS,
+    );
+    if (recentRequests >= limits.requestsPerMinute) {
+      throw new GatewayError(
+        429,
+        "session_safety_rate_limit_exceeded",
+        "Upstream account short-window request limit has been reached.",
+        {
+          sessionId,
+          sessionLoadKey: loadKey,
+          consumerType: input.consumerType,
+          consumerId: input.consumerId,
+          accessKeyId: input.accessKeyId,
+          limit: limits.requestsPerMinute,
+          recentRequests,
+          windowSeconds: Math.ceil(SESSION_SAFETY_WINDOW_MS / 1000),
+          retryAfterSeconds: Math.ceil(SESSION_SAFETY_WINDOW_MS / 1000),
+        },
+      );
+    }
+  }
+
+  private resolveSessionSafetyLimits(
+    consumerType: GatewayAccessConsumerType | undefined,
+  ): SessionSafetyLimits | undefined {
+    if (consumerType === "public-user") {
+      return {
+        maxConcurrentRequests: 16,
+        requestsPerMinute: 240,
+      };
+    }
+    return undefined;
+  }
+
+  private describeSessionSafetyRejection(
+    sessionId: string,
+    consumerType: GatewayAccessConsumerType | undefined,
+  ): string | undefined {
+    const loadKey = this.resolveSessionLoadKey(sessionId);
+    if (!loadKey) {
+      return undefined;
+    }
+    const limits = this.resolveSessionSafetyLimits(consumerType);
+    if (!limits) {
+      return undefined;
+    }
+    const inFlightRequests = this.countInFlightRequestsForSessionLoad(loadKey);
+    if (inFlightRequests >= limits.maxConcurrentRequests) {
+      return `账号当前已有 ${inFlightRequests} 个进行中请求，达到并发上限 ${limits.maxConcurrentRequests}。`;
+    }
+    const recentRequests = this.countRecentSessionAdmissions(
+      loadKey,
+      SESSION_SAFETY_WINDOW_MS,
+    );
+    if (recentRequests >= limits.requestsPerMinute) {
+      return `账号近 60 秒已有 ${recentRequests} 次请求，达到短窗口上限 ${limits.requestsPerMinute}。`;
+    }
+    return undefined;
+  }
+
+  private resolveSessionLoadKey(sessionId: string): string | undefined {
+    const session = this.listSessions().find((item) => item.id === sessionId);
+    if (!session) {
+      return undefined;
+    }
+    const accountId = session.accountId?.trim();
+    if (accountId) {
+      return `account:${accountId}`;
+    }
+    const email = session.email?.trim().toLowerCase();
+    if (email) {
+      return `email:${email}`;
+    }
+    return `session:${session.id}`;
+  }
+
+  private countInFlightRequestsForSessionLoad(loadKey: string): number {
+    return Array.from(this.inFlightRequests.values()).filter((item) => {
+      if (!item.sessionId) {
+        return false;
+      }
+      return this.resolveSessionLoadKey(item.sessionId) === loadKey;
+    }).length;
+  }
+
+  private countRecentSessionAdmissions(loadKey: string, windowMs: number): number {
+    const starts = this.getPrunedSessionAdmissionStarts(loadKey, windowMs);
+    return starts.length;
+  }
+
+  private recordSessionAdmission(sessionId: string | undefined): void {
+    const normalizedSessionId = sessionId?.trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const loadKey = this.resolveSessionLoadKey(normalizedSessionId);
+    if (!loadKey) {
+      return;
+    }
+    const starts = this.getPrunedSessionAdmissionStarts(
+      loadKey,
+      SESSION_SAFETY_WINDOW_MS,
+    );
+    starts.push(Date.now());
+    this.sessionAdmissionStarts.set(loadKey, starts);
+  }
+
+  private getPrunedSessionAdmissionStarts(
+    loadKey: string,
+    windowMs: number,
+  ): number[] {
+    const now = Date.now();
+    const starts = (this.sessionAdmissionStarts.get(loadKey) ?? []).filter(
+      (timestamp) => now - timestamp <= windowMs,
+    );
+    this.sessionAdmissionStarts.set(loadKey, starts);
+    return starts;
   }
 
   checkClientCircuit(clientTag?: string): {
@@ -462,7 +638,12 @@ export class GatewayRuntime {
     clientTag?: string;
     failureClass: GatewayPoolFailureClass;
   }): void {
-    if (input.failureClass === "non_retryable") {
+    if (
+      input.failureClass === "non_retryable" ||
+      input.failureClass === "auth_invalid" ||
+      input.failureClass === "quota_exhausted" ||
+      input.failureClass === "rate_limited"
+    ) {
       return;
     }
 
@@ -571,6 +752,14 @@ export class GatewayRuntime {
       lanAccess: {
         enabled: Boolean(settings.lanAccess?.enabled),
       },
+      publicAccess: {
+        enabled: Boolean(settings.publicAccess?.enabled),
+        provider: settings.publicAccess?.provider ?? "cloudflare-tunnel",
+        publicBaseUrl: settings.publicAccess?.publicBaseUrl,
+        tunnelName: settings.publicAccess?.tunnelName,
+        hostname: settings.publicAccess?.hostname,
+        adminSurfaceExposed: false,
+      },
       accessControl: {
         consumers: settings.accessControl?.consumers ?? [],
         keys: (settings.accessControl?.keys ?? []).map((item) => ({
@@ -614,6 +803,7 @@ export class GatewayRuntime {
     this.poolMemberState.clear();
     this.inFlightRequests.clear();
     this.clientCircuitState.clear();
+    this.sessionAdmissionStarts.clear();
     this.lastInferenceFinishedAt = undefined;
     this.sessionActivityInsertCount = 0;
     this.routingHitInsertCount = 0;
@@ -658,7 +848,7 @@ export class GatewayRuntime {
     const preferredSessionId = input.preferredSessionId?.trim();
     const candidates = this.listSessions().filter(
       (session) =>
-        session.id !== failedSessionId && session.status !== "invalid",
+        session.id !== failedSessionId && session.status === "available",
     );
 
     if (candidates.length === 0) {
@@ -693,6 +883,12 @@ export class GatewayRuntime {
     const baseSessionId = input.currentSessionId ?? this.getActiveSessionId();
     const settings = this.configStore.getRoutingSettings();
     const warnings: string[] = [];
+    const accessConsumerType = input.accessConsumerId
+      ? this.configStore
+          .getInferenceAuthSettings()
+          .accessControl?.consumers?.find((consumer) => consumer.id === input.accessConsumerId)
+          ?.type
+      : undefined;
 
     if (!settings.enabled) {
       return {
@@ -731,6 +927,7 @@ export class GatewayRuntime {
       const selection = this.selectSessionFromPool({
         poolId: matched.target.poolId.trim(),
         currentSessionId: baseSessionId,
+        consumerType: accessConsumerType,
         preview: true,
       });
       resolvedPoolId = selection.poolId;
@@ -1155,6 +1352,7 @@ export class GatewayRuntime {
     poolId: string;
     currentSessionId?: string;
     attemptedSessionIds?: Set<string>;
+    consumerType?: GatewayAccessConsumerType;
     preview?: boolean;
   }): PoolSelectionResult {
     const poolId = input.poolId.trim();
@@ -1244,12 +1442,15 @@ export class GatewayRuntime {
         continue;
       }
 
-      if (session.status === "invalid") {
+      if (session.status !== "available") {
         rejectedCandidates.push({
           selector,
           label: member.label,
           sessionId: session.id,
-          reason: "账号当前已失效。",
+          reason:
+            session.status === "expired"
+              ? "账号 OAuth 授权已过期，已跳过。"
+              : "账号当前已失效。",
         });
         continue;
       }
@@ -1275,6 +1476,20 @@ export class GatewayRuntime {
         continue;
       }
 
+      const safetyRejection = this.describeSessionSafetyRejection(
+        session.id,
+        input.consumerType,
+      );
+      if (safetyRejection) {
+        rejectedCandidates.push({
+          selector,
+          label: member.label,
+          sessionId: session.id,
+          reason: safetyRejection,
+        });
+        continue;
+      }
+
       candidates.push({
         selector,
         label: member.label,
@@ -1291,7 +1506,12 @@ export class GatewayRuntime {
     );
     const selected = sorted[0];
     if (!selected) {
-      if (pool.fallbackToActiveSession && input.currentSessionId) {
+      if (
+        pool.fallbackToActiveSession &&
+        input.currentSessionId &&
+        input.consumerType !== "public-user" &&
+        pool.visibility !== "public-ready"
+      ) {
         warnings.push(`号池 ${pool.name} 当前没有可用成员，已回退到当前活动账号。`);
         return {
           poolId: pool.id,
@@ -1559,10 +1779,10 @@ export class GatewayRuntime {
       eligible: true,
       selected,
       status: session.status === "expired" ? "expired" : "available",
-      statusLabel: session.status === "expired" ? "待刷新" : "可选",
+      statusLabel: session.status === "expired" ? "授权过期" : "可选",
       note:
         session.status === "expired"
-          ? "当前本地会话已标记为过期，请求时仍可能尝试刷新。"
+          ? "当前本地会话已标记为过期，不会参与新请求调度。"
           : undefined,
       cooldownUntil: runtimeState.cooldownUntil,
       lastSelectedAt: runtimeState.lastSelectedAt,
@@ -1592,13 +1812,16 @@ export class GatewayRuntime {
       };
     }
 
-    if (session.status === "invalid") {
+    if (session.status !== "available") {
       return {
         ...output,
         eligible: false,
-        status: "invalid",
-        statusLabel: "已失效",
-        note: "当前账号已失效，需重新授权或刷新账号。",
+        status: session.status === "expired" ? "expired" : "invalid",
+        statusLabel: session.status === "expired" ? "授权过期" : "已失效",
+        note:
+          session.status === "expired"
+            ? "当前账号 OAuth 授权已过期，需重新授权或刷新账号。"
+            : "当前账号已失效，需重新授权或刷新账号。",
       };
     }
 
