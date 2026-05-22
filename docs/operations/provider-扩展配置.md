@@ -144,7 +144,7 @@ export LOCAL_AI_GATEWAY_DEFAULT_MODEL_ALIAS="ollama-local"
 
 ## 当前边界
 
-- 当前版本只支持文本消息与工具调用，不支持图片、音频与 Responses API。
+- 当前版本支持文本消息、工具调用、Chat Completions API 与基础 Responses API 兼容入口；图片、音频、Assistants 与 Batch 暂不支持。
 - Electron 控制台现已提供图形化 provider 配置、账号面板、诊断视图与最近错误视图。
 - Electron 控制台中的 Codex 账号与 OpenClaw 授权卡片目前主要基于本地授权扫描与桌面端导入结果，额度与重置时间仍属于后续接入项。
 - 会话切换仍只作用于 Codex provider；其他 provider 当前使用固定配置凭据。

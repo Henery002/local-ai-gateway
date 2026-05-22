@@ -9,6 +9,209 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-22 13:14 CST]
+
+### 修复
+
+- 继续修复 Codex App 经 CC Switch 切到 `Local AI Gateway 公网` 后显示 Reconnecting / high demand 的问题：模型 `gpt-5.5` 已能通过公网成员策略和 `/v1/responses` 返回 `200`，新的根因收敛为 Responses SSE 事件形态不够贴近 Codex Desktop。
+- Responses SSE 兼容层补齐 Codex Desktop 期望的完整事件序列：`response.created`、`response.in_progress`、`response.output_item.added`、`response.content_part.added`、`response.output_text.delta`、`response.output_text.done`、`response.content_part.done`、`response.output_item.done`、`response.completed`。
+- 修正 `response.output_text.delta` 使用 `response_id` 的兼容问题：现在改为使用与最终 message output item 对齐的 `item_id`，并补充 `sequence_number / logprobs` 等字段，降低 Codex Desktop parser 收到 200 但无法形成有效输出的风险。
+- 修复本机 CC Switch 的 `Local AI Gateway 公网` Provider 再次被短模板覆盖的问题：已恢复完整 Codex 配置段并保留当前选择的 `model = "gpt-5.5"`；切换脚本也改为从 CC Switch 目标 Provider 读取当前模型，不再强制改回 `codex-default`。
+
+### 验证
+
+- 已执行 `npm test -- tests/openai-compat.test.ts tests/gateway-app.test.ts`（76 项通过）、`npm run typecheck`、`npm run build` 与 `npm run package:desktop`。
+- 已覆盖安装 `/Applications/Local AI Gateway.app` 并重启 `com.local-ai-gateway.gateway` 常驻服务；本地与公网 `POST /v1/responses` 使用 `model = "gpt-5.5"`、`stream = true` 均返回 `200`，事件序列已包含 `response.created` 和基于 `item_id` 的 `response.output_text.delta`。
+
+## [2026-05-22 12:39 CST]
+
+### 修复
+
+- 定位 Codex App 切到 `Local AI Gateway 公网` 后仍报重连 / high demand 的直接原因：CC Switch Provider 仍使用 `gpt-5.5`，但当前公网成员 `/v1/models` 仅允许 `codex-default / codex-5.4 / codex-5.4-mini / codex-5.3 / codex-5.2`，请求被网关按 `403 access_policy_model_denied` 拒绝。
+- 已修复本机 CC Switch 的 `Local AI Gateway 公网` Provider：改为完整 Codex 配置形态，保留 `mcp_servers / projects / memories / desktop`，默认模型改为 `codex-default`，公网入口保持 `https://gateway.henery.top/v1` 和 `wire_api = "responses"`。
+- 增强本机切换脚本：切到 `Local AI Gateway 公网` 时不再信任 CC Switch 可能写回的短模板，而是从完整 Cockpit Provider 配置合成公网 Provider 配置，并强制使用 `codex-default`；同时把 `memories` 纳入完整配置校验。
+
+### 文档
+
+- 在公网成员接入模板中明确普通商业成员不需要管理员本机切换脚本；脚本仅用于管理员本机在 Cockpit Tools 与本网关之间低扰动切换。
+- 在错误码速查中补充 `403 access_policy_model_denied`：Codex App 可能把模型策略拒绝显示成通用重连 / high demand，处理方式是先看 `/v1/models` 并使用已授权模型别名。
+
+### 验证
+
+- 使用公网成员 Key 验证：`/v1/responses` 请求 `gpt-5.5 / codex-5.5` 返回 `403 access_policy_model_denied`，请求 `gpt-5.4 / codex-5.4 / codex-default` 均返回 `200`。
+- 已执行 `switch-codex-provider.mjs local-gateway --dry-run` 与 `cockpit --dry-run`，确认本地网关、公网 `/v1/models` 和 Cockpit `127.0.0.1:56267` 预检均通过。
+
+## [2026-05-22 11:59 CST]
+
+### 修复
+
+- 修复 Codex App 在 CC Switch / Cockpit Tools / Local AI Gateway 公网三者之间切换时可能丢失项目列表、MCP、memory、desktop 配置段的风险：当前 CC Switch 的 `default` 与 `Local AI Gateway 公网` Codex Provider 均按完整 `~/.codex/config.toml` 形态保存，不再使用短模板覆盖。
+- 新增本机 Codex Provider 低扰动切换脚本：`~/Library/Application Support/local-ai-gateway/codex-provider-switch/switch-to-local-gateway.sh` 与 `switch-to-cockpit.sh`。脚本会在写入前备份 `~/.codex/config.toml`、`~/.codex/auth.json` 和 `~/.cc-switch/cc-switch.db`，并拒绝写入缺少 `mcp_servers / projects / memories / desktop` 的短配置。
+- 切到 `Local AI Gateway 公网` 前会预检本地网关 `/healthz` 和公网 `https://gateway.henery.top/v1/models`；切回 `Cockpit Tools` 前会预检 `127.0.0.1:56267`，若 Cockpit API 未启动则先打开 Cockpit Tools，并要求通过“多开实例 -> Codex -> 启动”拉起后再切换。
+
+### 文档
+
+- 在《第三方客户端接入模板与错误排查》中补充 Codex App / CC Switch 与 Cockpit 网关无损切换说明，明确 CC Switch 直接切换、脚本切换、Cockpit 多开实例启动和切换后重启 Codex 的推荐顺序。
+
+### 验证
+
+- 已执行 `switch-codex-provider.mjs cockpit --dry-run` 与 `local-gateway --dry-run`，确认 cockpit 端口、本地网关健康和公网 `/v1/models` 均通过预检。
+- 已执行 `switch-to-cockpit.sh` 真实切回，当前 `~/.codex/config.toml` 保持 `model_provider = "codex_local_access"`、`model = "gpt-5.5"`，并保留 `mcp_servers / projects / memories / desktop`；CC Switch 当前 Provider 仍为 `default`。
+
+## [2026-05-22 09:58 CST]
+
+### 新增
+
+- 公网推理面新增 `POST /v1/responses` 兼容入口，用于支持 CC Switch / Codex App 这类使用 OpenAI Responses API 的自定义 Provider；入口会先转换为现有 Chat Completions 内部请求，继续复用成员鉴权、访问策略、号池调度、用量统计与告警链路。
+- Responses 兼容层支持 `input / instructions / tools / tool_choice / max_output_tokens / stream` 的基础映射，并将网关返回转换为 Responses 非流式 JSON 或 Responses SSE 事件。
+
+### 修复
+
+- 修复 CC Switch 中 `OpenAI Compatible` Provider 测试 `https://gateway.henery.top/v1` 时返回 `Not found (404)` 的问题。根因是 CC Switch / Codex 生成 `wire_api = "responses"` 后会请求 `/v1/responses`，而此前公网网关只暴露 `/v1/models` 与 `/v1/chat/completions`。
+- 修复 Codex App 重启后切到本网关 Provider 新建会话返回 `403 access_policy_model_denied` 的问题：当客户端请求 `gpt-5.4 / gpt-5.5` 等 Codex 上游模型名时，网关会在访问策略校验前规范化为已注册的 `codex-5.4 / codex-5.5` 稳定别名，避免公网成员策略只允许 `codex-*` 时被误拒。
+- 修复 Codex Desktop `model/list` 解析本网关 `/v1/models` 失败的问题：模型列表保留标准 OpenAI-compatible `{ object, data }` 结构，同时补充 Codex Desktop 可解析的 `models` 数组，且 `visibility` 使用当前客户端接受的 `list` 枚举。
+- 重新打包并安装当前版本，重启 `com.local-ai-gateway.gateway` LaunchAgent 后，公网 `POST https://gateway.henery.top/v1/responses` 非流式与流式均返回 `200`；CC Switch 模型测试记录已从 `404` 变为 `200 Check succeeded`。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖 `POST /v1/responses` 非流式请求会正确转发到现有上下文和会话选项，并返回 Responses 形态输出。
+- 新增模型列表兼容回归测试，覆盖 `/v1/models` 同时面向 OpenAI-compatible 客户端与 Codex Desktop 本地 Provider；新增模型别名兼容回归测试，覆盖 `/v1/chat/completions` 与 `/v1/responses` 请求 `gpt-5.4` 时均能命中 `codex-5.4` 策略。
+- 已执行 `npm test`（18 个测试文件，169 项测试）、`npm run typecheck`、`npm run build` 与 `npm run dist:desktop`。
+
+## [2026-05-22 02:05 CST]
+
+### 修复
+
+- 修复安装版点击“启动服务”后界面卡死、再次打开出现“Gateway service did not become healthy within 15 seconds.” 的问题。根因是安装版 LaunchAgent 仍可能使用外部 Homebrew Node 跑开发仓库入口，导致 `better-sqlite3` 原生模块 ABI 不匹配并反复退出。
+- 安装版网关常驻服务改为通过当前 `.app` 自带 Electron runtime 的 `ELECTRON_RUN_AS_NODE=1` 运行 `gateway-service-runner.mjs`，由 runner 直接加载打包内 `apps/gateway/dist/server.js`，不再依赖系统 Node、nvm Node 或开发仓库 `node_modules`。
+- “启动 / 安装 / 重启网关服务”前会先停止桌面端临时托管的内嵌网关，释放当前端口，避免首次安装版启动后再注册 LaunchAgent 时和同进程内临时网关抢占 `8787`。
+- 补强“启动 / 重启网关”端口占用识别：LaunchAgent `bootout` 后若端口短暂仍由刚退出的本网关 PID 监听，或 `ps` 暂时读不到 command，不再误判为非网关进程，避免运维页提示“端口 8787 已被非网关进程占用”。
+- 安装版常驻服务健康等待从 15 秒放宽到 45 秒，覆盖 Electron node-mode 冷启动、账号快照加载和 LaunchAgent 调度延迟，避免服务稍晚变健康但 UI 先报失败。
+- 桌面窗口启动不再因常驻服务暂时不健康而直接退出；若网关启动失败，仍会打开控制台，便于进入“运维与日志”查看错误和执行重启服务。
+
+### 测试
+
+- 新增 desktop build 回归断言，覆盖安装版常驻服务使用 Electron node mode、生成 `gateway-service-runner.mjs`、启动服务前停止内嵌网关，以及服务异常时仍打开控制台的防线。
+
+## [2026-05-22 01:30 CST]
+
+### 新增
+
+- 新增本地网关 macOS 用户级 LaunchAgent 常驻服务：`com.local-ai-gateway.gateway` 会写入 `~/Library/LaunchAgents/`，通过 `~/Library/Application Support/local-ai-gateway/service/gateway-launcher.mjs` 启动网关，日志写入 `logs/gateway-service.out.log / gateway-service.err.log`；服务使用 `RunAtLoad + KeepAlive`，登录后自动拉起，退出桌面控制台不会删除业务数据。
+- 网关常驻启动前会检查配置端口：若发现旧的 `local-ai-gateway` 网关 CLI / launcher 进程占用端口，会定向停止旧进程后再启动，避免开发环境、安装版和 LaunchAgent 重复起多个网关；若端口被非网关进程占用，则拒绝启动并在运维状态中暴露。
+- 左侧导航新增“运维与日志”模块：集中展示网关常驻服务、Cloudflare Tunnel、公网 `/v1/models` 探测、日志来源和服务控制；支持安装并启动网关常驻、启动 / 停止 / 重启网关、重启 Cloudflare Tunnel、打开日志目录、tail 查看网关 / 常驻服务 / Cloudflare / 桌面主进程日志。
+- 在《项目答疑与开发清单》中补充 Agent 能力边界答疑：明确公网成员接入本项目 Provider 后，项目分析、文件改写、命令执行和重构能力主要取决于客户端 Agent 自身工具编排；本网关当前支持 Chat Completions、流式响应和函数工具调用，但尚未对外暴露 `/v1/responses` 或 Codex App 私有协议。
+
+### 调整
+
+- 桌面端接入片段生成收敛到同一套 `buildIntegrationSnippets` 逻辑：顶部复制、模板复制和运维页公网复制使用一致的 Base URL / Model / API Key 占位信息；公网片段固定使用公网 Public Base URL、`<公网成员 API Key>` 和 `public-user` clientTag。
+- 清理活跃 UI 中的阶段标记文案：移除“二期可用 / 三期可用 / 三期预留 / 待 server edition”等面向开发阶段的标签，公网、LAN、号池和模板入口改为按真实启用 / 就绪 / 待配置状态表达。
+- “系统与诊断”继续保留配置、诊断、模板与低频排障；服务启停、Cloudflare 连通性和日志滚动查看迁移到“运维与日志”，减少系统页职责混杂。
+- 修正架构总览中的公网默认限制口径：与当前实现保持一致，公网成员无显式策略时默认输入估算上限 `1050000`、输出上限 `128000`、同账号公网并发 `16`、近 60 秒准入 `240`。
+
+### 测试
+
+- 扩展 desktop build 回归测试，覆盖新增“运维与日志”导航、网关 / Cloudflare 运维 IPC、日志读取入口、常驻服务控制按钮、运维页样式 hook，以及活跃 UI 不再出现旧阶段标记文案。
+
+## [2026-05-22 00:30 CST]
+
+### 调整
+
+- 按公网试运行优先的产品口径再次放宽默认限制：公网成员无显式策略时，单请求输入估算上限调整为 `1050000`，输出上限调整为 `128000`，贴近当前 Codex 默认模型 `gpt-5.4` 的模型级能力；显式配置的 `limits.maxInputTokens / maxOutputTokens` 仍优先生效。
+- 公网请求 payload guard 同步放宽：body 从 `1MB` 放宽到 `8MB`，消息数从 `120` 放宽到 `1000`，工具定义数从 `32` 放宽到 `128`，工具 schema 从 `256KB` 放宽到 `1MB`，单条文本和工具结果从 `512KB / 256KB` 均放宽到 `4MB`。
+- 账号级调度保护调整为高水位保险丝：`public-user` 默认同一上游账号 `16` 并发、近 60 秒 `240` 次；`lan-member`、本机自用和系统客户端不再套用默认账号级安全阀，只保留显式 AccessPolicy 和上游真实限制。
+
+### 测试
+
+- 更新 gateway 回归测试，覆盖模型级公网默认输出 Token、放宽后的工具定义上限、同账号跨 Key `16` 并发阈值、近 60 秒 `240` 次短窗口阈值，以及动态号池在高水位过载后跳过账号。
+
+## [2026-05-21 23:50 CST]
+
+### 修复
+
+- 修复重启后 Cloudflare Tunnel 连接器未常驻导致公网 `gateway.henery.top` 返回 Cloudflare `1033` / `502` 的问题：将 `cloudflared` 以 macOS LaunchAgent `com.local-ai-gateway.cloudflared` 方式注册，使用 token-file 启动，并固定 `--protocol http2 --edge-ip-version 4`，避开当前网络下 QUIC / UDP 容易超时的问题。
+- 本机验证 `cloudflared` 已重新注册到 Cloudflare edge，`https://gateway.henery.top/v1/models` 无 Key 返回网关侧 `401 gateway_api_key_required`，`https://gateway.henery.top/healthz` 返回 Cloudflare 侧 `404`，公网路由仍只进入 `/v1/*` 推理面。
+
+### 调整
+
+- 放宽公网共享的默认安全阈值，避免对邀请制编码 Agent 过度限流；该口径已在 2026-05-22 继续上调到模型级高水位。
+- 账号级安全阀从“极保守”调整为“小范围邀请制可用”；该口径已在 2026-05-22 继续上调，并移除 LAN / 本机 / 系统默认账号级安全阀。
+
+### 测试
+
+- 更新 gateway 回归测试，覆盖放宽后的公网默认输出 Token 上限、同账号跨 Key 并发阈值、短窗口限流阈值，以及动态号池在账号达到新阈值后跳过过载成员。
+
+## [2026-05-21 17:30 CST]
+
+### 新增
+
+- 三期公网共享补强请求面安全守护：`public-user` 请求进入上游前会校验 body 体积、消息数量、工具定义数量、工具 schema 体积、单条文本长度和工具结果长度，超限直接返回 `413 request_*_limit_exceeded`，不触发上游账号调用。
+- AccessPolicy 新增单请求输入 / 输出 Token 执行层：`limits.maxInputTokens` 以文本与工具 schema 做轻量估算并前置拒绝，`limits.maxOutputTokens` 会拒绝超大 `max_tokens`，且客户端未传 `max_tokens` 时自动压到成员上限；公网成员无显式配置时的默认值以后续 2026-05-22 模型级高水位记录为准。
+- 号池 / 账号调度增加账号级安全阀：按同一上游账号 `accountId / email / sessionId` 聚合 in-flight 与近 60 秒准入次数；公网默认阈值和 LAN / 本机 / 系统默认安全阀口径以后续 2026-05-22 记录为准。
+- 账号级安全阀拒绝会返回 `429 session_safety_concurrency_exceeded` 或 `429 session_safety_rate_limit_exceeded`，并写入本地访问告警事件，便于消息通知中心和用量告警弹窗及时暴露公网滥用 / 上游封控风险。
+
+### 调整
+
+- 访问成员新增 / 编辑弹窗和成员详情内联策略编辑区新增“单请求输入 Token”“单请求输出 Token”字段；保存后写入该成员 AccessPolicy，继续走本地持久化配置，不影响 Cockpit / OpenClaw 原始账号数据。
+- 正式访问告警采集范围从访问 key / 成员 / 策略类拒绝扩展到公网请求守护和账号级调度安全阀，方便公网试运行期间统一从“消息通知”和“用量与告警”中处理风险事件。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖公网工具定义数量前置拒绝、成员输出 Token 超限拒绝、成员输出 Token 默认压限、公网成员默认输出上限、同账号跨 Key 并发拒绝、同账号跨 Key 短窗口限流，以及动态号池跳过过载公网账号。
+- 扩展 desktop build 回归测试，覆盖访问成员策略 UI 对 `maxInputTokens / maxOutputTokens` 的接线。
+
+## [2026-05-21 00:30 CST]
+
+### 记录
+
+- 三期公网联调链路完成首轮打通：阿里云域名 `henery.top` 已注册通过，Cloudflare Free 站点已接入该域名并使用 nameserver `haley.ns.cloudflare.com / wells.ns.cloudflare.com`；Tunnel `local-ai-gateway-dev` 已连接，Public Hostname 为 `gateway.henery.top`。
+- Cloudflare Tunnel 路由已收紧为 `gateway.henery.top` + Path `^/v1` -> Service `http://127.0.0.1:8787`；外部验证显示 `/healthz` 与 `/` 均返回 Cloudflare 侧 `404`，`/v1/models` 无 Key 返回网关侧 `401 gateway_api_key_required`，说明公网入口只进入受 API Key 保护的 `/v1/*` 推理面。
+- 本地网关已启用公网配置：Public Base URL 为 `https://gateway.henery.top/v1`，已创建 `public-ready` 号池、启用中的 `public-user` 公网成员、独立公网成员 Key 和额度策略；系统顶部诊断已从“缺少启用中的公网成员”恢复为“服务运行中”。
+- 新增《三期 Cloudflare 公网联调复盘》专题文档，记录从阿里云域名购买 / 审核、Cloudflare 绑卡与 Zero Trust、Tunnel connector、DNS / Public Hostname、Path `^/v1` 安全收口、本地公网配置到当前验收结果的全过程。
+
+### 调整
+
+- “用量与告警”模块完成运维化重构第一段：用量页不再常驻展示总览页的摘要卡片，改为默认“成员观测”的操作台；管理员可在成员 / 模型 / Key 与号池 / 总览视角之间切换。
+- 用量观测区新增多形态图表布局：主区域展示最近 24 小时 Token 曲线，侧栏展示输入 / 输出 / 缓存 / 思考 Token 构成饼图，下方展示当前视角 Top 消耗排行柱状图；图表沿用现有浅色控制台样式、紧凑标题和 badge 体系。
+- 窗口用量结构继续扩展观测维度：新增请求成功 / 失败堆叠条、延迟与稳定性快照、成员 / Access Key / 号池 / 模型归因覆盖矩阵，使“用量与告警”页更接近专门的运维观测台。
+- “告警与治理摘要”和“告警事件列表”从常驻卡片调整为弹窗入口：页面只保留策略预览 / 最近事件两张操作卡，具体阈值、治理规则、事件筛选和确认操作进入弹窗内处理，减少主看板噪音。
+- 继续收口用量告警视觉一致性：请求结果堆叠条由粗条改为细进度条，统计图表卡片间距和背景更统一；两个用量告警弹窗统一挪到全局 modal 层并使用全屏 overlay 大尺寸弹窗，与访问成员、号池等通用弹窗交互保持一致。
+- 新增“消息通知”模块：左侧导航增加独立入口和未读数字徽标，站内消息由持久化访问告警事件派生，支持全部 / 未读 / 已读筛选、单条标为已读、全部标为已读，并可在未确认告警上继续执行确认。
+- 新增 macOS 原生通知通道：warning / critical 级别未读访问告警会触发系统通知；通知推送状态保存在本机浏览器存储，站内消息仍以本地 SQLite `access_alert_events` 为事实来源。
+- “消息通知”未读徽标在未读数为 0 时不再展示，避免侧边栏出现无意义红点。
+- “系统与诊断”模块完成信息架构重构：主页面保留高价值状态摘要、分组系统配置、核心诊断摘要和四个操作入口；LAN 模板、公网模板、公网外部验收和常见失败原因改为全局 modal 层的大弹窗查看，减少主页面卡片堆叠和冗余说明。
+- 新用量操作台仍复用现有本地 `usageSummary` 数据，不读取 prompt body、完整 API Key 或 OAuth token，也不改变告警确认、阈值配置、账号和号池配置。
+- 收紧“清除统计”语义为“清运行态”：管理端 telemetry reset 不再删除持久化 Token 用量事件和访问告警事件，只清路由命中、会话活动、号池运行态与熔断状态；成员、Key、Policy、账号配置和历史用量在开发重启、重新构建、打包重装以及运行态清理后都应保留。
+
+### 测试
+
+- 新增 gateway 持久化回归测试，覆盖同一数据目录下 telemetry reset + runtime restart 后，成员信息、成员 Key、AccessPolicy、Token 用量汇总和访问告警事件不会丢失。
+- 扩展 desktop build 回归测试，覆盖新增消息通知导航、未读徽标、用量告警弹窗入口、扩展图表 hook、原生通知 IPC、通知中心渲染 hook，以及系统诊断重构后的大弹窗和分组配置布局。
+
+## [2026-05-20 12:40 CST]
+
+### 新增
+
+- 启动三期公网共享代码落地第一段：`security.publicAccess` 新增 `cloudflare-tunnel / tailscale-funnel / manual-reverse-proxy` 公网入口配置模型，支持保存启用状态、Public Base URL、Tunnel 名称和 Hostname；启用公网共享时强制要求 API Key 鉴权与 HTTPS Public Base URL，管理面仍标记为不对外暴露。
+- 系统与诊断页新增“公网共享入口”配置区，可填写 Cloudflare Tunnel 相关入口信息并随“保存本页配置”写入网关；运行诊断新增公网 Base URL、public-ready 号池、公网成员 Key、管理面本机隔离和公网入口就绪判断。
+- 三期公网执行边界落地第二段：`public-user` 仅在公网共享显式启用且 Public Base URL 为 HTTPS 时放行，且只能访问 `public-ready` 动态号池；系统与诊断页新增可复制的公网成员接入模板，包含 `/v1/models` 和 `stream: true` 验收命令。
+- 系统与诊断页新增“公网外部验收清单”：覆盖 `/v1/models`、非流式对话和 `stream: true` 三项外部验收，支持逐项复制 cURL 命令并人工标记通过状态，标记状态保存在本机浏览器 localStorage。
+- 用量与告警页新增三期公网成员告警维度：访问告警事件会持久化 `consumerType`，公网成员拒绝 / 异常可按“公网成员”筛选并在事件卡展示类型徽标，便于 Cloudflare 公网试运行时区分 LAN 与公网风险。
+- 三期公网号池安全边界继续收紧：`public-ready` 号池现在必须由 `public-user` 成员 AccessKey 命中，默认 Gateway Key、客户端映射 Key、本机自用成员或系统客户端都不能直接路由到公网号池。
+
+### 修复
+
+- 修复“保存本页配置”会携带桌面端内存中的完整 `accessControl` 并可能用旧窗口 / 旧状态覆盖访问成员、AccessKey 和策略的问题；普通安全 / LAN / 公网入口保存现在只保存鉴权与共享入口设置，访问成员、Key 和策略继续走专用访问控制保存入口。
+
+### 测试
+
+- 新增 gateway、runtime diagnostics 和 desktop build 回归测试，覆盖公网入口配置保存、HTTPS / Key 前置拒绝、Cloudflare 公网诊断缺项与就绪态、桌面端配置控件接线。
+- 新增桌面端回归测试，确保普通安全配置保存 payload 不再包含 `accessControl`，避免后续再次误覆盖访问用户数据。
+- 新增 gateway 回归测试，覆盖公网总开关未启用时拒绝 `public-user`、显式启用后允许 `public-user` 命中 `public-ready` 号池，以及公网成员误命中非 `public-ready` 号池时拒绝。
+- 新增桌面端构建回归测试，覆盖公网验收清单、验收命令复制和人工标记入口。
+- 新增 gateway 与桌面端构建回归测试，覆盖公网成员告警 `consumerType` 持久化、推理拒绝告警归因和用量告警页成员类型筛选入口。
+- 新增 gateway 回归测试，覆盖默认 Gateway Key 误路由到 `public-ready` 号池时返回 `access_policy_public_pool_requires_member_key`，防止公网试运行误分发管理员自用 Key。
+
 ## [2026-05-20 00:20 CST]
 
 ### 优化

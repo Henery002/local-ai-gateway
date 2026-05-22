@@ -60,8 +60,8 @@
 
 ## 项目定位
 
-`Local AI Gateway` 不是公网服务，也不是 SaaS 平台。  
-它是一个：
+`Local AI Gateway` 默认不是公网 SaaS 平台。
+它首先是一个：
 
 - 本地单用户
 - 本地长期运行
@@ -69,6 +69,8 @@
 - 以本地网关转发为核心
 
 的 AI 网关 / 账号管理 / 请求调度工具。
+
+三期开始支持受控的邀请制公网 MVP：管理员可通过 Cloudflare Tunnel + 自有域名只暴露 `/v1/*` 推理面，并为公网成员分配独立 `public-user` Key、`public-ready` 号池和额度策略。公网请求会经过 payload guard、单请求 Token 上限和上游账号级并发 / 短窗口安全阀。该能力不等同于公开注册、计费、多租户 SaaS，也不应暴露桌面管理面或 `/admin/*`。
 
 当前最成熟、最完整的链路是：
 
@@ -83,6 +85,7 @@
 - 支持：
   - `GET /v1/models`
   - `POST /v1/chat/completions`
+  - `POST /v1/responses`
   - 流式响应
   - 工具调用
 - 提供 Admin API 与桌面端控制台
@@ -148,7 +151,8 @@
 
 以下内容当前明确 **不做** 或 **长期不做**：
 
-- 不做公网暴露
+- 不做公开注册式公网服务或 SaaS 平台
+- 不把桌面管理端、`/admin/*` 或 `/healthz` 暴露到公网
 - 不做多设备同步
 - 不做多人协作权限系统
 - 不做云端控制台
@@ -236,6 +240,18 @@ API Key: 你在桌面端“诊断”页保存的网关访问密钥
 
 `localRagHub` 仍可继续接入，但当前已降级为次要兼容对象，不再占据桌面端模板主位。
 
+### 三期公网 MVP 接入
+
+当前邀请制公网 MVP 已完成 Cloudflare Tunnel 首轮打通，当前公网入口为：
+
+```txt
+Base URL: https://gateway.henery.top/v1
+Model: codex-default
+API Key: 公网成员专属 API Key
+```
+
+公网入口仅用于 `/v1/*` 推理面。Cloudflare Tunnel route 应保持 `Path=^/v1`，Service URL 应保持 `http://127.0.0.1:8787`，不要把 `/v1` 写入 Cloudflare Service URL，也不要给 `/admin/*` 或 `/healthz` 创建公网路由。公网成员默认带单请求输入估算上限 `128000`、输出上限 `4096`，同一上游账号的公网请求默认并发上限为 `1`、近 60 秒准入上限为 `6`。
+
 ## 常用命令
 
 ```bash
@@ -299,6 +315,8 @@ docs/
 - 请求级自动切号
 - 号池运行时观测
 - 更细的成员级解释与消耗归因
+- 邀请制公网共享 MVP：Cloudflare Tunnel + 自有域名 + `public-user` 成员 Key + `public-ready` 号池
+- 公网请求守护与账号级调度安全阀：payload guard、单请求 Token 上限、同账号跨 Key 并发 / 短窗口限制
 
 状态：**核心闭环已落地，持续增强中**
 
@@ -311,6 +329,7 @@ docs/
 - [架构总览](./docs/architecture/overview.md)
 - [概念地图](./docs/architecture/%E6%A6%82%E5%BF%B5%E5%9C%B0%E5%9B%BE.md)
 - [动态号池设计方案](./docs/architecture/%E5%8A%A8%E6%80%81%E5%8F%B7%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%96%B9%E6%A1%88.md)
+- [三期 Cloudflare 公网联调复盘](./docs/architecture/shared-gateway/%E4%B8%89%E6%9C%9FCloudflare%E5%85%AC%E7%BD%91%E8%81%94%E8%B0%83%E5%A4%8D%E7%9B%98.md)
 
 ### 运行与维护
 

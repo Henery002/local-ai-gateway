@@ -1,16 +1,29 @@
 # 最低可行公网共享方案 A / B 记录
 
 > 初始记录：2026-05-19
-> 最近更新：2026-05-20
+> 最近更新：2026-05-21
 
-本文记录后续“极小范围公网共享”的两个最低可行方案。当前只做方案沉淀，不代表已经实施、部署或开放公网入口。
+本文记录“极小范围公网共享”的两个最低可行方案，并持续沉淀本项目三期公网 MVP 的真实配置经验。当前方案 A 已进入首轮 Cloudflare Tunnel 真实联调，不代表已经具备公开注册、商业化或长期公网 SaaS 能力。
 
-截至 2026-05-20，三期公网最小可行版本的推荐结论是：
+截至 2026-05-21，三期公网最小可行版本的推荐结论是：
 
-- 主方案：`Cloudflare Tunnel + 自有域名 + 当前本机 Local AI Gateway + 成员 API Key / AccessPolicy / 号池授权`。
+- 主方案：`Cloudflare Tunnel + 自有域名 + 当前本机 Local AI Gateway + 成员 API Key / AccessPolicy / public-ready 号池授权`。
 - 备选 / 快速试验：`Tailscale Funnel + 当前本机 Local AI Gateway`。
 - 入口边界：公网只暴露 OpenAI-compatible 推理面 `/v1/*`，管理面 `/admin/*` 继续保持本机管理，不把桌面管理端当公网产品外放。
 - 运行形态：仍以当前 Mac 作为服务端，本机开机、网关运行、`cloudflared` 连接正常时才可用；本机离线、睡眠或网络阻断属于管理员自负责任。
+- 当前实操入口：`https://gateway.henery.top/v1`；Cloudflare Tunnel route 使用 Hostname `gateway.henery.top`、Path `^/v1`、Service `http://127.0.0.1:8787`。
+
+## 0. 当前实操落地状态
+
+本节记录截至 2026-05-21 的真实 MVP 配置快照：
+
+- 域名：阿里云购买 `henery.top`，首年费用 1 元；域名已注册通过。
+- DNS 托管：Cloudflare 已添加站点 `henery.top`，阿里云 nameserver 已切换为 `haley.ns.cloudflare.com / wells.ns.cloudflare.com`。
+- Tunnel：Cloudflare Tunnel 名称为 `local-ai-gateway-dev`，Tunnel ID 为 `80184101-1eeb-4941-a17b-3f824390d50a`，本机 connector 已 connected。
+- Public Hostname：`gateway.henery.top`，Path `^/v1`，Service URL `http://127.0.0.1:8787`，CNAME 指向 `80184101-1eeb-4941-a17b-3f824390d50a.cfargotunnel.com`。
+- 本项目配置：Public Base URL `https://gateway.henery.top/v1`，公网共享配置已开启，存在启用中的 `public-user`、独立公网成员 Key、`public-ready` 号池和额度策略。
+- 当前验证：`https://gateway.henery.top/healthz` 返回 `404`，`https://gateway.henery.top/` 返回 `404`，`https://gateway.henery.top/v1/models` 无 Key 返回 `401 gateway_api_key_required`。
+- 仍待验证：使用公网成员 API Key 从其他 Agent 客户端验证 `/v1/models`、非流式对话和 `stream: true`。
 
 ## 1. 适用目标
 
@@ -31,6 +44,7 @@
 
 ```text
 https://gateway.example.com/v1 -> http://127.0.0.1:8787/v1
+https://gateway.henery.top/v1 -> http://127.0.0.1:8787/v1
 ```
 
 接入成员拿到的是：
@@ -38,7 +52,7 @@ https://gateway.example.com/v1 -> http://127.0.0.1:8787/v1
 ```text
 base_url: https://gateway.example.com/v1
 api_key: lagw_xxx
-model: gpt-5.5 或项目内暴露的其他模型别名
+model: codex-default 或 `/v1/models` 返回且该成员策略已授权的其他模型别名
 ```
 
 Cloudflare Tunnel 的核心价值是：本机不需要公网 IP，也不需要路由器端口映射；`cloudflared` 从本机主动向 Cloudflare 建立出站连接，外部请求经 Cloudflare 回到本机服务。网络从公司 Wi-Fi 切到家里 Wi-Fi 后，公网域名通常保持不变，但会出现短暂重连窗口；真正的风险是某些公司网络可能阻断或干扰 `cloudflared` 出站连接。
@@ -151,30 +165,39 @@ cloudflared tunnel run local-ai-gateway-public
 
 ```json
 {
-  "base_url": "https://gateway.example.com/v1",
+  "base_url": "https://gateway.henery.top/v1",
   "api_key": "lagw_xxx",
-  "model": "gpt-5.5"
+  "model": "codex-default"
 }
 ```
+
+Cloudflare Tunnel route 配置注意点：
+
+- Public Hostname 可填 `gateway.henery.top`。
+- Path 必须填 `^/v1`，避免 `/healthz`、`/admin/*` 或根路径被 Cloudflare route 转发到本机网关。
+- Service URL 只填 `http://127.0.0.1:8787`，不要在 Cloudflare Service URL 里追加 `/v1`；`/v1` 由 Path 和客户端 Base URL 共同保证。
+- 不要为 `/v1/*` 启用 Cloudflare Access / SSO 交互式登录；Agent 客户端应只通过 `Authorization: Bearer <公网成员 API Key>` 鉴权。
 
 #### 阶段 4：外部验收
 
 实施时至少跑以下验收：
 
 ```bash
-curl https://gateway.example.com/v1/models \
+curl https://gateway.henery.top/v1/models \
   -H "Authorization: Bearer lagw_xxx"
 ```
 
 ```bash
-curl https://gateway.example.com/v1/chat/completions \
+curl https://gateway.henery.top/v1/chat/completions \
   -H "Authorization: Bearer lagw_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"ping"}],"stream":false}'
+  -d '{"model":"codex-default","messages":[{"role":"user","content":"ping"}],"stream":false}'
 ```
 
 还需要验证：
 
+- 无 Key 访问 `https://gateway.henery.top/v1/models` 返回 `401 gateway_api_key_required`。
+- `https://gateway.henery.top/healthz` 和 `https://gateway.henery.top/` 返回 `404`，不暴露本机诊断或管理信息。
 - `stream: true` 能持续返回，不被 Cloudflare / 客户端中断。
 - 无 Key、错 Key、暂停 Key、过期 Key 均被拒绝。
 - 超额度、策略到期、模型拒绝、号池拒绝均按预期返回。

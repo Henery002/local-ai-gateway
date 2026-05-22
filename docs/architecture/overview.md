@@ -155,7 +155,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 
 ### 3.1 第三方客户端到 Codex 的主链路（以 OpenClaw 为例）
 
-1. 第三方客户端调用 `http://127.0.0.1:<gateway-port>/v1/chat/completions`（默认端口 `8787`，可在桌面端系统配置中修改）
+1. 第三方客户端调用 `http://127.0.0.1:<gateway-port>/v1/chat/completions`（默认端口 `8787`，可在桌面端系统配置中修改）；三期公网成员也可以通过 Cloudflare Tunnel 入口 `https://gateway.henery.top/v1/chat/completions` 调用同一推理面
 2. gateway 在 `openai-compat` 中解析请求并转换为内部上下文
 3. `ModelRegistry` 解析模型别名，例如 `codex-default`
 4. `ProviderRegistry` 根据模型所属 provider 选择 `ProviderAdapter`
@@ -180,6 +180,7 @@ Electron 桌面端当前定位是“本地控制中心”，不是聊天前端�
 11. 三期动态号池可通过 `GET/PUT /admin/config/pools` 管理号池成员、阈值、冷却与有限重试；桌面端“号池调度”页将作为独立控制入口
 12. `GET /admin/health` 现已附带 `routingObservability`，用于展示 5 分钟命中、累计命中、Top 规则/客户端与最近命中事件
 13. 第三方推理接口可选启用 API Key 鉴权：通过 `GET/PUT /admin/config/security` 管理（仅回传 `mode/enabled/hasApiKey`），启用后 `/v1/models` 与 `/v1/chat/completions` 需携带密钥
+14. 三期公网共享配置也通过 `GET/PUT /admin/config/security` 管理；当前 Cloudflare Tunnel MVP 只允许 `https://gateway.henery.top/v1` 这类 HTTPS Public Base URL，并要求公网成员使用独立 `public-user` Key 与 `public-ready` 号池授权；公网请求还会经过 payload guard、单请求 Token 上限和同一上游账号级并发 / 短窗口安全阀
 
 ## 4. 会话模型
 
@@ -211,7 +212,8 @@ v1 采用单活动会话模型：
 - 会话结构当前仍优先依赖 OpenClaw 的认证文件格式
 - 三期正在增量接入“动态号池”，用于按阈值 / 冷却 / 有限重试进行请求级自动切号，但仍不做真正的额度池化
 - “真正的额度池化 / 合并结算”与“直接把原始本地可复用授权纳入正式号池成员”已被明确标记为长期不做
-- 不对外网暴露服务
+- 默认不对外网暴露服务；三期邀请制公网 MVP 仅通过 Cloudflare Tunnel 暴露 `/v1/*` 推理面，不暴露 `/admin/*`、`/healthz` 或桌面管理面；公网成员无显式策略时默认单请求输入估算上限 `1050000`、输出上限 `128000`，同一上游账号默认公网并发 `16`、近 60 秒准入 `240`
+- 对外协议当前仍是 OpenAI-compatible：支持 `/v1/models`、`/v1/chat/completions`、流式响应和函数工具调用；不暴露 `/v1/responses`、Assistants、Batch 或 Codex App 私有协议。Agent 的项目分析、文件改写和命令执行能力主要由接入客户端自己的工具编排层提供，网关只负责模型调用、鉴权、路由、号池和观测。
 - 桌面端中的 Codex 额度与重置时间已接入实时刷新第一版，但仍需继续增强自动重试与多窗口展示
 - 二期路由策略层已完成“配置 + 预演 + 实时链路命中”第二步，当前支持按客户端标签/请求模型别名匹配并重写目标模型与目标会话
 - 推理接口鉴权当前支持 `none / api-key` 两种模式，适用于本机单用户与多应用共享两类场景

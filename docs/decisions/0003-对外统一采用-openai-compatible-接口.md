@@ -18,6 +18,7 @@ OpenClaw 已具备 provider 与 `baseUrl` 配置能力。为了降低接入成�
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/responses`（三期公网共享阶段补充，用于 Codex App / CC Switch 等 Responses API 客户端）
 
 并支持：
 
@@ -27,7 +28,6 @@ OpenClaw 已具备 provider 与 `baseUrl` 配置能力。为了降低接入成�
 
 不在首版暴露：
 
-- `/v1/responses`
 - Assistants
 - Batch
 
@@ -36,4 +36,3 @@ OpenClaw 已具备 provider 与 `baseUrl` 配置能力。为了降低接入成�
 - OpenClaw 接入成本最低
 - 外部客户端无需理解 Codex 专有协议
 - 网关内部需要承担一次协议转换
-

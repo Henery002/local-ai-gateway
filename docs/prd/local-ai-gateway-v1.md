@@ -168,6 +168,7 @@ v1 对第三方客户端暴露以下接口：
 - `GET /healthz`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/responses`（三期公网共享阶段补充的兼容入口）
 
 ### 5.2 `POST /v1/chat/completions` 能力边界
 
@@ -186,7 +187,6 @@ v1 对第三方客户端暴露以下接口：
 - 音频输入
 - Assistants API
 - Batch API
-- `/v1/responses`
 
 ### 5.3 Admin API
 
