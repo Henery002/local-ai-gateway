@@ -13,6 +13,9 @@ import {
   DEFAULT_HOST,
   DEFAULT_PORT,
   GatewayAccessConsumerType,
+  GatewayAccountHealthEntry,
+  GatewayAccountHealthObservability,
+  GatewayAccountHealthStatus,
   GatewayAccessAlertEvent,
   GatewayHealth,
   GatewayInferenceObservability,
@@ -365,8 +368,156 @@ export class GatewayRuntime {
       routingObservability: this.getRoutingObservability(),
       usageObservability: this.getUsageObservability(),
       poolObservability: this.getPoolObservability(),
+      accountHealthObservability: this.getAccountHealthObservability(),
       inferenceObservability: this.getInferenceObservability(),
       inferenceAuth: this.getInferenceAuthPublicSettings(),
+    };
+  }
+
+  getAccountHealthObservability(): GatewayAccountHealthObservability {
+    const pools = this.getPoolObservability();
+    const byKey = new Map<string, GatewayAccountHealthEntry>();
+    const statusRank: Record<GatewayAccountHealthStatus, number> = {
+      invalid: 0,
+      missing: 1,
+      expired: 2,
+      cooldown: 3,
+      "quota-low": 4,
+      "unknown-quota": 5,
+      disabled: 6,
+      available: 7,
+    };
+    const resolveScore = (account: GatewayAccountHealthEntry) => {
+      if (account.status === "available") {
+        const quotaBonus =
+          typeof account.quotaPercentage === "number"
+            ? Math.round(Math.min(30, account.quotaPercentage / 3))
+            : 10;
+        const successBonus = account.lastSuccessAt ? 5 : 0;
+        const failurePenalty = Math.min(20, account.consecutiveFailures * 5);
+        return Math.max(0, Math.min(100, 65 + quotaBonus + successBonus - failurePenalty));
+      }
+      if (account.status === "unknown-quota") {
+        return 55;
+      }
+      if (account.status === "quota-low") {
+        return 45;
+      }
+      if (account.status === "cooldown") {
+        return 35;
+      }
+      if (account.status === "disabled") {
+        return 25;
+      }
+      return 10;
+    };
+    const worseStatus = (
+      left: GatewayAccountHealthStatus,
+      right: GatewayAccountHealthStatus,
+    ) => (statusRank[right] < statusRank[left] ? right : left);
+
+    for (const pool of pools) {
+      for (const member of pool.members) {
+        const key = member.sessionId ?? `${pool.poolId}:${member.selector}`;
+        const existing = byKey.get(key);
+        const title =
+          member.sessionTitle ??
+          member.label ??
+          member.sessionId ??
+          member.selector;
+        const status = member.status as GatewayAccountHealthStatus;
+        const base: GatewayAccountHealthEntry =
+          existing ?? {
+            sessionId: member.sessionId,
+            accountId: member.sessionSubtitle,
+            title,
+            subtitle: member.sessionSubtitle,
+            status,
+            statusLabel: member.statusLabel,
+            score: 0,
+            selected: false,
+            eligiblePoolCount: 0,
+            poolCount: 0,
+            quotaPercentage: member.quotaPercentage,
+            consecutiveFailures: member.consecutiveFailures,
+            reasons: [],
+            pools: [],
+          };
+
+        base.status = worseStatus(base.status, status);
+        base.statusLabel = member.statusLabel;
+        base.selected = base.selected || member.selected;
+        base.poolCount += 1;
+        base.eligiblePoolCount += member.eligible ? 1 : 0;
+        base.quotaPercentage =
+          typeof member.quotaPercentage === "number"
+            ? member.quotaPercentage
+            : base.quotaPercentage;
+        base.cooldownUntil = Math.max(
+          base.cooldownUntil ?? 0,
+          member.cooldownUntil ?? 0,
+        ) || undefined;
+        base.lastSelectedAt = Math.max(
+          base.lastSelectedAt ?? 0,
+          member.lastSelectedAt ?? 0,
+        ) || undefined;
+        base.lastSuccessAt = Math.max(
+          base.lastSuccessAt ?? 0,
+          member.lastSuccessAt ?? 0,
+        ) || undefined;
+        base.lastFailureAt = Math.max(
+          base.lastFailureAt ?? 0,
+          member.lastFailureAt ?? 0,
+        ) || undefined;
+        base.lastFailureClass = member.lastFailureClass ?? base.lastFailureClass;
+        base.consecutiveFailures = Math.max(
+          base.consecutiveFailures,
+          member.consecutiveFailures,
+        );
+        for (const reason of [member.statusLabel, member.note]) {
+          if (reason && !base.reasons.includes(reason)) {
+            base.reasons.push(reason);
+          }
+        }
+        if (member.lastFailureClass) {
+          const failureReason = `最近失败分类：${member.lastFailureClass}`;
+          if (!base.reasons.includes(failureReason)) {
+            base.reasons.push(failureReason);
+          }
+        }
+        base.pools.push({
+          poolId: pool.poolId,
+          poolName: pool.poolName,
+          selector: member.selector,
+          label: member.label,
+          selected: member.selected,
+          eligible: member.eligible,
+          status: member.status,
+          statusLabel: member.statusLabel,
+          note: member.note,
+        });
+        base.score = resolveScore(base);
+        byKey.set(key, base);
+      }
+    }
+
+    const accounts = Array.from(byKey.values()).sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.title.localeCompare(right.title);
+    });
+    return {
+      generatedAt: Date.now(),
+      summary: {
+        accountCount: accounts.length,
+        availableCount: accounts.filter((item) => item.status === "available").length,
+        cooldownCount: accounts.filter((item) => item.status === "cooldown").length,
+        unhealthyCount: accounts.filter((item) => item.status !== "available").length,
+        selectedCount: accounts.filter((item) => item.selected).length,
+      },
+      accounts,
+      pools,
     };
   }
 

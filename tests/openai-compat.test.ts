@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildResponsesApiResponseFromChatCompletion,
   buildChatCompletionResponse,
   buildModelsResponse,
   chatCompletionSseToResponsesApiSse,
   parseChatCompletionsRequest,
   streamChatCompletionChunks,
+  toChatCompletionsRequestFromResponsesApi,
   toGatewayConversationContext,
 } from "@local-ai-gateway/openai-compat";
 import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
@@ -231,5 +233,63 @@ describe("openai compat", () => {
       model: "gpt-5.5",
       output_text: "OK",
     });
+  });
+
+  it("normalizes long Responses call IDs when converting to Chat Completions", () => {
+    const rawCallId = `call_${"x".repeat(90)}`;
+    const request = toChatCompletionsRequestFromResponsesApi({
+      model: "gpt-5.5",
+      input: [
+        { role: "user", content: "Use the tool" },
+        {
+          type: "function_call",
+          call_id: rawCallId,
+          name: "lookup_weather",
+          arguments: { city: "Shanghai" },
+        },
+        {
+          type: "function_call_output",
+          call_id: rawCallId,
+          output: "Sunny",
+        },
+      ],
+      stream: false,
+    });
+
+    const assistant = request.messages.find((message) => message.role === "assistant");
+    const tool = request.messages.find((message) => message.role === "tool");
+    const normalized = assistant?.role === "assistant" ? assistant.tool_calls?.[0]?.id : undefined;
+
+    expect(normalized).toBeTruthy();
+    expect(normalized?.length).toBeLessThanOrEqual(64);
+    expect(tool?.role === "tool" ? tool.tool_call_id : undefined).toBe(normalized);
+  });
+
+  it("normalizes long Chat Completions tool IDs when building Responses output", () => {
+    const rawCallId = `call_${"y".repeat(90)}`;
+    const response = buildResponsesApiResponseFromChatCompletion({
+      model: "gpt-5.5",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: rawCallId,
+                type: "function",
+                function: { name: "lookup_weather", arguments: "{}" },
+              },
+            ],
+          },
+        },
+      ],
+      usage: {},
+    });
+    const call = response.output.find((item) => item.type === "function_call");
+
+    expect(call?.id.length).toBeLessThanOrEqual(64);
+    expect(call?.call_id.length).toBeLessThanOrEqual(64);
+    expect(call?.id).toBe(call?.call_id);
   });
 });

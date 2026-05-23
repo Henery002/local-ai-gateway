@@ -51,6 +51,14 @@ function shortHash(value: string): string {
   return createHash("sha1").update(value).digest("hex").slice(0, 12);
 }
 
+function normalizeCodexCallId(value: string): string {
+  if (value.length > 0 && value.length <= 64) {
+    return value;
+  }
+  const digest = createHash("sha256").update(value || "empty").digest("hex").slice(0, 40);
+  return `call_${digest}`;
+}
+
 function clampReasoningEffort(
   modelId: string,
   effort: LocalCodexResponsesOptions["reasoningEffort"],
@@ -221,9 +229,10 @@ function convertResponsesMessagesLocal(
         }
 
         if (block.type === "toolCall") {
-          const [callId, itemIdRaw] = block.id.split("|");
+          const [rawCallId, itemIdRaw] = block.id.split("|");
+          const callId = normalizeCodexCallId(rawCallId ?? block.id);
           let itemId = itemIdRaw || `fc_${shortHash(callId)}`;
-          if (!itemId.startsWith("fc_")) {
+          if (!itemId.startsWith("fc_") || itemId.length > 64) {
             itemId = `fc_${shortHash(itemId)}`;
           }
           messages.push({
@@ -243,7 +252,8 @@ function convertResponsesMessagesLocal(
         .filter((item) => item.type === "text")
         .map((item) => item.text)
         .join("\n");
-      const [callId] = msg.toolCallId.split("|");
+      const [rawCallId] = msg.toolCallId.split("|");
+      const callId = normalizeCodexCallId(rawCallId ?? msg.toolCallId);
       messages.push({
         type: "function_call_output",
         call_id: callId,
@@ -451,10 +461,11 @@ async function processResponsesStreamWithUsageDetails(
         continue;
       }
       if (item?.type === "function_call") {
+        const callId = normalizeCodexCallId(String(item.call_id ?? item.id ?? "call"));
         currentItem = item;
         currentBlock = {
           type: "toolCall",
-          id: `${String(item.call_id ?? "")}|${String(item.id ?? "")}`,
+          id: callId,
           name: String(item.name ?? "tool"),
           arguments: {},
           partialJson: String(item.arguments ?? ""),

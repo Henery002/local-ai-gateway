@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import Fastify from "fastify";
 
@@ -23,6 +23,7 @@ import {
   GatewayAccessKey,
   GatewayAccessPolicy,
   GatewayInferenceAuthSettings,
+  GatewayModelDefinition,
   GatewayPoolFailureClass,
   GatewayProviderSettings,
   GatewayPublicAccessProvider,
@@ -33,12 +34,16 @@ import {
   GatewayRoutingPreviewResult,
   GatewayRoutingSettings,
   GatewaySessionPoolSettings,
+  GatewayUsageCounters,
   GatewayUsageClientFilter,
+  GatewayRequestContentAuditSettings,
   getCodexAliasForUpstreamModel,
   SessionSummary,
 } from "@local-ai-gateway/shared";
 
 import { GatewayRuntime } from "./runtime.js";
+
+const requestAuditSourceEventKeys = new WeakMap<FastifyRequest, string>();
 
 function buildErrorBody(error: GatewayError | Error) {
   if (error instanceof GatewayError) {
@@ -77,6 +82,133 @@ function buildErrorLogDetails(error: GatewayError | Error): Record<string, unkno
   };
 }
 
+function buildRequestAuditContext(request: FastifyRequest): Record<string, unknown> {
+  const body = request.body as
+    | {
+        model?: unknown;
+        stream?: unknown;
+      }
+    | undefined;
+  const headerClientTag = request.headers["x-client-tag"];
+  const clientTag =
+    typeof headerClientTag === "string"
+      ? headerClientTag
+      : Array.isArray(headerClientTag)
+        ? headerClientTag[0]
+        : undefined;
+  return {
+    requestPath: request.url.split("?")[0],
+    requestMethod: request.method,
+    ...(typeof body?.model === "string" ? { modelAlias: body.model } : {}),
+    ...(typeof body?.stream === "boolean" ? { stream: body.stream } : {}),
+    ...(clientTag ? { clientTag } : {}),
+    ...(requestAuditSourceEventKeys.get(request)
+      ? { requestAuditSourceEventKey: requestAuditSourceEventKeys.get(request) }
+      : {}),
+  };
+}
+
+function normalizeRequestContentAuditSettings(
+  settings: GatewayRequestContentAuditSettings | undefined,
+): Required<GatewayRequestContentAuditSettings> {
+  return {
+    enabled: Boolean(settings?.enabled),
+    maxCharacters:
+      typeof settings?.maxCharacters === "number" &&
+      Number.isFinite(settings.maxCharacters)
+        ? Math.max(1_000, Math.min(200_000, Math.floor(settings.maxCharacters)))
+        : 32_000,
+    maxEvents:
+      typeof settings?.maxEvents === "number" && Number.isFinite(settings.maxEvents)
+        ? Math.max(0, Math.min(10_000, Math.floor(settings.maxEvents)))
+        : 500,
+  };
+}
+
+function stringifyRequestMessageContent(content: unknown): unknown {
+  if (typeof content === "string" || content === null || content === undefined) {
+    return content ?? "";
+  }
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (!part || typeof part !== "object") {
+        return part;
+      }
+      const record = part as Record<string, unknown>;
+      if (record.type === "text" && typeof record.text === "string") {
+        return { type: "text", text: record.text };
+      }
+      return { type: typeof record.type === "string" ? record.type : "unknown" };
+    });
+  }
+  return String(content);
+}
+
+function buildRequestContentSnapshot(request: ChatCompletionsRequest) {
+  return {
+    model: request.model,
+    stream: Boolean(request.stream),
+    messages: request.messages.map((message) => {
+      const record = message as Record<string, unknown>;
+      return {
+        role: message.role,
+        content: stringifyRequestMessageContent(record.content),
+        ...(typeof record.name === "string" && record.name ? { name: record.name } : {}),
+        ...(typeof record.tool_call_id === "string" && record.tool_call_id
+          ? { toolCallId: record.tool_call_id }
+          : {}),
+      };
+    }),
+    tools: (request.tools ?? []).map((tool) => ({
+      type: tool.type,
+      name: tool.function.name,
+      description: tool.function.description,
+    })),
+  };
+}
+
+function truncateJsonString(input: unknown, maxCharacters: number) {
+  const serialized = JSON.stringify(input, null, 2);
+  if (serialized.length <= maxCharacters) {
+    return {
+      contentJson: serialized,
+      capturedCharacters: serialized.length,
+      truncated: false,
+    };
+  }
+  return {
+    contentJson: serialized.slice(0, maxCharacters),
+    capturedCharacters: maxCharacters,
+    truncated: true,
+  };
+}
+
+function maybeRecordRequestContentAudit(input: {
+  runtime: GatewayRuntime;
+  sourceEventKey: string;
+  request: ChatCompletionsRequest;
+  consumerId?: string;
+  accessKeyId?: string;
+}): void {
+  const settings = normalizeRequestContentAuditSettings(
+    input.runtime.configStore.getDesktopSettings().requestContentAudit,
+  );
+  if (!settings.enabled) {
+    return;
+  }
+  const snapshot = buildRequestContentSnapshot(input.request);
+  const content = truncateJsonString(snapshot, settings.maxCharacters);
+  input.runtime.database.insertRequestContentAuditEvent({
+    sourceEventKey: input.sourceEventKey,
+    timestamp: Date.now(),
+    modelAlias: input.request.model,
+    consumerId: input.consumerId,
+    accessKeyId: input.accessKeyId,
+    ...content,
+  });
+  input.runtime.database.pruneRequestContentAuditEvents(settings.maxEvents);
+}
+
 function isAccessAlertError(error: GatewayError | Error): error is GatewayError {
   return (
     error instanceof GatewayError &&
@@ -95,11 +227,27 @@ function resolveAccessAlertSeverity(error: GatewayError): GatewayAccessAlertSeve
 function recordAccessAlertForError(
   runtime: GatewayRuntime,
   error: GatewayError | Error,
+  request?: FastifyRequest,
 ): void {
   if (!isAccessAlertError(error)) {
     return;
   }
-  const details = buildErrorLogDetails(error);
+  const details = {
+    ...(request ? buildRequestAuditContext(request) : {}),
+    ...buildErrorLogDetails(error),
+  };
+  const consumer =
+    typeof details.consumerId === "string"
+      ? runtime
+          .configStore.getInferenceAuthSettings()
+          .accessControl?.consumers?.find(
+            (item) => item.id === details.consumerId,
+          )
+      : undefined;
+  if (consumer) {
+    details.clientTag = consumer.clientTag;
+    details.consumerType = consumer.type;
+  }
   runtime.recordAccessAlertEvent({
     timestamp: Date.now(),
     severity: resolveAccessAlertSeverity(error),
@@ -812,6 +960,286 @@ function getAccessPolicyPeriodWindow(
     start,
     end: start + periodDays * 24 * 60 * 60 * 1000,
     days: periodDays,
+  };
+}
+
+function getAccessPolicyMonthlyQuotaWindow(
+  now: number,
+  resetTimezone: string | undefined,
+): { start: number; end: number; timezone: string } {
+  const normalizedTimezone = resetTimezone?.trim().toUpperCase();
+  if (normalizedTimezone === "UTC") {
+    const current = new Date(now);
+    const start = Date.UTC(
+      current.getUTCFullYear(),
+      current.getUTCMonth(),
+      1,
+    );
+    return {
+      start,
+      end: Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + 1, 1),
+      timezone: "UTC",
+    };
+  }
+
+  const current = new Date(now);
+  const start = new Date(
+    current.getFullYear(),
+    current.getMonth(),
+    1,
+  ).getTime();
+  return {
+    start,
+    end: new Date(
+      current.getFullYear(),
+      current.getMonth() + 1,
+      1,
+    ).getTime(),
+    timezone: "local",
+  };
+}
+
+type UserBalanceQuotaMode =
+  | "period"
+  | "total"
+  | "daily"
+  | "monthly"
+  | "unlimited";
+
+function buildGatewayModelResponse(model: GatewayModelDefinition) {
+  const response = buildModelsResponse([model]);
+  return response.data[0];
+}
+
+function buildUnlimitedUserBalanceResponse(authContext: {
+  clientTag?: string;
+  accessContext?: AccessCredentialContext;
+}) {
+  return {
+    is_active: true,
+    unit: "tokens",
+    balance: null,
+    used: 0,
+    total: null,
+    quota_mode: "unlimited" satisfies UserBalanceQuotaMode,
+    planName: authContext.accessContext
+      ? `${authContext.accessContext.consumerName} · unlimited`
+      : "Gateway API key · unlimited",
+    consumer_id: authContext.accessContext?.consumerId,
+    access_key_id: authContext.accessContext?.accessKeyId,
+    client_tag: authContext.accessContext?.clientTag ?? authContext.clientTag,
+    extra: {
+      quota_mode: "unlimited",
+      consumer_id: authContext.accessContext?.consumerId,
+      access_key_id: authContext.accessContext?.accessKeyId,
+      client_tag: authContext.accessContext?.clientTag ?? authContext.clientTag,
+    },
+  };
+}
+
+function buildLimitedUserBalanceResponse(input: {
+  accessContext: AccessCredentialContext;
+  mode: Exclude<UserBalanceQuotaMode, "unlimited">;
+  limit: number;
+  usage: GatewayUsageCounters;
+  resetAt?: number;
+  periodDays?: number;
+  resetTimezone?: string;
+}) {
+  const used = Math.max(0, Math.floor(input.usage.totalTokens));
+  const total = Math.max(0, Math.floor(input.limit));
+  const balance = Math.max(0, total - used);
+  return {
+    is_active: true,
+    unit: "tokens",
+    balance,
+    used,
+    total,
+    quota_mode: input.mode,
+    ...(typeof input.resetAt === "number" ? { reset_at: input.resetAt } : {}),
+    planName: `${input.accessContext.consumerName} · ${input.mode} token quota`,
+    consumer_id: input.accessContext.consumerId,
+    access_key_id: input.accessContext.accessKeyId,
+    client_tag: input.accessContext.clientTag,
+    extra: {
+      consumer_id: input.accessContext.consumerId,
+      access_key_id: input.accessContext.accessKeyId,
+      client_tag: input.accessContext.clientTag,
+      quota_mode: input.mode,
+      ...(typeof input.periodDays === "number"
+        ? { period_days: input.periodDays }
+        : {}),
+      ...(input.resetTimezone ? { reset_timezone: input.resetTimezone } : {}),
+    },
+  };
+}
+
+function buildUserBalanceResponse(
+  runtime: GatewayRuntime,
+  authContext: {
+    clientTag?: string;
+    accessContext?: AccessCredentialContext;
+  },
+) {
+  const accessContext = authContext.accessContext;
+  if (!accessContext) {
+    return buildUnlimitedUserBalanceResponse(authContext);
+  }
+  assertAccessPolicyNotExpired(accessContext);
+
+  const quota = accessContext.policy?.quota;
+  const periodLimit = normalizePolicyLimit(quota?.periodTokenLimit);
+  const periodWindow = getAccessPolicyPeriodWindow(accessContext);
+  if (typeof periodLimit === "number" && periodWindow) {
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: periodWindow.start,
+    });
+    return buildLimitedUserBalanceResponse({
+      accessContext,
+      mode: "period",
+      limit: periodLimit,
+      usage,
+      resetAt: periodWindow.end,
+      periodDays: periodWindow.days,
+    });
+  }
+
+  const totalLimit = normalizePolicyLimit(quota?.totalTokenLimit);
+  if (typeof totalLimit === "number") {
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+    });
+    return buildLimitedUserBalanceResponse({
+      accessContext,
+      mode: "total",
+      limit: totalLimit,
+      usage,
+    });
+  }
+
+  const now = Date.now();
+  const dailyLimit = normalizePolicyLimit(quota?.dailyTokenLimit);
+  if (typeof dailyLimit === "number") {
+    const window = getAccessPolicyDailyQuotaWindow(now, quota?.resetTimezone);
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: window.start,
+    });
+    return buildLimitedUserBalanceResponse({
+      accessContext,
+      mode: "daily",
+      limit: dailyLimit,
+      usage,
+      resetAt: window.resetAt,
+      resetTimezone: window.timezone,
+    });
+  }
+
+  const monthlyLimit = normalizePolicyLimit(quota?.monthlyTokenLimit);
+  if (typeof monthlyLimit === "number") {
+    const window = getAccessPolicyMonthlyQuotaWindow(now, quota?.resetTimezone);
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: window.start,
+    });
+    return buildLimitedUserBalanceResponse({
+      accessContext,
+      mode: "monthly",
+      limit: monthlyLimit,
+      usage,
+      resetAt: window.end,
+      resetTimezone: window.timezone,
+    });
+  }
+
+  return buildUnlimitedUserBalanceResponse(authContext);
+}
+
+type UserBalanceResponse = ReturnType<typeof buildUserBalanceResponse>;
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function buildCodexWhamUsageResponse(balance: UserBalanceResponse) {
+  const total = toFiniteNumber(balance.total);
+  const used = toFiniteNumber(balance.used) ?? 0;
+  const remaining = toFiniteNumber(balance.balance);
+  const resetAt = toFiniteNumber((balance as { reset_at?: unknown }).reset_at);
+  const limitWindowSeconds =
+    typeof resetAt === "number"
+      ? Math.max(0, Math.ceil((resetAt - Date.now()) / 1_000))
+      : null;
+  const usedPercent =
+    typeof total === "number" && total > 0
+      ? Math.min(100, Math.max(0, Math.round((used / total) * 100)))
+      : 0;
+  const limitReached =
+    typeof remaining === "number" && typeof total === "number" && remaining <= 0;
+
+  return {
+    account_id: balance.consumer_id ?? "gateway-api-key",
+    email: balance.access_key_id ? balance.planName.split(" · ")[0] : balance.planName,
+    plan_type: "gateway",
+    rate_limit: {
+      allowed: !limitReached,
+      limit_reached: limitReached,
+      primary_window:
+        typeof total === "number"
+          ? {
+              limit_window_seconds: limitWindowSeconds,
+              reset_after_seconds: limitWindowSeconds,
+              reset_at: resetAt ?? null,
+              used_percent: usedPercent,
+            }
+          : null,
+      secondary_window: null,
+    },
+    rate_limit_reached_type: limitReached
+      ? { type: "rate_limit_reached", details: balance.quota_mode }
+      : null,
+    rate_limit_reset_credits: {
+      available_count: typeof remaining === "number" ? remaining : 0,
+    },
+    credits: {
+      approx_cloud_messages: null,
+      approx_local_messages: null,
+      balance: remaining ?? null,
+      has_credits: typeof total === "number",
+      overage_limit_reached: limitReached,
+      unlimited: typeof total !== "number",
+    },
+    spend_control: {
+      individual_limit: total ?? null,
+      reached: limitReached,
+    },
+    user_id: balance.consumer_id ?? null,
+    quota_mode: balance.quota_mode,
+    unit: balance.unit,
+    total,
+    used,
+    balance: remaining ?? null,
+  };
+}
+
+function buildCreditGrantsResponse(balance: UserBalanceResponse) {
+  const total = toFiniteNumber(balance.total);
+  const used = toFiniteNumber(balance.used) ?? 0;
+  const remaining = toFiniteNumber(balance.balance);
+
+  return {
+    object: "credit_summary",
+    unit: balance.unit,
+    total_granted: total ?? null,
+    total_used: used,
+    total_available: remaining ?? null,
+    grants: {
+      object: "list",
+      data: [],
+    },
+    quota_mode: balance.quota_mode,
+    planName: balance.planName,
   };
 }
 
@@ -1813,9 +2241,9 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     logger: false,
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const normalized = error instanceof Error ? error : new Error(String(error));
-    recordAccessAlertForError(runtime, normalized);
+    recordAccessAlertForError(runtime, normalized, request);
     if (
       normalized instanceof GatewayError &&
       normalized.code === "client_temporarily_blocked"
@@ -1847,6 +2275,57 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     assertAccessPolicyNotExpired(authContext.accessContext);
     return buildModelsResponse(runtime.modelRegistry.list());
   });
+
+  app.get("/v1/models/:model", async (request) => {
+    requireInferenceNetworkAccess(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    assertAccessPolicyNotExpired(authContext.accessContext);
+    const requestedModel =
+      (request.params as { model?: string } | undefined)?.model ?? "";
+    const resolvedModelAlias = resolveCompatibleModelAlias(runtime, requestedModel);
+    assertAccessPolicyAllowsModel(
+      authContext.accessContext,
+      resolvedModelAlias,
+      requestedModel,
+    );
+    const model = runtime.modelRegistry
+      .list()
+      .find((item) => item.alias === resolvedModelAlias);
+    if (!model) {
+      throw new GatewayError(
+        404,
+        "model_not_found",
+        `Unknown model: ${requestedModel}`,
+      );
+    }
+    return buildGatewayModelResponse(model);
+  });
+
+  const getUserBalance = async (request: FastifyRequest) => {
+    requireInferenceNetworkAccess(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    return buildUserBalanceResponse(runtime, authContext);
+  };
+  app.get("/user/balance", getUserBalance);
+  app.get("/v1/user/balance", getUserBalance);
+
+  const getCodexWhamUsage = async (request: FastifyRequest) => {
+    requireInferenceNetworkAccess(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    return buildCodexWhamUsageResponse(
+      buildUserBalanceResponse(runtime, authContext),
+    );
+  };
+  app.get("/backend-api/wham/usage", getCodexWhamUsage);
+  app.get("/v1/backend-api/wham/usage", getCodexWhamUsage);
+
+  const getCreditGrants = async (request: FastifyRequest) => {
+    requireInferenceNetworkAccess(runtime, request);
+    const authContext = resolveAuthAndClientTag(runtime, request);
+    return buildCreditGrantsResponse(buildUserBalanceResponse(runtime, authContext));
+  };
+  app.get("/dashboard/billing/credit_grants", getCreditGrants);
+  app.get("/v1/dashboard/billing/credit_grants", getCreditGrants);
 
   app.post("/v1/responses", async (request, reply) => {
     requireInferenceNetworkAccess(runtime, request);
@@ -1911,6 +2390,15 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       runtime,
       requestedModelAlias,
     );
+    const requestAuditSourceEventKey = `live-request:${randomUUID()}`;
+    requestAuditSourceEventKeys.set(request, requestAuditSourceEventKey);
+    maybeRecordRequestContentAudit({
+      runtime,
+      sourceEventKey: requestAuditSourceEventKey,
+      request: parsed,
+      consumerId: authContext.accessContext?.consumerId,
+      accessKeyId: authContext.accessContext?.accessKeyId,
+    });
     assertPublicRequestPayloadWithinLimits(
       authContext.accessContext,
       parsed,
@@ -2268,6 +2756,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         success: input.ok,
         stream: input.stream,
         latencyMs: Date.now() - startedAt,
+        sourceKind: "live-request",
+        sourceEventKey: requestAuditSourceEventKey,
         ...extractUsageCounters(input.usage),
       });
     };
@@ -2605,6 +3095,88 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     return {
       ok: true,
       data: runtime.getUsageObservability(clientFilter),
+    };
+  });
+
+  app.get("/admin/routing/account-health", async (request) => {
+    requireAdminAuth(runtime, request);
+    return {
+      ok: true,
+      data: runtime.getAccountHealthObservability(),
+    };
+  });
+
+  app.get("/admin/requests/audit", async (request) => {
+    requireAdminAuth(runtime, request);
+    const query = request.query as
+      | {
+          limit?: string;
+          status?: string;
+          clientTag?: string;
+          consumerId?: string;
+          accessKeyId?: string;
+          poolId?: string;
+          accountId?: string;
+          modelAlias?: string;
+          providerId?: string;
+          since?: string;
+          until?: string;
+        }
+      | undefined;
+    const parsedLimit =
+      typeof query?.limit === "string" ? Number.parseInt(query.limit, 10) : undefined;
+    const parseTimestamp = (value: string | undefined) => {
+      if (!value) {
+        return undefined;
+      }
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+    const status =
+      query?.status === "success" || query?.status === "failure"
+        ? query.status
+        : "all";
+    return {
+      ok: true,
+      data: runtime.database.queryRequestAuditEvents({
+        limit: parsedLimit,
+        status,
+        clientTag: normalizeOptionalTrimmedString(query?.clientTag),
+        consumerId: normalizeOptionalTrimmedString(query?.consumerId),
+        accessKeyId: normalizeOptionalTrimmedString(query?.accessKeyId),
+        poolId: normalizeOptionalTrimmedString(query?.poolId),
+        accountId: normalizeOptionalTrimmedString(query?.accountId),
+        modelAlias: normalizeOptionalTrimmedString(query?.modelAlias),
+        providerId: normalizeOptionalTrimmedString(query?.providerId),
+        since: parseTimestamp(query?.since),
+        until: parseTimestamp(query?.until),
+      }),
+    };
+  });
+
+  app.get("/admin/requests/audit/content", async (request) => {
+    requireAdminAuth(runtime, request);
+    const sourceEventKey = normalizeOptionalTrimmedString(
+      (request.query as { sourceEventKey?: string } | undefined)?.sourceEventKey,
+    );
+    if (!sourceEventKey) {
+      throw new GatewayError(
+        400,
+        "request_audit_content_key_required",
+        "sourceEventKey is required.",
+      );
+    }
+    const content = runtime.database.getRequestContentAuditEvent(sourceEventKey);
+    if (!content) {
+      throw new GatewayError(
+        404,
+        "request_audit_content_not_found",
+        "Request content audit entry was not found.",
+      );
+    }
+    return {
+      ok: true,
+      data: content,
     };
   });
 

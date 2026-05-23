@@ -10,6 +10,11 @@ import {
   GatewayLogRecord,
   GatewayPaths,
   GatewayPoolSelectionEvent,
+  GatewayRequestAuditContent,
+  GatewayRequestAuditEntry,
+  GatewayRequestAuditFacetOption,
+  GatewayRequestAuditQuery,
+  GatewayRequestAuditResult,
   GatewayRoutingHitEvent,
   GatewayUsageAccountSummary,
   GatewayUsageAccessKeyTimelinePoint,
@@ -106,6 +111,155 @@ type AccessAlertEventRow = {
   last_seen_at: number | null;
 };
 
+type RequestAuditEventRow = {
+  id: number;
+  timestamp: number;
+  session_id: string | null;
+  account_id: string | null;
+  email: string | null;
+  client_tag: string | null;
+  consumer_id: string | null;
+  access_key_id: string | null;
+  pool_id: string | null;
+  provider_id: string;
+  model_alias: string;
+  upstream_model_id: string | null;
+  ok: number;
+  stream: number;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  source_kind: string | null;
+  source_event_key: string | null;
+};
+
+type RequestContentAuditRow = {
+  source_event_key: string;
+  timestamp: number;
+  model_alias: string | null;
+  consumer_id: string | null;
+  access_key_id: string | null;
+  content_json: string;
+  captured_characters: number;
+  truncated: number;
+};
+
+function mapRequestAuditEventRow(row: RequestAuditEventRow): GatewayRequestAuditEntry {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    sessionId: row.session_id ?? undefined,
+    accountId: row.account_id ?? undefined,
+    email: row.email ?? undefined,
+    clientTag: row.client_tag ?? undefined,
+    consumerId: row.consumer_id ?? undefined,
+    accessKeyId: row.access_key_id ?? undefined,
+    poolId: row.pool_id ?? undefined,
+    providerId: row.provider_id,
+    modelAlias: row.model_alias,
+    upstreamModelId: row.upstream_model_id ?? undefined,
+    success: row.ok === 1,
+    stream: row.stream === 1,
+    latencyMs: row.latency_ms,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    totalTokens: row.total_tokens,
+    cachedTokens: row.cached_tokens,
+    reasoningTokens: row.reasoning_tokens,
+    sourceKind: row.source_kind ?? undefined,
+    sourceEventKey: row.source_event_key ?? undefined,
+  };
+}
+
+function getAuditDetailString(
+  details: Record<string, unknown> | undefined,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = details?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function getAuditDetailNumber(
+  details: Record<string, unknown> | undefined,
+  keys: string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = details?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.floor(value);
+    }
+  }
+  return undefined;
+}
+
+function getAuditDetailBoolean(
+  details: Record<string, unknown> | undefined,
+  keys: string[],
+): boolean {
+  for (const key of keys) {
+    const value = details?.[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+  }
+  return false;
+}
+
+function mapAccessAlertEventRowToRequestAuditEntry(
+  row: AccessAlertEventRow,
+): GatewayRequestAuditEntry {
+  let details: Record<string, unknown> | undefined;
+  try {
+    details = row.details_json
+      ? (JSON.parse(row.details_json) as Record<string, unknown>)
+      : undefined;
+  } catch {
+    details = undefined;
+  }
+  const statusCode = getAuditDetailNumber(details, ["statusCode"]);
+  return {
+    id: -row.id,
+    timestamp: row.last_seen_at ?? row.timestamp,
+    sessionId: getAuditDetailString(details, ["sessionId", "resolvedSessionId"]),
+    accountId: getAuditDetailString(details, ["accountId"]),
+    email: getAuditDetailString(details, ["email"]),
+    clientTag: getAuditDetailString(details, ["clientTag"]),
+    consumerId: row.consumer_id ?? undefined,
+    accessKeyId: row.access_key_id ?? undefined,
+    poolId: getAuditDetailString(details, ["poolId", "resolvedPoolId"]),
+    providerId: "gateway",
+    modelAlias:
+      getAuditDetailString(details, [
+        "resolvedModelAlias",
+        "requestedModelAlias",
+        "modelAlias",
+      ]) ?? "unknown",
+    upstreamModelId: undefined,
+    success: false,
+    stream: getAuditDetailBoolean(details, ["stream"]),
+    latencyMs: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cachedTokens: 0,
+    reasoningTokens: 0,
+    errorCode: getAuditDetailString(details, ["errorCode"]) ?? row.type,
+    statusCode,
+    sourceKind: "access-alert",
+    sourceEventKey:
+      getAuditDetailString(details, ["requestAuditSourceEventKey"]) ??
+      `access-alert:${row.id}`,
+  };
+}
+
 function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEvent {
   const occurrenceCount =
     typeof row.occurrence_count === "number" && row.occurrence_count > 0
@@ -129,6 +283,41 @@ function mapAccessAlertEventRow(row: AccessAlertEventRow): GatewayAccessAlertEve
     occurrenceCount,
     lastSeenAt: row.last_seen_at ?? row.timestamp,
   };
+}
+
+function incrementFacet(
+  map: Map<string, GatewayRequestAuditFacetOption>,
+  value: string | undefined,
+  label?: string,
+): void {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return;
+  }
+  const existing = map.get(normalized);
+  if (existing) {
+    existing.count += 1;
+    if (!existing.label && label) {
+      existing.label = label;
+    }
+    return;
+  }
+  map.set(normalized, {
+    value: normalized,
+    label,
+    count: 1,
+  });
+}
+
+function toFacetOptions(
+  map: Map<string, GatewayRequestAuditFacetOption>,
+): GatewayRequestAuditFacetOption[] {
+  return Array.from(map.values()).sort((left, right) => {
+    if (right.count !== left.count) {
+      return right.count - left.count;
+    }
+    return left.value.localeCompare(right.value);
+  });
 }
 
 function normalizeAccessAlertDedupePart(value: unknown): string {
@@ -255,6 +444,18 @@ export class GatewayDatabase {
         last_seen_at INTEGER
       );
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS request_content_audit_events (
+        source_event_key TEXT PRIMARY KEY,
+        timestamp INTEGER NOT NULL,
+        model_alias TEXT,
+        consumer_id TEXT,
+        access_key_id TEXT,
+        content_json TEXT NOT NULL,
+        captured_characters INTEGER NOT NULL,
+        truncated INTEGER NOT NULL
+      );
+    `);
     ensureColumnIfMissing(
       this.db,
       "inference_usage_events",
@@ -371,6 +572,10 @@ export class GatewayDatabase {
       ON access_alert_events (consumer_id, timestamp);
     `);
     this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_request_content_audit_events_timestamp
+      ON request_content_audit_events (timestamp);
+    `);
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS pool_selection_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp INTEGER NOT NULL,
@@ -471,6 +676,97 @@ export class GatewayDatabase {
         event.sourceEventKey ?? null,
       );
     return result.changes > 0;
+  }
+
+  insertRequestContentAuditEvent(event: GatewayRequestAuditContent): void {
+    this.db
+      .prepare(
+        `
+          INSERT OR REPLACE INTO request_content_audit_events (
+            source_event_key,
+            timestamp,
+            model_alias,
+            consumer_id,
+            access_key_id,
+            content_json,
+            captured_characters,
+            truncated
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        event.sourceEventKey,
+        event.timestamp,
+        event.modelAlias ?? null,
+        event.consumerId ?? null,
+        event.accessKeyId ?? null,
+        event.contentJson,
+        Math.max(0, Math.floor(event.capturedCharacters)),
+        event.truncated ? 1 : 0,
+      );
+  }
+
+  getRequestContentAuditEvent(
+    sourceEventKey: string,
+  ): GatewayRequestAuditContent | undefined {
+    const normalized = sourceEventKey.trim();
+    if (!normalized) {
+      return undefined;
+    }
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            source_event_key,
+            timestamp,
+            model_alias,
+            consumer_id,
+            access_key_id,
+            content_json,
+            captured_characters,
+            truncated
+          FROM request_content_audit_events
+          WHERE source_event_key = ?
+        `,
+      )
+      .get(normalized) as RequestContentAuditRow | undefined;
+    return row
+      ? {
+          sourceEventKey: row.source_event_key,
+          timestamp: row.timestamp,
+          modelAlias: row.model_alias ?? undefined,
+          consumerId: row.consumer_id ?? undefined,
+          accessKeyId: row.access_key_id ?? undefined,
+          contentJson: row.content_json,
+          capturedCharacters: row.captured_characters,
+          truncated: row.truncated === 1,
+        }
+      : undefined;
+  }
+
+  pruneRequestContentAuditEvents(maxEvents: number): number {
+    const normalized = Math.max(0, Math.floor(maxEvents));
+    if (normalized <= 0) {
+      const result = this.db
+        .prepare("DELETE FROM request_content_audit_events")
+        .run();
+      return result.changes;
+    }
+    const result = this.db
+      .prepare(
+        `
+          DELETE FROM request_content_audit_events
+          WHERE source_event_key NOT IN (
+            SELECT source_event_key
+            FROM request_content_audit_events
+            ORDER BY timestamp DESC
+            LIMIT ?
+          )
+        `,
+      )
+      .run(normalized);
+    return result.changes;
   }
 
   insertAccessAlertEvent(event: GatewayAccessAlertEvent): void {
@@ -589,6 +885,372 @@ export class GatewayDatabase {
       .all(Math.max(1, Math.min(200, Math.floor(limit)))) as AccessAlertEventRow[];
 
     return rows.map(mapAccessAlertEventRow);
+  }
+
+  queryRequestAuditEvents(query: GatewayRequestAuditQuery = {}): GatewayRequestAuditResult {
+    const filters: string[] = [];
+    const params: Array<string | number> = [];
+    const addTextFilter = (column: string, value: string | undefined) => {
+      const normalized = value?.trim();
+      if (!normalized) {
+        return;
+      }
+      filters.push(`${column} = ?`);
+      params.push(normalized);
+    };
+
+    const status = query.status ?? "all";
+    if (status === "success") {
+      filters.push("ok = 1");
+    } else if (status === "failure") {
+      filters.push("ok = 0");
+    }
+    addTextFilter("client_tag", query.clientTag);
+    addTextFilter("consumer_id", query.consumerId);
+    addTextFilter("access_key_id", query.accessKeyId);
+    addTextFilter("pool_id", query.poolId);
+    addTextFilter("account_id", query.accountId);
+    addTextFilter("model_alias", query.modelAlias);
+    addTextFilter("provider_id", query.providerId);
+    if (typeof query.since === "number" && Number.isFinite(query.since)) {
+      filters.push("timestamp >= ?");
+      params.push(Math.floor(query.since));
+    }
+    if (typeof query.until === "number" && Number.isFinite(query.until)) {
+      filters.push("timestamp <= ?");
+      params.push(Math.floor(query.until));
+    }
+
+    const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const limit = Math.max(1, Math.min(500, Math.floor(query.limit ?? 100)));
+    const summaryRow = this.db
+      .prepare(
+        `
+          SELECT
+            COUNT(1) AS request_count,
+            SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failure_count,
+            SUM(latency_ms) AS total_latency_ms,
+            SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens,
+            SUM(total_tokens) AS total_tokens,
+            SUM(cached_tokens) AS cached_tokens,
+            SUM(reasoning_tokens) AS reasoning_tokens
+          FROM inference_usage_events
+          ${whereClause}
+        `,
+      )
+      .get(...params) as
+      | {
+          request_count?: number | null;
+          success_count?: number | null;
+          failure_count?: number | null;
+          total_latency_ms?: number | null;
+          input_tokens?: number | null;
+          output_tokens?: number | null;
+          total_tokens?: number | null;
+          cached_tokens?: number | null;
+          reasoning_tokens?: number | null;
+        }
+      | undefined;
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            timestamp,
+            session_id,
+            account_id,
+            email,
+            client_tag,
+            consumer_id,
+            access_key_id,
+            pool_id,
+            provider_id,
+            model_alias,
+            upstream_model_id,
+            ok,
+            stream,
+            latency_ms,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cached_tokens,
+            reasoning_tokens,
+            source_kind,
+            source_event_key
+          FROM inference_usage_events
+          ${whereClause}
+          ORDER BY timestamp DESC, id DESC
+          LIMIT ?
+        `,
+      )
+      .all(...params, limit) as RequestAuditEventRow[];
+    const usageItems = rows.map(mapRequestAuditEventRow);
+    const alertItems =
+      status === "success" ? [] : this.queryAccessAlertRequestAuditEntries(query);
+    const items = this.attachRequestContentAvailability([...usageItems, ...alertItems])
+      .sort((left, right) => {
+        if (right.timestamp !== left.timestamp) {
+          return right.timestamp - left.timestamp;
+        }
+        return Math.abs(right.id) - Math.abs(left.id);
+      })
+      .slice(0, limit);
+    const alertCount = alertItems.length;
+
+    return {
+      filters: {
+        limit,
+        status,
+        ...(query.clientTag?.trim() ? { clientTag: query.clientTag.trim() } : {}),
+        ...(query.consumerId?.trim() ? { consumerId: query.consumerId.trim() } : {}),
+        ...(query.accessKeyId?.trim() ? { accessKeyId: query.accessKeyId.trim() } : {}),
+        ...(query.poolId?.trim() ? { poolId: query.poolId.trim() } : {}),
+        ...(query.accountId?.trim() ? { accountId: query.accountId.trim() } : {}),
+        ...(query.modelAlias?.trim() ? { modelAlias: query.modelAlias.trim() } : {}),
+        ...(query.providerId?.trim() ? { providerId: query.providerId.trim() } : {}),
+        ...(typeof query.since === "number" && Number.isFinite(query.since)
+          ? { since: Math.floor(query.since) }
+          : {}),
+        ...(typeof query.until === "number" && Number.isFinite(query.until)
+          ? { until: Math.floor(query.until) }
+          : {}),
+      },
+      summary: {
+        requestCount: normalizeUsageCounterValue(summaryRow?.request_count) + alertCount,
+        successCount: normalizeUsageCounterValue(summaryRow?.success_count),
+        failureCount: normalizeUsageCounterValue(summaryRow?.failure_count) + alertCount,
+        totalLatencyMs: normalizeUsageCounterValue(summaryRow?.total_latency_ms),
+        inputTokens: normalizeUsageCounterValue(summaryRow?.input_tokens),
+        outputTokens: normalizeUsageCounterValue(summaryRow?.output_tokens),
+        totalTokens: normalizeUsageCounterValue(summaryRow?.total_tokens),
+        cachedTokens: normalizeUsageCounterValue(summaryRow?.cached_tokens),
+        reasoningTokens: normalizeUsageCounterValue(summaryRow?.reasoning_tokens),
+      },
+      facets: this.buildRequestAuditFacets(),
+      items,
+    };
+  }
+
+  private attachRequestContentAvailability(
+    items: GatewayRequestAuditEntry[],
+  ): GatewayRequestAuditEntry[] {
+    const keys = Array.from(
+      new Set(
+        items
+          .map((item) => item.sourceEventKey?.trim())
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    if (!keys.length) {
+      return items;
+    }
+    const placeholders = keys.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `
+          SELECT source_event_key
+          FROM request_content_audit_events
+          WHERE source_event_key IN (${placeholders})
+        `,
+      )
+      .all(...keys) as Array<{ source_event_key: string }>;
+    const available = new Set(rows.map((row) => row.source_event_key));
+    const fallbackRows = this.db
+      .prepare(
+        `
+          SELECT
+            source_event_key,
+            timestamp,
+            model_alias,
+            consumer_id,
+            access_key_id
+          FROM request_content_audit_events
+          ORDER BY timestamp DESC
+          LIMIT 500
+        `,
+      )
+      .all() as Array<{
+        source_event_key: string;
+        timestamp: number;
+        model_alias: string | null;
+        consumer_id: string | null;
+        access_key_id: string | null;
+      }>;
+    return items.map((item) => {
+      if (item.sourceEventKey && available.has(item.sourceEventKey)) {
+        return {
+          ...item,
+          contentAvailable: true,
+        };
+      }
+      const fallback = fallbackRows.find((row) => {
+        if (row.model_alias !== item.modelAlias) {
+          return false;
+        }
+        if ((row.consumer_id ?? undefined) !== item.consumerId) {
+          return false;
+        }
+        if ((row.access_key_id ?? undefined) !== item.accessKeyId) {
+          return false;
+        }
+        return Math.abs(row.timestamp - item.timestamp) <= 10_000;
+      });
+      return {
+        ...item,
+        sourceEventKey: fallback?.source_event_key ?? item.sourceEventKey,
+        contentAvailable: Boolean(fallback),
+      };
+    });
+  }
+
+  private buildRequestAuditFacets(): GatewayRequestAuditResult["facets"] {
+    const consumers = new Map<string, GatewayRequestAuditFacetOption>();
+    const accessKeys = new Map<string, GatewayRequestAuditFacetOption>();
+    const models = new Map<string, GatewayRequestAuditFacetOption>();
+    const accounts = new Map<string, GatewayRequestAuditFacetOption>();
+    const usageRows = this.db
+      .prepare(
+        `
+          SELECT consumer_id, access_key_id, model_alias, account_id, email
+          FROM inference_usage_events
+          ORDER BY timestamp DESC
+          LIMIT 1000
+        `,
+      )
+      .all() as Array<{
+        consumer_id: string | null;
+        access_key_id: string | null;
+        model_alias: string | null;
+        account_id: string | null;
+        email: string | null;
+      }>;
+    for (const row of usageRows) {
+      incrementFacet(consumers, row.consumer_id ?? undefined);
+      incrementFacet(accessKeys, row.access_key_id ?? undefined);
+      incrementFacet(models, row.model_alias ?? undefined);
+      incrementFacet(accounts, row.account_id ?? undefined, row.email ?? undefined);
+    }
+
+    const alertRows = this.db
+      .prepare(
+        `
+          SELECT consumer_id, access_key_id, details_json
+          FROM access_alert_events
+          ORDER BY COALESCE(last_seen_at, timestamp) DESC
+          LIMIT 1000
+        `,
+      )
+      .all() as Array<{
+        consumer_id: string | null;
+        access_key_id: string | null;
+        details_json: string | null;
+      }>;
+    for (const row of alertRows) {
+      let details: Record<string, unknown> | undefined;
+      try {
+        details = row.details_json
+          ? (JSON.parse(row.details_json) as Record<string, unknown>)
+          : undefined;
+      } catch {
+        details = undefined;
+      }
+      incrementFacet(consumers, row.consumer_id ?? undefined);
+      incrementFacet(accessKeys, row.access_key_id ?? undefined);
+      incrementFacet(
+        models,
+        getAuditDetailString(details, [
+          "resolvedModelAlias",
+          "requestedModelAlias",
+          "modelAlias",
+        ]),
+      );
+      incrementFacet(accounts, getAuditDetailString(details, ["accountId"]), getAuditDetailString(details, ["email"]));
+    }
+
+    return {
+      consumers: toFacetOptions(consumers),
+      accessKeys: toFacetOptions(accessKeys),
+      models: toFacetOptions(models),
+      accounts: toFacetOptions(accounts),
+    };
+  }
+
+  private queryAccessAlertRequestAuditEntries(
+    query: GatewayRequestAuditQuery = {},
+  ): GatewayRequestAuditEntry[] {
+    const filters: string[] = [];
+    const params: Array<string | number> = [];
+    const addTextFilter = (column: string, value: string | undefined) => {
+      const normalized = value?.trim();
+      if (!normalized) {
+        return;
+      }
+      filters.push(`${column} = ?`);
+      params.push(normalized);
+    };
+
+    addTextFilter("consumer_id", query.consumerId);
+    addTextFilter("access_key_id", query.accessKeyId);
+    if (typeof query.since === "number" && Number.isFinite(query.since)) {
+      filters.push("COALESCE(last_seen_at, timestamp) >= ?");
+      params.push(Math.floor(query.since));
+    }
+    if (typeof query.until === "number" && Number.isFinite(query.until)) {
+      filters.push("COALESCE(last_seen_at, timestamp) <= ?");
+      params.push(Math.floor(query.until));
+    }
+    const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            timestamp,
+            severity,
+            consumer_id,
+            consumer_type,
+            access_key_id,
+            type,
+            message,
+            details_json,
+            acknowledged_at,
+            acknowledged_by,
+            dedupe_key,
+            occurrence_count,
+            last_seen_at
+          FROM access_alert_events
+          ${whereClause}
+          ORDER BY COALESCE(last_seen_at, timestamp) DESC, id DESC
+        `,
+      )
+      .all(...params) as AccessAlertEventRow[];
+
+    return rows
+      .map(mapAccessAlertEventRowToRequestAuditEntry)
+      .filter((entry) => {
+        const matches = (actual: string | undefined, expected: string | undefined) => {
+          const normalized = expected?.trim();
+          return !normalized || actual === normalized;
+        };
+        if (!matches(entry.clientTag, query.clientTag)) {
+          return false;
+        }
+        if (!matches(entry.poolId, query.poolId)) {
+          return false;
+        }
+        if (!matches(entry.accountId, query.accountId)) {
+          return false;
+        }
+        if (!matches(entry.modelAlias, query.modelAlias)) {
+          return false;
+        }
+        if (!matches(entry.providerId, query.providerId)) {
+          return false;
+        }
+        return true;
+      });
   }
 
   getAccessAlertEvent(id: number): GatewayAccessAlertEvent | undefined {

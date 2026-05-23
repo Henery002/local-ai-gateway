@@ -586,6 +586,26 @@ describe("gateway app", () => {
       expect(models.statusCode).toBe(200);
       expect(models.json().data[0]?.id).toBe("fake-default");
 
+      const model = await app.inject({
+        method: "GET",
+        url: "/v1/models/fake-default",
+      });
+      expect(model.statusCode).toBe(200);
+      expect(model.json()).toMatchObject({
+        id: "fake-default",
+        object: "model",
+        owned_by: "fake-provider",
+        context_window: 100_000,
+        max_output_tokens: 8_192,
+      });
+
+      const missingModel = await app.inject({
+        method: "GET",
+        url: "/v1/models/missing-model",
+      });
+      expect(missingModel.statusCode).toBe(404);
+      expect(missingModel.json().error.type).toBe("model_not_found");
+
       const adminToken = runtime.configStore.getAdminToken();
       const providers = await app.inject({
         method: "GET",
@@ -1125,6 +1145,96 @@ describe("gateway app", () => {
       expect(usageSummary.json().data.daily.clients[0]).toMatchObject({
         clientTag: "hermes",
       });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("returns request audit entries with member, key, model, account, and status filters", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 2_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "public-user",
+      consumerId: "consumer-public",
+      accessKeyId: "key-public",
+      poolId: "pool-public",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: true,
+      latencyMs: 1234,
+      inputTokens: 90,
+      outputTokens: 60,
+      totalTokens: 150,
+      cachedTokens: 0,
+      reasoningTokens: 12,
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:other",
+      accountId: "acct_other",
+      email: "other@example.test",
+      clientTag: "localraghub",
+      consumerId: "consumer-other",
+      accessKeyId: "key-other",
+      poolId: "pool-private",
+      providerId: "fake-provider",
+      modelAlias: "fake-routed",
+      upstreamModelId: "fake-model-2",
+      success: false,
+      stream: false,
+      latencyMs: 2000,
+      inputTokens: 10,
+      outputTokens: 0,
+      totalTokens: 10,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const response = await app.inject({
+        method: "GET",
+        url: "/admin/requests/audit?consumerId=consumer-public&status=success&modelAlias=fake-default&limit=10",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.summary).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+        totalTokens: 150,
+      });
+      expect(response.json().data.items).toHaveLength(1);
+      expect(response.json().data.items[0]).toMatchObject({
+        sessionId: "main:fake:default",
+        accountId: "acct_fake",
+        email: "alice@example.test",
+        clientTag: "public-user",
+        consumerId: "consumer-public",
+        accessKeyId: "key-public",
+        poolId: "pool-public",
+        providerId: "fake-provider",
+        modelAlias: "fake-default",
+        upstreamModelId: "fake-model-1",
+        success: true,
+        stream: true,
+        latencyMs: 1234,
+        totalTokens: 150,
+      });
+      expect(response.json().data.items[0]).not.toHaveProperty("messages");
+      expect(response.json().data.items[0]).not.toHaveProperty("prompt");
+      expect(response.json().data.items[0]).not.toHaveProperty("apiKey");
     } finally {
       await app.close();
       database.close();
@@ -1772,6 +1882,304 @@ describe("gateway app", () => {
                 eligible: true,
               }),
             ]),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("includes early access policy rejections in request audit without request content", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setDesktopSettings({
+      requestContentAudit: {
+        enabled: true,
+        maxCharacters: 8_000,
+        maxEvents: 20,
+      },
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-audit-reject",
+            name: "Audit Reject",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-audit-reject",
+            consumerId: "consumer-audit-reject",
+            name: "Audit Reject Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-audit-reject",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              dailyTokenLimit: 10,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "public-user",
+      consumerId: "consumer-audit-reject",
+      accessKeyId: "key-audit-reject",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 6,
+      outputTokens: 6,
+      totalTokens: 12,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "please do not store this" }],
+        },
+      });
+
+      expect(rejected.statusCode).toBe(429);
+      expect(adapter.lastOptions).toBeUndefined();
+
+      const audit = await app.inject({
+        method: "GET",
+        url: "/admin/requests/audit?status=failure&consumerId=consumer-audit-reject&limit=20",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(audit.statusCode).toBe(200);
+      expect(audit.json().data.summary).toMatchObject({
+        requestCount: 1,
+        successCount: 0,
+        failureCount: 1,
+        totalTokens: 0,
+      });
+      expect(audit.json().data.items).toHaveLength(1);
+      expect(audit.json().data.items[0]).toMatchObject({
+        clientTag: "public-user",
+        consumerId: "consumer-audit-reject",
+        accessKeyId: "key-audit-reject",
+        providerId: "gateway",
+        modelAlias: "fake-default",
+        success: false,
+        sourceKind: "access-alert",
+        errorCode: "access_policy_daily_quota_exceeded",
+        statusCode: 429,
+        contentAvailable: true,
+      });
+      expect(audit.json().data.facets.consumers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ value: "consumer-audit-reject" }),
+        ]),
+      );
+      const content = await app.inject({
+        method: "GET",
+        url: `/admin/requests/audit/content?sourceEventKey=${encodeURIComponent(
+          audit.json().data.items[0].sourceEventKey,
+        )}`,
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(content.statusCode).toBe(200);
+      expect(content.json().data.contentJson).toContain(
+        "please do not store this",
+      );
+      expect(audit.json().data.items[0]).not.toHaveProperty("messages");
+      expect(audit.json().data.items[0]).not.toHaveProperty("prompt");
+      expect(audit.json().data.items[0]).not.toHaveProperty("apiKey");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("reports account health and routing explanations for pool members", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:health-a",
+      profileId: "fake:health-a",
+      accountId: "acct_health_a",
+      quotaPercentage: 90,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:health-b",
+      profileId: "fake:health-b",
+      accountId: "acct_health_b",
+      quotaPercentage: 75,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("usage_limit_reached")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.setActiveSessionId(sessionB.id);
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-health",
+          name: "健康观测池",
+          enabled: true,
+          selectionStrategy: "priority",
+          minRemainingPercentage: 10,
+          members: [
+            { selector: sessionA.accountId!, priority: 1, label: "A" },
+            { selector: sessionB.accountId!, priority: 2, label: "B" },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-health",
+          name: "health-route",
+          enabled: true,
+          priority: 1,
+          when: { clientTag: "public-user", requestedModelAlias: "fake-default" },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-health",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "public-user",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const health = await app.inject({
+        method: "GET",
+        url: "/admin/routing/account-health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(health.statusCode).toBe(200);
+      const body = health.json().data;
+      expect(body.summary).toMatchObject({
+        accountCount: 2,
+        availableCount: 1,
+        cooldownCount: 1,
+      });
+      expect(body.accounts[0]).toMatchObject({
+        sessionId: sessionB.id,
+        accountId: "acct_health_b",
+        status: "available",
+        selected: true,
+      });
+      const cooled = body.accounts.find(
+        (account: { sessionId?: string }) => account.sessionId === sessionA.id,
+      );
+      expect(cooled).toMatchObject({
+        accountId: "acct_health_a",
+        status: "cooldown",
+        lastFailureClass: "quota_exhausted",
+        consecutiveFailures: 1,
+        selected: false,
+      });
+      expect(cooled.score).toBeLessThan(body.accounts[0].score);
+      expect(cooled.reasons.join(" ")).toContain("冷却");
+      expect(body.pools[0]).toMatchObject({
+        poolId: "pool-health",
+        selectedSessionId: sessionB.id,
+        selectionReason: "按手工优先级选择",
+      });
+      expect(body.pools[0].recentEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "failover",
+            fromSessionId: sessionA.id,
+            toSessionId: sessionB.id,
+            failureClass: "quota_exhausted",
           }),
         ]),
       );
@@ -3546,6 +3954,247 @@ describe("gateway app", () => {
         usage.accessKeys?.find((item) => item.accessKeyId === "key-alice")
           ?.usage.requestCount,
       ).toBe(1);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("reports member token balance for ccswitch-compatible access key queries", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const periodStartedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Public Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-public",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              periodDays: 30,
+              periodTokenLimit: 1_000,
+              periodStartedAt,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "public-user",
+      consumerId: "consumer-public",
+      accessKeyId: "key-public",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 90,
+      outputTokens: 60,
+      totalTokens: 150,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      for (const url of ["/user/balance", "/v1/user/balance"]) {
+        const response = await app.inject({
+          method: "GET",
+          url,
+          headers: {
+            authorization: "Bearer lag_alice_secret_123456",
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          is_active: true,
+          unit: "tokens",
+          balance: 850,
+          used: 150,
+          total: 1_000,
+          quota_mode: "period",
+          consumer_id: "consumer-public",
+          access_key_id: "key-public",
+          planName: "Public User · period token quota",
+        });
+        expect(response.json().reset_at).toEqual(expect.any(Number));
+        expect(response.json().extra).toMatchObject({
+          consumer_id: "consumer-public",
+          access_key_id: "key-public",
+          quota_mode: "period",
+          period_days: 30,
+        });
+      }
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("reports member token quota through codex and credit-grants compatible routes", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Public Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-public",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              dailyTokenLimit: 2_000,
+              resetTimezone: "Asia/Shanghai",
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "public-user",
+      consumerId: "consumer-public",
+      accessKeyId: "key-public",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 400,
+      outputTokens: 100,
+      totalTokens: 500,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      for (const url of ["/backend-api/wham/usage", "/v1/backend-api/wham/usage"]) {
+        const response = await app.inject({
+          method: "GET",
+          url,
+          headers: {
+            authorization: "Bearer lag_alice_secret_123456",
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          account_id: "consumer-public",
+          email: "Public User",
+          plan_type: "gateway",
+          credits: {
+            has_credits: true,
+            balance: 1_500,
+            unlimited: false,
+          },
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              used_percent: 25,
+            },
+          },
+        });
+        expect(response.json().rate_limit.primary_window.reset_at).toEqual(
+          expect.any(Number),
+        );
+      }
+
+      for (const url of [
+        "/dashboard/billing/credit_grants",
+        "/v1/dashboard/billing/credit_grants",
+      ]) {
+        const response = await app.inject({
+          method: "GET",
+          url,
+          headers: {
+            authorization: "Bearer lag_alice_secret_123456",
+          },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          object: "credit_summary",
+          total_granted: 2_000,
+          total_used: 500,
+          total_available: 1_500,
+          unit: "tokens",
+          grants: {
+            object: "list",
+            data: [],
+          },
+        });
+      }
+
     } finally {
       await app.close();
       database.close();

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   AssistantMessage,
@@ -153,6 +153,14 @@ function stringifyToolArguments(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function normalizeToolCallId(value: string): string {
+  if (value.length > 0 && value.length <= 64) {
+    return value;
+  }
+  const digest = createHash("sha256").update(value || "empty").digest("hex").slice(0, 40);
+  return `call_${digest}`;
+}
+
 function extractResponsesText(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -279,12 +287,13 @@ export function toChatCompletionsRequestFromResponsesApi(
       }
 
       if (type === "function_call_output" || role === "tool") {
-        const toolCallId =
+        const rawToolCallId =
           typeof item.call_id === "string"
             ? item.call_id
             : typeof item.tool_call_id === "string"
               ? item.tool_call_id
               : `call_${index}`;
+        const toolCallId = normalizeToolCallId(rawToolCallId);
         messages.push({
           role: "tool",
           tool_call_id: toolCallId,
@@ -294,12 +303,13 @@ export function toChatCompletionsRequestFromResponsesApi(
       }
 
       if (type === "function_call") {
-        const toolCallId =
+        const rawToolCallId =
           typeof item.call_id === "string"
             ? item.call_id
             : typeof item.id === "string"
               ? item.id
               : `call_${index}`;
+        const toolCallId = normalizeToolCallId(rawToolCallId);
         const name = typeof item.name === "string" ? item.name : "unknown_tool";
         messages.push({
           role: "assistant",
@@ -471,7 +481,7 @@ function extractToolCalls(message: AssistantMessage) {
   return message.content
     .filter((part) => part.type === "toolCall")
     .map((part) => ({
-      id: part.id,
+      id: normalizeToolCallId(part.id),
       type: "function" as const,
       function: {
         name: part.name,
@@ -539,10 +549,11 @@ function normalizeChatCompletionMessage(input: unknown): {
         return undefined;
       }
       return {
-        id:
+        id: normalizeToolCallId(
           typeof toolCall.id === "string" && toolCall.id
             ? toolCall.id
             : `call_${index}`,
+        ),
         name,
         arguments:
           typeof fn?.arguments === "string"
@@ -578,11 +589,12 @@ function buildResponsesOutputItems(input: {
   }
 
   for (const toolCall of input.toolCalls) {
+    const toolCallId = normalizeToolCallId(toolCall.id);
     output.push({
-      id: toolCall.id,
+      id: toolCallId,
       type: "function_call",
       status: "completed",
-      call_id: toolCall.id,
+      call_id: toolCallId,
       name: toolCall.name,
       arguments: toolCall.arguments,
     });
@@ -786,10 +798,11 @@ export function chatCompletionSseToResponsesApiSse(
         continue;
       }
       const toolCall = {
-        id:
+        id: normalizeToolCallId(
           typeof rawToolCall.id === "string" && rawToolCall.id
             ? rawToolCall.id
             : `call_${toolCalls.length}`,
+        ),
         name,
         arguments:
           typeof fn?.arguments === "string"
@@ -942,7 +955,7 @@ export async function* streamChatCompletionChunks(
               tool_calls: [
                 {
                   index: toolIndex,
-                  id: event.toolCall.id,
+                  id: normalizeToolCallId(event.toolCall.id),
                   type: "function",
                   function: {
                     name: event.toolCall.name,

@@ -77,6 +77,12 @@ export interface GatewayStoredConfig {
   updatedAt: string;
 }
 
+export interface GatewayRequestContentAuditSettings {
+  enabled?: boolean;
+  maxCharacters?: number;
+  maxEvents?: number;
+}
+
 export interface CodexProviderSettings {
   upstreamModel?: string;
   exposedModels?: string[];
@@ -213,6 +219,66 @@ export interface GatewayPoolObservability {
   warnings: string[];
   recentEvents?: GatewayPoolSelectionEvent[];
   members: GatewayPoolMemberObservability[];
+}
+
+export type GatewayAccountHealthStatus =
+  | "available"
+  | "cooldown"
+  | "quota-low"
+  | "expired"
+  | "invalid"
+  | "missing"
+  | "disabled"
+  | "unknown-quota";
+
+export interface GatewayAccountHealthPoolMembership {
+  poolId: string;
+  poolName: string;
+  selector: string;
+  label?: string;
+  selected: boolean;
+  eligible: boolean;
+  status: GatewayPoolMemberObservabilityStatus;
+  statusLabel: string;
+  note?: string;
+}
+
+export interface GatewayAccountHealthEntry {
+  sessionId?: string;
+  accountId?: string;
+  email?: string;
+  title: string;
+  subtitle?: string;
+  status: GatewayAccountHealthStatus;
+  statusLabel: string;
+  score: number;
+  selected: boolean;
+  eligiblePoolCount: number;
+  poolCount: number;
+  quotaPercentage?: number;
+  cooldownUntil?: number;
+  lastSelectedAt?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  lastFailureClass?: GatewayPoolFailureClass;
+  consecutiveFailures: number;
+  reasons: string[];
+  pools: GatewayAccountHealthPoolMembership[];
+}
+
+export interface GatewayAccountHealthSummary {
+  accountCount: number;
+  availableCount: number;
+  cooldownCount: number;
+  unhealthyCount: number;
+  selectedCount: number;
+}
+
+export interface GatewayAccountHealthObservability {
+  generatedAt: number;
+  summary: GatewayAccountHealthSummary;
+  accounts: GatewayAccountHealthEntry[];
+  pools: GatewayPoolObservability[];
 }
 
 export type GatewayPoolSelectionEventType = "selected" | "failover";
@@ -547,6 +613,80 @@ export interface GatewayUsageEvent {
   sourceEventKey?: string;
 }
 
+export type GatewayRequestAuditStatusFilter = "all" | "success" | "failure";
+
+export interface GatewayRequestAuditQuery {
+  limit?: number;
+  status?: GatewayRequestAuditStatusFilter;
+  clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
+  poolId?: string;
+  accountId?: string;
+  modelAlias?: string;
+  providerId?: string;
+  since?: number;
+  until?: number;
+}
+
+export interface GatewayRequestAuditEntry {
+  id: number;
+  timestamp: number;
+  sessionId?: string;
+  accountId?: string;
+  email?: string;
+  clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
+  poolId?: string;
+  providerId: string;
+  modelAlias: string;
+  upstreamModelId?: string;
+  success: boolean;
+  stream: boolean;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  errorCode?: string;
+  statusCode?: number;
+  contentAvailable?: boolean;
+  sourceKind?: string;
+  sourceEventKey?: string;
+}
+
+export interface GatewayRequestAuditFacetOption {
+  value: string;
+  label?: string;
+  count: number;
+}
+
+export interface GatewayRequestAuditResult {
+  filters: Required<Pick<GatewayRequestAuditQuery, "limit" | "status">> &
+    Omit<GatewayRequestAuditQuery, "limit" | "status">;
+  summary: GatewayUsageCounters;
+  facets?: {
+    consumers: GatewayRequestAuditFacetOption[];
+    accessKeys: GatewayRequestAuditFacetOption[];
+    models: GatewayRequestAuditFacetOption[];
+    accounts: GatewayRequestAuditFacetOption[];
+  };
+  items: GatewayRequestAuditEntry[];
+}
+
+export interface GatewayRequestAuditContent {
+  sourceEventKey: string;
+  timestamp: number;
+  modelAlias?: string;
+  consumerId?: string;
+  accessKeyId?: string;
+  contentJson: string;
+  capturedCharacters: number;
+  truncated: boolean;
+}
+
 export interface GatewayUsageAccountSummary {
   accountId: string;
   email?: string;
@@ -687,6 +827,7 @@ export interface DesktopSystemSettings {
   autoRefreshIntervalSeconds?: number;
   gatewayPort?: number;
   pinnedSessionId?: string;
+  requestContentAudit?: GatewayRequestContentAuditSettings;
 }
 
 export type SessionStatus = "available" | "expired" | "invalid";
@@ -850,6 +991,7 @@ export interface GatewayHealth {
   routingObservability?: GatewayRoutingObservability;
   usageObservability?: GatewayUsageObservability;
   poolObservability?: GatewayPoolObservability[];
+  accountHealthObservability?: GatewayAccountHealthObservability;
   inferenceObservability?: GatewayInferenceObservability;
   inferenceAuth?: GatewayInferenceAuthPublicSettings;
 }
