@@ -84,6 +84,11 @@
 - 默认入口：`http://127.0.0.1:8787/v1`
 - 支持：
   - `GET /v1/models`
+  - `GET /v1/models/:model`
+  - `GET /v1/user/balance`
+  - `GET /user/balance`
+  - `GET /v1/backend-api/wham/usage`
+  - `GET /v1/dashboard/billing/credit_grants`
   - `POST /v1/chat/completions`
   - `POST /v1/responses`
   - 流式响应

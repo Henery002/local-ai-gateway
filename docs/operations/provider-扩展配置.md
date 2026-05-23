@@ -144,7 +144,8 @@ export LOCAL_AI_GATEWAY_DEFAULT_MODEL_ALIAS="ollama-local"
 
 ## 当前边界
 
-- 当前版本支持文本消息、工具调用、Chat Completions API 与基础 Responses API 兼容入口；图片、音频、Assistants 与 Batch 暂不支持。
+- 当前版本支持文本消息、工具调用、Chat Completions API、基础 Responses API 兼容入口、`/v1/models/:model` 单模型查询，以及成员侧 `/user/balance` / `/v1/user/balance`、`/v1/backend-api/wham/usage`、`/v1/dashboard/billing/credit_grants` 余额查询；图片、音频、Assistants 与 Batch 暂不支持。
+- 成员侧余额查询只表示本网关 AccessPolicy 分配给该成员 / API Key 的 Token 包用量，不代表上游 Codex / OpenAI 官方账号真实账单或订阅额度。
 - Electron 控制台现已提供图形化 provider 配置、账号面板、诊断视图与最近错误视图。
 - Electron 控制台中的 Codex 账号与 OpenClaw 授权卡片目前主要基于本地授权扫描与桌面端导入结果，额度与重置时间仍属于后续接入项。
 - 会话切换仍只作用于 Codex provider；其他 provider 当前使用固定配置凭据。

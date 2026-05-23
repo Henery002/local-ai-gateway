@@ -9,6 +9,67 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-23 18:20 CST]
+
+### 新增
+
+- 运维模块新增第一版“账号健康与路由解释”能力：`GET /admin/routing/account-health` 基于现有号池运行态汇总账号可用性、冷却、低额度、最近失败分类、健康分、当前选中账号和号池候选情况。
+- 桌面端“运维与日志”页新增账号健康面板，展示账号总数、可用 / 冷却 / 异常 / 已选中数量、单账号健康分、额度百分比、连续失败、归属号池，以及每个号池的当前选择原因和最近切号事件。
+- 请求审计继续补齐早期拒绝请求：`/admin/requests/audit` 现在会把 `AccessPolicy`、公网 payload guard、成员 Key 状态、账号安全阀等在上游调用前产生的 `access_alert_events` 合并为 `sourceKind=access-alert` 的失败审计项。
+- 早期拒绝审计项只保存路径、方法、模型别名、成员、Key、号池、错误码和状态码等排障元数据，不保存 prompt 正文、messages、完整 API Key、OAuth token 或上游响应 body；同时不写入 `inference_usage_events`，避免污染 Token 用量统计。
+
+### 说明
+
+- 本轮只做只读观测层，不改变号池选择算法、冷却阈值、成员策略、Key、账号资产或持久化数据；后续调度策略变更需要单独建测试和回归。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖号池成员发生 quota failover 后，账号健康接口能返回健康账号优先、冷却账号失败分类、号池选择原因和最近切号事件。
+- 新增 gateway 回归测试，覆盖成员日额度超限这类未触达上游的早期拒绝会出现在请求审计中，且审计项不包含请求正文或密钥明文。
+
+## [2026-05-23 17:45 CST]
+
+### 新增
+
+- 运维模块新增第一版“请求审计”能力：`GET /admin/requests/audit` 可按状态、成员、Access Key、号池、账号、模型、Provider 和时间窗口筛选最近推理请求。
+- 桌面端“运维与日志”页新增请求审计面板，展示请求数、成功 / 失败、Token、平均延迟以及最近请求列表；审计列表只读取本项目本地 `inference_usage_events`，不记录、不展示 prompt 正文、messages、完整 API Key 或 OAuth token。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖请求审计 API 的成员 / Key / 模型 / 账号 / 状态筛选、统计汇总和敏感字段不返回。
+
+## [2026-05-23 15:10 CST]
+
+### 修复
+
+- 修复 Codex App / CC Switch 在 Cockpit Tools 与 Local AI Gateway 公网 Provider 之间切换后，继续另一侧既有会话时可能触发的 Responses `input[].call_id` 超长问题：OpenAI-compatible 转换层和 Codex Responses 上游回放层现在会把超 64 字符的 `call_id / tool_call_id` 稳定归一为短 ID，并保持同一请求内 `function_call` 与 `function_call_output` 对齐。
+- Codex provider 不再把官方 Responses SSE 的 `call_id|item_id` 复合串作为对外工具调用 ID 写回客户端，避免后续会话历史携带过长、Provider 私有化的工具调用标识。
+
+### 文档
+
+- 记录 Cockpit Tools `v0.24.4` 对本网关后续公网产品化值得采纳的参考项：请求日志检索、Key 级模型策略、会话亲和与账号健康路由、`/backend-api/codex/*` 与 WebSocket 兼容面、图片 API 能力门控、上游代理诊断。
+- 在第三方客户端接入文档中补充跨 Provider 存量会话连续性的边界：新会话切换已可用；既有会话仍可能受另一服务已写入历史中的 provider-specific ID / response ID / tool call ID 影响，本网关已对自身出入口和回放路径做兼容保护，但无法直接修补 Cockpit 已发出的回放请求。
+
+### 测试
+
+- 新增 `openai-compat` 与 `provider-codex-stream` 回归测试，覆盖 Responses -> Chat、Chat -> Responses、Codex 官方 Responses 回放三个方向的超长工具调用 ID 归一。
+
+## [2026-05-23 01:10 CST]
+
+### 新增
+
+- 公网成员推理面补充 CC Switch 兼容的成员额度查询接口：`GET /user/balance` 与 `GET /v1/user/balance`。接口复用现有成员 API Key 鉴权，只返回该成员 / Key 在本网关内的周期包、总量包、日包或月包 Token 用量与剩余额度，不查询也不暴露上游 Codex 账号真实账单。
+- 公网成员推理面补充 Codex / Cockpit 风格额度兼容接口：`GET /backend-api/wham/usage`、`GET /v1/backend-api/wham/usage`、`GET /dashboard/billing/credit_grants`、`GET /v1/dashboard/billing/credit_grants`。返回值仍来自本网关成员额度包，只作为第三方自定义 Provider 额度展示兼容层。
+- 补充 OpenAI-compatible 单模型查询：`GET /v1/models/:model`，返回与 `/v1/models` 列表内 `data[]` 一致的模型对象，并复用成员模型权限校验。
+
+### 文档
+
+- 在第三方客户端接入文档中新增 CC Switch Usage Query 配置建议：公网 Base URL 使用 `https://gateway.henery.top/v1` 时，通用余额查询会命中 `/v1/user/balance`；该数值表示成员包额度，不代表上游账号官方剩余额度。补充 Cockpit Tools 观测结论：当前 Cockpit 自定义 API_KEY 卡片不会自动调用自定义 Provider 额度接口，卡片仍可能显示“暂无配额数据”。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖 `/user/balance`、`/v1/user/balance`、`/v1/backend-api/wham/usage`、`/v1/dashboard/billing/credit_grants` 的公网成员余额计算，以及 `/v1/models/:model` 成功与未知模型 `404 model_not_found`。
+
 ## [2026-05-22 13:14 CST]
 
 ### 修复
