@@ -461,6 +461,8 @@ function looksLikeLocalGatewayCommand(command: string): boolean {
     command.includes(gatewayServerEntrypoint) ||
     command.includes(gatewayServiceLauncherPath) ||
     command.includes(gatewayServiceRunnerPath) ||
+    command.includes("apps/gateway/src/cli.ts") ||
+    command.includes("apps/gateway/src/server.ts") ||
     command.includes("apps/gateway/dist/cli.js") ||
     command.includes("apps/gateway/dist/server.js") ||
     command.includes("app.asar/apps/gateway/dist/cli.js") ||
@@ -686,7 +688,9 @@ function readCommand(pid) {
 }
 
 function looksLikeGateway(command) {
-  return command.includes("apps/gateway/dist/cli.js") ||
+  return command.includes("apps/gateway/src/cli.ts") ||
+    command.includes("apps/gateway/src/server.ts") ||
+    command.includes("apps/gateway/dist/cli.js") ||
     command.includes("apps/gateway/dist/server.js") ||
     command.includes("app.asar/apps/gateway/dist/cli.js") ||
     command.includes("app.asar/apps/gateway/dist/server.js") ||
@@ -785,7 +789,9 @@ function readCommand(pid) {
 }
 
 function looksLikeGateway(command) {
-  return command.includes("apps/gateway/dist/cli.js") ||
+  return command.includes("apps/gateway/src/cli.ts") ||
+    command.includes("apps/gateway/src/server.ts") ||
+    command.includes("apps/gateway/dist/cli.js") ||
     command.includes("apps/gateway/dist/server.js") ||
     command.includes("app.asar/apps/gateway/dist/cli.js") ||
     command.includes("app.asar/apps/gateway/dist/server.js") ||
@@ -1066,6 +1072,10 @@ async function waitForGatewayEndpointHealthy(port: number): Promise<void> {
 
 const gatewayServiceManager = new GatewayServiceManager();
 
+function shouldAutoManageGatewayService(): boolean {
+  return app.isPackaged && gatewayServiceManager.isInstalled();
+}
+
 class GatewayProcessManager {
   private child?: ChildProcess;
   private hostedGateway?: HostedGatewayHandle;
@@ -1083,7 +1093,7 @@ class GatewayProcessManager {
     }
 
     this.ensuring = (async () => {
-      if (gatewayServiceManager.isInstalled()) {
+      if (shouldAutoManageGatewayService()) {
         await gatewayServiceManager.start();
         this.managed = false;
         return { managed: false };
@@ -1141,7 +1151,48 @@ class GatewayProcessManager {
       return true;
     }
 
-    if (gatewayServiceManager.isInstalled()) {
+    if (shouldAutoManageGatewayService()) {
+      await gatewayServiceManager.restart();
+      return true;
+    }
+
+    const pid = findListeningProcessId(port);
+    if (!pid) {
+      return false;
+    }
+
+    const command = readProcessCommand(pid);
+    if (!looksLikeLocalGatewayCommand(command)) {
+      return false;
+    }
+
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return false;
+    }
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      if (!(await this.isPortOccupied(port))) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    await this.startManagedGateway();
+    await this.waitForHealthy(port);
+    return true;
+  }
+
+  async recoverMissingAdminEndpoint(): Promise<boolean> {
+    const port = getConfiguredGatewayPort();
+    if (this.child || this.hostedGateway) {
+      await this.restartManaged();
+      return true;
+    }
+
+    if (shouldAutoManageGatewayService()) {
       await gatewayServiceManager.restart();
       return true;
     }
@@ -1384,6 +1435,7 @@ function writeGatewayConfig(patch: Partial<GatewayStoredConfig>): Partial<Gatewa
 
 function getStoredDesktopSystemSettings(): DesktopSystemSettings {
   const settings = readGatewayConfig().desktopSettings ?? {};
+  const contentAudit = settings.requestContentAudit ?? {};
   return {
     launchAtLogin: Boolean(settings.launchAtLogin),
     autoRefreshIntervalSeconds: normalizeAutoRefreshIntervalSeconds(settings.autoRefreshIntervalSeconds),
@@ -1393,6 +1445,19 @@ function getStoredDesktopSystemSettings(): DesktopSystemSettings {
       settings.pinnedSessionId.trim().length > 0
         ? settings.pinnedSessionId.trim()
         : undefined,
+    requestContentAudit: {
+      enabled: Boolean(contentAudit.enabled),
+      maxCharacters:
+        typeof contentAudit.maxCharacters === "number" &&
+        Number.isFinite(contentAudit.maxCharacters)
+          ? Math.max(1_000, Math.min(200_000, Math.floor(contentAudit.maxCharacters)))
+          : 32_000,
+      maxEvents:
+        typeof contentAudit.maxEvents === "number" &&
+        Number.isFinite(contentAudit.maxEvents)
+          ? Math.max(0, Math.min(10_000, Math.floor(contentAudit.maxEvents)))
+          : 500,
+    },
   };
 }
 
@@ -1454,26 +1519,84 @@ async function callAdmin(path: string, init?: RequestInit): Promise<unknown> {
     headers.delete("Content-Type");
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers,
-  });
+  const request = async (): Promise<unknown> => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers,
+    });
 
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const message =
-      typeof payload?.error === "object" && payload.error && "message" in payload.error
-        ? String(payload.error.message)
-        : `Admin request failed (${response.status}) @ ${baseUrl}${path}`;
-    throw new Error(message);
+    const text = await response.text();
+    const payload = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    if (!response.ok) {
+      const message =
+        typeof payload?.error === "object" && payload.error && "message" in payload.error
+          ? String(payload.error.message)
+          : `Admin request failed (${response.status}) @ ${baseUrl}${path}`;
+      throw new Error(message);
+    }
+
+    return payload;
+  };
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientAdminRequestError(error) || attempt === 2) {
+        break;
+      }
+      await sleep(350 * (attempt + 1));
+    }
   }
 
-  return payload;
+  throw lastError;
+}
+
+function isTransientAdminRequestError(error: unknown): boolean {
+  const message = toErrorMessage(error);
+  return (
+    message.includes("fetch failed") ||
+    message.includes("ECONNRESET") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("terminated") ||
+    message.includes("Unexpected end of JSON input") ||
+    message.includes("Unterminated string in JSON")
+  );
 }
 
 function isPoolEndpointMissing(error: unknown): boolean {
   const message = toErrorMessage(error);
   return message.includes("/admin/config/pools") && message.includes("404");
+}
+
+function isAdminEndpointMissing(error: unknown, path: string): boolean {
+  const message = toErrorMessage(error);
+  const endpoint = path.split("?")[0] ?? path;
+  return message.includes(endpoint) && message.includes("404");
+}
+
+async function callAdminWithEndpointCompatibility(
+  path: string,
+  init?: RequestInit,
+): Promise<unknown> {
+  try {
+    return await callAdmin(path, init);
+  } catch (error) {
+    if (!isAdminEndpointMissing(error, path)) {
+      throw error;
+    }
+
+    const recovered = await gatewayManager.recoverMissingAdminEndpoint();
+    if (!recovered) {
+      throw new Error(
+        "当前运行中的本地网关缺少该管理接口，且桌面端未能自动接管旧进程。请先点击“重启服务”，或完全退出旧网关后再重试。",
+      );
+    }
+
+    return callAdmin(path, init);
+  }
 }
 
 async function callAdminWithPoolCompatibility(
@@ -2674,6 +2797,49 @@ ipcMain.handle("gateway:get-usage-summary", async (_event, clientFilter?: string
   return callAdmin(`/admin/usage/summary${query}`);
 });
 
+ipcMain.handle("gateway:get-request-audit", async (_event, filters?: Record<string, unknown>) => {
+  await gatewayManager.ensureRunning();
+  const params = new URLSearchParams();
+  for (const key of [
+    "limit",
+    "status",
+    "clientTag",
+    "consumerId",
+    "accessKeyId",
+    "poolId",
+    "accountId",
+    "modelAlias",
+    "providerId",
+    "since",
+    "until",
+  ]) {
+    const value = filters?.[key];
+    if (typeof value === "string" && value.trim()) {
+      params.set(key, value.trim());
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      params.set(key, String(Math.floor(value)));
+    }
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  return callAdminWithEndpointCompatibility(`/admin/requests/audit${query}`);
+});
+
+ipcMain.handle("gateway:get-account-health", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdminWithEndpointCompatibility("/admin/routing/account-health");
+});
+
+ipcMain.handle("gateway:get-request-audit-content", async (_event, sourceEventKey: string) => {
+  await gatewayManager.ensureRunning();
+  const key = typeof sourceEventKey === "string" ? sourceEventKey.trim() : "";
+  if (!key) {
+    throw new Error("sourceEventKey is required.");
+  }
+  return callAdminWithEndpointCompatibility(
+    `/admin/requests/audit/content?sourceEventKey=${encodeURIComponent(key)}`,
+  );
+});
+
 ipcMain.handle("gateway:get-access-alerts", async () => {
   await gatewayManager.ensureRunning();
   return callAdmin("/admin/access/alerts");
@@ -2940,7 +3106,7 @@ ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string)
 });
 
 ipcMain.handle("gateway:restart", async () => {
-  if (gatewayServiceManager.isInstalled()) {
+  if (shouldAutoManageGatewayService()) {
     await gatewayManager.stopManaged();
     const status = await gatewayServiceManager.restart();
     void refreshTrayStatus();
@@ -2951,6 +3117,15 @@ ipcMain.handle("gateway:restart", async () => {
 
   if (gatewayManager.isManaged()) {
     await gatewayManager.restartManaged();
+    void refreshTrayStatus();
+    return { ok: true, restarted: true, managed: true };
+  }
+
+  if (!app.isPackaged) {
+    const restarted = await gatewayManager.recoverMissingAdminEndpoint();
+    if (!restarted) {
+      throw new Error("未能接管并重启当前开发态网关进程。");
+    }
     void refreshTrayStatus();
     return { ok: true, restarted: true, managed: true };
   }
@@ -3325,6 +3500,17 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
       payload.pinnedSessionId.trim().length > 0
         ? payload.pinnedSessionId.trim()
         : undefined,
+    requestContentAudit: {
+      enabled: Boolean(payload?.requestContentAudit?.enabled),
+      maxCharacters:
+        typeof payload?.requestContentAudit?.maxCharacters === "number"
+          ? Math.max(1_000, Math.min(200_000, Math.floor(payload.requestContentAudit.maxCharacters)))
+          : previous.requestContentAudit?.maxCharacters,
+      maxEvents:
+        typeof payload?.requestContentAudit?.maxEvents === "number"
+          ? Math.max(0, Math.min(10_000, Math.floor(payload.requestContentAudit.maxEvents)))
+          : previous.requestContentAudit?.maxEvents,
+    },
   };
   writeGatewayConfig({
     desktopSettings: next,

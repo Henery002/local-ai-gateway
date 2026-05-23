@@ -5,6 +5,11 @@ const api = {
   getProviders: () => ipcRenderer.invoke("gateway:get-providers"),
   getUsageSummary: (clientFilter?: string) =>
     ipcRenderer.invoke("gateway:get-usage-summary", clientFilter),
+  getRequestAudit: (filters?: Record<string, unknown>) =>
+    ipcRenderer.invoke("gateway:get-request-audit", filters),
+  getRequestAuditContent: (sourceEventKey: string) =>
+    ipcRenderer.invoke("gateway:get-request-audit-content", sourceEventKey),
+  getAccountHealth: () => ipcRenderer.invoke("gateway:get-account-health"),
   getAccessAlerts: () => ipcRenderer.invoke("gateway:get-access-alerts"),
   acknowledgeAccessAlert: (id: number) =>
     ipcRenderer.invoke("gateway:acknowledge-access-alert", id),
