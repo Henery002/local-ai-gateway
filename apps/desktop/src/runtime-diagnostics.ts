@@ -21,7 +21,9 @@ export interface RuntimeDiagnosticLoadFailure {
     | "app-data-status"
     | "usage-summary"
     | "access-alerts"
-    | "operations-status";
+    | "operations-status"
+    | "request-audit"
+    | "account-health";
   message: string;
 }
 
@@ -150,6 +152,8 @@ export function classifyLoadFailure(
     "usage-summary": "Token 用量统计加载失败",
     "access-alerts": "访问告警事件加载失败",
     "operations-status": "运维状态加载失败",
+    "request-audit": "请求审计加载失败",
+    "account-health": "账号健康加载失败",
   } as const;
 
   return {
@@ -181,12 +185,13 @@ export function buildRuntimeDiagnostics(
   }
 
   if (context.lanAccessEnabled) {
+    const publicFirstMode = Boolean(context.publicAccessEnabled);
     const sharedLanPoolCount = context.sharedLanPoolCount ?? 0;
     const enabledLanConsumerCount = context.enabledLanConsumerCount ?? 0;
     const enabledLanAccessKeyCount = context.enabledLanAccessKeyCount ?? 0;
     const gatewayPort = context.gatewayPort ?? 8787;
 
-    if (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey) {
+    if (!publicFirstMode && (!context.inferenceAuthEnabled || !context.inferenceAuthHasApiKey)) {
       diagnostics.push({
         id: "lan-api-key-required",
         title: "LAN 共享缺少可用 Key 保护",
@@ -197,7 +202,7 @@ export function buildRuntimeDiagnostics(
       });
     }
 
-    if (sharedLanPoolCount === 0) {
+    if (!publicFirstMode && sharedLanPoolCount === 0) {
       diagnostics.push({
         id: "lan-shared-pool-missing",
         title: "缺少 shared-lan 号池",
@@ -208,7 +213,7 @@ export function buildRuntimeDiagnostics(
       });
     }
 
-    if (enabledLanConsumerCount === 0) {
+    if (!publicFirstMode && enabledLanConsumerCount === 0) {
       diagnostics.push({
         id: "lan-member-missing",
         title: "缺少启用中的 LAN 成员",
@@ -217,7 +222,7 @@ export function buildRuntimeDiagnostics(
         suggestion:
           "请在“访问与密钥”中新增或启用 LAN 成员，并为成员分配模型、额度和允许号池。",
       });
-    } else if (enabledLanAccessKeyCount === 0) {
+    } else if (!publicFirstMode && enabledLanAccessKeyCount === 0) {
       diagnostics.push({
         id: "lan-member-key-missing",
         title: "LAN 成员缺少可用 Key",
@@ -228,7 +233,7 @@ export function buildRuntimeDiagnostics(
       });
     }
 
-    if (isLoopbackHost(context.gatewayHost)) {
+    if (!publicFirstMode && isLoopbackHost(context.gatewayHost)) {
       diagnostics.push({
         id: "lan-bind-loopback",
         title: "LAN 共享仍绑定本机地址",
@@ -239,7 +244,7 @@ export function buildRuntimeDiagnostics(
       });
     }
 
-    if (context.localNetworkAddressCount === 0) {
+    if (!publicFirstMode && context.localNetworkAddressCount === 0) {
       diagnostics.push({
         id: "lan-network-address-missing",
         title: "未检测到局域网 IP",
@@ -250,25 +255,27 @@ export function buildRuntimeDiagnostics(
       });
     }
 
-    diagnostics.push({
-      id: "lan-firewall-verification",
-      title: "请从成员设备验证端口连通",
-      message: `桌面端无法稳定自动判断 macOS 防火墙、路由器隔离或公司网络策略；请从成员设备访问 Base URL 或 /v1/models 验证 ${gatewayPort} 端口。`,
-      severity: "info",
-      suggestion:
-        "如果成员设备无法访问，请检查 macOS 防火墙、同网段隔离、路由器 AP isolation，以及当前网关端口是否被安全软件拦截。",
-    });
+    if (!publicFirstMode) {
+      diagnostics.push({
+        id: "lan-firewall-verification",
+        title: "请从成员设备验证端口连通",
+        message: `桌面端无法稳定自动判断 macOS 防火墙、路由器隔离或公司网络策略；请从成员设备访问 Base URL 或 /v1/models 验证 ${gatewayPort} 端口。`,
+        severity: "info",
+        suggestion:
+          "如果成员设备无法访问，请检查 macOS 防火墙、同网段隔离、路由器 AP isolation，以及当前网关端口是否被安全软件拦截。",
+      });
 
-    diagnostics.push({
-      id: "lan-host-sleep-risk",
-      title: "管理员主机睡眠会中断共享",
-      message: "LAN 共享依赖管理员这台 Mac 持续开机并保持网关运行，主机睡眠或网络切换会让成员请求失败。",
-      severity: "info",
-      suggestion:
-        "小范围共享期间建议连接电源，并在 macOS 设置中临时避免睡眠；长时间共享再考虑独立 server edition 或常驻主机。",
-    });
+      diagnostics.push({
+        id: "lan-host-sleep-risk",
+        title: "管理员主机睡眠会中断共享",
+        message: "LAN 共享依赖管理员这台 Mac 持续开机并保持网关运行，主机睡眠或网络切换会让成员请求失败。",
+        severity: "info",
+        suggestion:
+          "小范围共享期间建议连接电源，并在 macOS 设置中临时避免睡眠；长时间共享再考虑独立 server edition 或常驻主机。",
+      });
+    }
 
-    if ((context.publicReadyPoolCount ?? 0) > 0) {
+    if (!publicFirstMode && (context.publicReadyPoolCount ?? 0) > 0) {
       diagnostics.push({
         id: "public-ready-placeholder",
         title: "检测到外网预留号池",

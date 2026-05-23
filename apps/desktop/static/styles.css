@@ -6046,6 +6046,275 @@ button, input, select {
   min-height: 18px;
 }
 
+.ops-audit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ops-audit-toolbar {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 120px 120px repeat(4, minmax(120px, 1fr));
+}
+
+.ops-audit-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ops-audit-kpi {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 12px;
+}
+
+.ops-audit-kpi.tone-success {
+  background: rgba(22, 163, 74, 0.07);
+  border-color: rgba(22, 163, 74, 0.22);
+}
+
+.ops-audit-kpi.tone-warning {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.24);
+}
+
+.ops-audit-kpi.tone-danger {
+  background: rgba(220, 38, 38, 0.07);
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+.ops-audit-kpi.tone-info {
+  background: rgba(37, 99, 235, 0.07);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.ops-audit-kpi.tone-neutral {
+  background: var(--bg-surface);
+}
+
+.ops-audit-kpi small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ops-audit-kpi strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ops-account-health-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ops-account-health-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.ops-account-health-layout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+}
+
+.ops-compact-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-preview-line {
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.ops-preview-line > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-preview-line strong,
+.ops-preview-line span {
+  overflow-wrap: anywhere;
+}
+
+.ops-preview-line strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.ops-preview-line span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ops-modal-section-head {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 18px 0 8px;
+}
+
+.ops-subhead {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+
+.ops-account-list,
+.ops-routing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ops-account-row,
+.ops-routing-row {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.ops-account-row {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) 132px;
+}
+
+.ops-account-row[data-status="cooldown"],
+.ops-account-row[data-status="quota-low"],
+.ops-account-row[data-status="unknown-quota"] {
+  border-color: rgba(217, 119, 6, 0.28);
+}
+
+.ops-account-row[data-status="expired"],
+.ops-account-row[data-status="invalid"],
+.ops-account-row[data-status="missing"] {
+  border-color: rgba(220, 38, 38, 0.25);
+}
+
+.ops-account-main,
+.ops-account-metrics,
+.ops-routing-main,
+.ops-routing-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-account-main > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ops-account-main strong,
+.ops-routing-main strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ops-account-main span,
+.ops-account-metrics span,
+.ops-routing-main span,
+.ops-routing-events {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ops-account-metrics {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.ops-account-metrics strong {
+  color: var(--text-primary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ops-routing-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ops-routing-events {
+  background: var(--bg-surface);
+  border-radius: 8px;
+  line-height: 1.45;
+  padding: 10px;
+}
+
+.ops-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ops-audit-row {
+  align-items: center;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.ops-audit-row[data-status="failure"] {
+  border-color: rgba(217, 119, 6, 0.32);
+}
+
+.ops-audit-row-main,
+.ops-audit-row-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-audit-row-main strong,
+.ops-audit-row-main span,
+.ops-audit-row-metrics span {
+  overflow-wrap: anywhere;
+}
+
+.ops-audit-row-main span,
+.ops-audit-row-metrics span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ops-audit-row-metrics {
+  align-items: flex-end;
+  min-width: 92px;
+  text-align: right;
+}
+
 .ops-log-viewer {
   display: flex;
   flex-direction: column;
@@ -6258,7 +6527,16 @@ button, input, select {
   .system-status-strip,
   .system-action-grid,
   .ops-status-grid,
+  .ops-account-health-layout,
+  .ops-audit-toolbar,
+  .ops-account-health-summary,
+  .ops-audit-summary,
   .ops-log-toolbar { grid-template-columns: 1fr; }
+  .ops-preview-line { grid-template-columns: 1fr; }
+  .ops-account-row { grid-template-columns: 1fr; }
+  .ops-account-metrics { align-items: flex-start; text-align: left; }
+  .ops-audit-row { grid-template-columns: 1fr; }
+  .ops-audit-row-metrics { align-items: flex-start; text-align: left; }
   .system-backup-row {
     align-items: stretch;
     flex-direction: column;

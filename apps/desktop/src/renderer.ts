@@ -59,6 +59,13 @@ declare global {
       getUsageSummary: (
         clientFilter?: UsageClientFilter,
       ) => Promise<UsageSummaryResponse>;
+      getRequestAudit?: (
+        filters?: RequestAuditFilters,
+      ) => Promise<RequestAuditResponse>;
+      getRequestAuditContent?: (
+        sourceEventKey: string,
+      ) => Promise<RequestAuditContentResponse>;
+      getAccountHealth?: () => Promise<AccountHealthResponse>;
       getAccessAlerts: () => Promise<AccessAlertListResponse>;
       acknowledgeAccessAlert: (
         id: number,
@@ -211,6 +218,10 @@ type UsageCounters = {
   totalTokens: number;
   cachedTokens: number;
   reasoningTokens: number;
+  errorCode?: string;
+  statusCode?: number;
+  sourceKind?: string;
+  sourceEventKey?: string;
 };
 
 type UsageAccountSummary = {
@@ -318,6 +329,156 @@ type UsageObservability = {
 type UsageSummaryResponse = {
   ok: boolean;
   data: UsageObservability;
+};
+
+type RequestAuditStatusFilter = "all" | "success" | "failure";
+
+type RequestAuditFilters = {
+  limit?: string;
+  status?: RequestAuditStatusFilter;
+  clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
+  poolId?: string;
+  accountId?: string;
+  modelAlias?: string;
+  providerId?: string;
+};
+
+type RequestAuditEntry = {
+  id: number;
+  timestamp: number;
+  sessionId?: string;
+  accountId?: string;
+  email?: string;
+  clientTag?: string;
+  consumerId?: string;
+  accessKeyId?: string;
+  poolId?: string;
+  providerId: string;
+  modelAlias: string;
+  upstreamModelId?: string;
+  success: boolean;
+  stream: boolean;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  errorCode?: string;
+  statusCode?: number;
+  contentAvailable?: boolean;
+  sourceKind?: string;
+  sourceEventKey?: string;
+};
+
+type RequestAuditFacetOption = {
+  value: string;
+  label?: string;
+  count: number;
+};
+
+type RequestAuditResponse = {
+  ok: boolean;
+  data: {
+    filters: RequestAuditFilters & { limit: number; status: RequestAuditStatusFilter };
+    summary: UsageCounters;
+    facets?: {
+      consumers: RequestAuditFacetOption[];
+      accessKeys: RequestAuditFacetOption[];
+      models: RequestAuditFacetOption[];
+      accounts: RequestAuditFacetOption[];
+    };
+    items: RequestAuditEntry[];
+  };
+};
+
+type RequestAuditContentResponse = {
+  ok: boolean;
+  data: {
+    sourceEventKey: string;
+    timestamp: number;
+    modelAlias?: string;
+    consumerId?: string;
+    accessKeyId?: string;
+    contentJson: string;
+    capturedCharacters: number;
+    truncated: boolean;
+  };
+};
+
+type AccountHealthStatus =
+  | "available"
+  | "cooldown"
+  | "quota-low"
+  | "expired"
+  | "invalid"
+  | "missing"
+  | "disabled"
+  | "unknown-quota";
+
+type AccountHealthFailureClass =
+  | "auth_invalid"
+  | "quota_exhausted"
+  | "rate_limited"
+  | "network_retryable"
+  | "upstream_retryable"
+  | "non_retryable";
+
+type AccountHealthPoolMembership = {
+  poolId: string;
+  poolName: string;
+  selector: string;
+  label?: string;
+  selected: boolean;
+  eligible: boolean;
+  status: AccountHealthStatus;
+  statusLabel: string;
+  note?: string;
+};
+
+type AccountHealthEntry = {
+  sessionId?: string;
+  accountId?: string;
+  email?: string;
+  title: string;
+  subtitle?: string;
+  status: AccountHealthStatus;
+  statusLabel: string;
+  score: number;
+  selected: boolean;
+  eligiblePoolCount: number;
+  poolCount: number;
+  quotaPercentage?: number;
+  cooldownUntil?: number;
+  lastSelectedAt?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  lastFailureClass?: AccountHealthFailureClass;
+  consecutiveFailures: number;
+  reasons: string[];
+  pools: AccountHealthPoolMembership[];
+};
+
+type AccountHealthPool = NonNullable<DashboardHealth["poolObservability"]>[number];
+
+type AccountHealthObservability = {
+  generatedAt: number;
+  summary: {
+    accountCount: number;
+    availableCount: number;
+    cooldownCount: number;
+    unhealthyCount: number;
+    selectedCount: number;
+  };
+  accounts: AccountHealthEntry[];
+  pools: AccountHealthPool[];
+};
+
+type AccountHealthResponse = {
+  ok: boolean;
+  data: AccountHealthObservability;
 };
 
 type AccessAlertEvent = {
@@ -1069,6 +1230,11 @@ type SystemSettings = {
   autoRefreshIntervalSeconds?: number;
   gatewayPort?: number;
   pinnedSessionId?: string;
+  requestContentAudit?: {
+    enabled?: boolean;
+    maxCharacters?: number;
+    maxEvents?: number;
+  };
 };
 
 type SystemSettingsResponse = {
@@ -1139,6 +1305,15 @@ const state: {
   operationsLogSourceId?: string;
   operationsLogText?: string;
   operationsLogLoading?: boolean;
+  requestAudit?: RequestAuditResponse["data"];
+  requestAuditLoading?: boolean;
+  requestAuditContent?: RequestAuditContentResponse["data"];
+  requestAuditContentLoading?: boolean;
+  requestAuditContentModalOpen?: boolean;
+  requestAuditModalOpen?: boolean;
+  accountHealth?: AccountHealthObservability;
+  accountHealthLoading?: boolean;
+  accountHealthModalOpen?: boolean;
   oauthInFlight?: boolean;
   lastUsageRefresh?: SessionUsageRefreshResponse;
   activeView: DashboardView;
@@ -5923,12 +6098,456 @@ function renderOperationsLogSources(status: OperationsStatus): void {
   }
 }
 
+type RequestAuditFacetKind = "consumer" | "accessKey" | "model" | "account";
+
+function getAccessConsumerById(consumerId?: string): SecurityAccessConsumer | undefined {
+  return consumerId
+    ? state.securitySettings?.accessControl?.consumers.find((item) => item.id === consumerId)
+    : undefined;
+}
+
+function getAccessKeyById(accessKeyId?: string): SecurityAccessKey | undefined {
+  return accessKeyId
+    ? state.securitySettings?.accessControl?.keys.find((item) => item.id === accessKeyId)
+    : undefined;
+}
+
+function formatAccessKeyShortLabel(key: SecurityAccessKey): string {
+  const suffix = key.keySuffix ? `...${key.keySuffix}` : "";
+  return [key.name, suffix].filter(Boolean).join(" · ");
+}
+
+function formatAuditConsumerLabel(consumerId?: string, fallbackClientTag?: string): string {
+  if (!consumerId) {
+    return fallbackClientTag ? normalizeUsageClientTagLabel(fallbackClientTag) : "未归因成员";
+  }
+  const consumer = getAccessConsumerById(consumerId);
+  if (!consumer) {
+    return fallbackClientTag ? normalizeUsageClientTagLabel(fallbackClientTag) : consumerId;
+  }
+  return [
+    consumer.name,
+    formatAccessAlertConsumerTypeLabel(consumer.type),
+    consumer.clientTag ? normalizeUsageClientTagLabel(consumer.clientTag) : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatAuditAccessKeyLabel(accessKeyId?: string, fallbackConsumerId?: string): string {
+  if (!accessKeyId) {
+    return "未归因 Key";
+  }
+  const key = getAccessKeyById(accessKeyId);
+  if (!key) {
+    return accessKeyId;
+  }
+  const consumer = getAccessConsumerById(key.consumerId || fallbackConsumerId);
+  return [
+    formatAccessKeyShortLabel(key),
+    consumer?.name,
+    formatAccessStatusLabel(key.status),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatAuditAccountLabel(accountId?: string, email?: string): string {
+  if (email) {
+    return email;
+  }
+  if (!accountId) {
+    return "未归因账号";
+  }
+  const session = state.sessions?.data.find(
+    (item) => item.id === accountId || item.accountId === accountId || item.email === accountId,
+  );
+  return session?.email || session?.displayName || session?.id || accountId;
+}
+
+function formatAuditFacetOptionLabel(
+  kind: RequestAuditFacetKind,
+  option: RequestAuditFacetOption,
+): string {
+  if (kind === "consumer") {
+    return formatAuditConsumerLabel(option.value);
+  }
+  if (kind === "accessKey") {
+    return formatAuditAccessKeyLabel(option.value);
+  }
+  if (kind === "account") {
+    return formatAuditAccountLabel(option.value, option.label);
+  }
+  return option.label || option.value;
+}
+
+function renderRequestAuditFacetSelect(
+  id: string,
+  placeholder: string,
+  kind: RequestAuditFacetKind,
+  options: RequestAuditFacetOption[] | undefined,
+  currentValue: string | undefined,
+): void {
+  const select = document.getElementById(id) as HTMLSelectElement | null;
+  if (!select) {
+    return;
+  }
+  const value = currentValue ?? select.value;
+  const seenLabels = new Map<string, number>();
+  select.innerHTML = [
+    `<option value="">${escapeHtml(placeholder)}</option>`,
+    ...(options ?? []).map((option) => {
+      const baseLabel = formatAuditFacetOptionLabel(kind, option);
+      const seenCount = seenLabels.get(baseLabel) ?? 0;
+      seenLabels.set(baseLabel, seenCount + 1);
+      const label = seenCount > 0 ? `${baseLabel} #${seenCount + 1}` : baseLabel;
+      return `<option value="${escapeHtml(option.value)}">${escapeHtml(label)} (${escapeHtml(formatCompactCount(option.count))})</option>`;
+    }),
+  ].join("");
+  select.value = (options ?? []).some((option) => option.value === value)
+    ? value
+    : "";
+}
+
+function readRequestAuditFilters(): RequestAuditFilters {
+  const read = (id: string) =>
+    (document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ??
+    "";
+  const status = read("request-audit-status");
+  return {
+    status:
+      status === "success" || status === "failure"
+        ? status
+        : "all",
+    limit: read("request-audit-limit") || "100",
+    consumerId: read("request-audit-consumer"),
+    accessKeyId: read("request-audit-key"),
+    modelAlias: read("request-audit-model"),
+    accountId: read("request-audit-account"),
+  };
+}
+
+function renderRequestAuditFilters(): void {
+  const facets = state.requestAudit?.facets;
+  const filters = readRequestAuditFilters();
+  renderRequestAuditFacetSelect(
+    "request-audit-consumer",
+    "全部成员",
+    "consumer",
+    facets?.consumers,
+    filters.consumerId,
+  );
+  renderRequestAuditFacetSelect(
+    "request-audit-key",
+    "全部 Key",
+    "accessKey",
+    facets?.accessKeys,
+    filters.accessKeyId,
+  );
+  renderRequestAuditFacetSelect(
+    "request-audit-model",
+    "全部模型",
+    "model",
+    facets?.models,
+    filters.modelAlias,
+  );
+  renderRequestAuditFacetSelect(
+    "request-audit-account",
+    "全部账号",
+    "account",
+    facets?.accounts,
+    filters.accountId,
+  );
+}
+
+function renderRequestAudit(): void {
+  const summaryNode = document.getElementById("request-audit-summary");
+  const previewNode = document.getElementById("request-audit-preview");
+  const listNode = document.getElementById("request-audit-list");
+  const modal = document.getElementById("request-audit-modal");
+  if (!summaryNode || !previewNode || !listNode || !modal) {
+    return;
+  }
+  modal.hidden = !state.requestAuditModalOpen;
+  renderRequestAuditFilters();
+  if (state.requestAuditLoading) {
+    summaryNode.innerHTML = "";
+    previewNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
+    listNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
+    return;
+  }
+  const audit = state.requestAudit;
+  if (!audit) {
+    summaryNode.innerHTML = "";
+    previewNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
+    listNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
+    return;
+  }
+  const averageLatency =
+    audit.summary.requestCount > 0
+      ? Math.round(audit.summary.totalLatencyMs / audit.summary.requestCount)
+      : 0;
+  const failureRate =
+    audit.summary.requestCount > 0
+      ? audit.summary.failureCount / audit.summary.requestCount
+      : 0;
+  summaryNode.innerHTML = `
+    <div class="ops-audit-kpi tone-neutral"><small>请求</small><strong>${escapeHtml(formatCompactCount(audit.summary.requestCount))}</strong></div>
+    <div class="ops-audit-kpi tone-success"><small>成功</small><strong>${escapeHtml(formatCompactCount(audit.summary.successCount))}</strong></div>
+    <div class="ops-audit-kpi ${failureRate > 0.2 ? "tone-danger" : failureRate > 0 ? "tone-warning" : "tone-success"}"><small>失败</small><strong>${escapeHtml(formatCompactCount(audit.summary.failureCount))}</strong></div>
+    <div class="ops-audit-kpi tone-info"><small>Token / 延迟</small><strong>${escapeHtml(formatCompactCount(audit.summary.totalTokens))} · ${escapeHtml(averageLatency ? `${formatCompactCount(averageLatency)} ms` : "0 ms")}</strong></div>
+  `;
+  if (audit.items.length === 0) {
+    previewNode.innerHTML = "<div class='empty-card'>当前筛选下暂无请求记录。</div>";
+    listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无请求记录。</div>";
+    return;
+  }
+  const latest = audit.items[0];
+  const latestAccount = formatAuditAccountLabel(latest.accountId, latest.email);
+  previewNode.innerHTML = `
+    <div class="ops-preview-line">
+      <div>
+        <strong>最近请求：${escapeHtml(latest.modelAlias)} · ${latest.success ? "成功" : "失败"}</strong>
+        <span>${escapeHtml(formatDate(latest.timestamp))} · ${escapeHtml(formatAuditConsumerLabel(latest.consumerId, latest.clientTag))} · ${escapeHtml(latestAccount)}</span>
+      </div>
+      <button class="btn secondary mini" data-action="open-request-audit-modal" type="button">查看 ${escapeHtml(formatCompactCount(audit.items.length))} 条明细</button>
+    </div>
+  `;
+  listNode.innerHTML = audit.items
+    .map((item) => {
+      const title = `${item.modelAlias} · ${item.success ? "成功" : "失败"} · ${item.stream ? "stream" : "non-stream"}`;
+      const account = formatAuditAccountLabel(item.accountId || item.sessionId, item.email);
+      const consumer = formatAuditConsumerLabel(item.consumerId, item.clientTag);
+      const accessKey = formatAuditAccessKeyLabel(item.accessKeyId, item.consumerId);
+      const errorText = item.errorCode
+        ? ` · ${item.errorCode}${item.statusCode ? ` (${item.statusCode})` : ""}`
+        : "";
+      return `
+        <div class="ops-audit-row" data-status="${item.success ? "success" : "failure"}">
+          <div class="ops-audit-row-main">
+            <strong>${escapeHtml(title)}</strong>
+            <span>${escapeHtml(formatDate(item.timestamp))} · ${escapeHtml(account)}</span>
+            <span>成员 ${escapeHtml(consumer)} · Key ${escapeHtml(accessKey)} · 号池 ${escapeHtml(item.poolId || "-")}${escapeHtml(errorText)}</span>
+          </div>
+          <div class="ops-audit-row-metrics">
+            <span class="badge ${item.success ? "active" : "warning"}">${item.success ? "OK" : "ERR"}</span>
+            <span>${escapeHtml(formatCompactCount(item.totalTokens))} Token</span>
+            <span>${escapeHtml(formatCompactCount(item.latencyMs))} ms</span>
+            ${item.contentAvailable && item.sourceEventKey ? `<button class="btn secondary mini" data-action="open-request-audit-content" data-source-event-key="${escapeHtml(item.sourceEventKey)}" type="button">查看内容</button>` : ""}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderRequestAuditContentModal(): void {
+  const modal = document.getElementById("request-audit-content-modal");
+  const meta = document.getElementById("request-audit-content-meta");
+  const output = document.getElementById("request-audit-content-output");
+  if (!modal || !meta || !output) {
+    return;
+  }
+  modal.hidden = !state.requestAuditContentModalOpen;
+  if (!state.requestAuditContentModalOpen) {
+    return;
+  }
+  if (state.requestAuditContentLoading) {
+    meta.textContent = "正在读取请求内容。";
+    output.textContent = "正在读取...";
+    return;
+  }
+  const content = state.requestAuditContent;
+  if (!content) {
+    meta.textContent = "未读取到请求内容。";
+    output.textContent = "内容留痕可能未开启，或该请求发生在开启之前。";
+    return;
+  }
+  meta.textContent = [
+    formatDate(content.timestamp),
+    content.modelAlias ? `模型 ${content.modelAlias}` : undefined,
+    content.consumerId ? `成员 ${formatAuditConsumerLabel(content.consumerId)}` : undefined,
+    content.accessKeyId ? `Key ${formatAuditAccessKeyLabel(content.accessKeyId, content.consumerId)}` : undefined,
+    content.truncated ? `已截断 ${formatCompactCount(content.capturedCharacters)} 字符` : `${formatCompactCount(content.capturedCharacters)} 字符`,
+  ].filter(Boolean).join(" · ");
+  output.textContent = content.contentJson;
+}
+
+async function openRequestAuditContent(sourceEventKey: string): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.getRequestAuditContent) {
+    setBanner("当前桌面桥接未提供请求内容读取接口。", "error");
+    return;
+  }
+  state.requestAuditContentModalOpen = true;
+  state.requestAuditContentLoading = true;
+  state.requestAuditContent = undefined;
+  renderRequestAuditContentModal();
+  try {
+    const response = await api.getRequestAuditContent(sourceEventKey);
+    state.requestAuditContent = response.data;
+  } finally {
+    state.requestAuditContentLoading = false;
+    renderRequestAuditContentModal();
+  }
+}
+
+function formatAccountHealthTone(status: AccountHealthStatus): "active" | "warning" | "danger" | "neutral" {
+  if (status === "available") {
+    return "active";
+  }
+  if (status === "cooldown" || status === "quota-low" || status === "unknown-quota") {
+    return "warning";
+  }
+  if (status === "disabled") {
+    return "neutral";
+  }
+  return "danger";
+}
+
+function formatAccountHealthFailureClass(value?: AccountHealthFailureClass): string {
+  const labels: Record<AccountHealthFailureClass, string> = {
+    auth_invalid: "授权异常",
+    quota_exhausted: "额度耗尽",
+    rate_limited: "频率限制",
+    network_retryable: "网络可重试",
+    upstream_retryable: "上游可重试",
+    non_retryable: "不可重试",
+  };
+  return value ? labels[value] ?? value : "无";
+}
+
+function formatAccountHealthQuota(value?: number): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(value)}%`
+    : "未知";
+}
+
+function renderAccountHealth(): void {
+  const summaryNode = document.getElementById("account-health-summary");
+  const previewNode = document.getElementById("account-health-preview");
+  const accountListNode = document.getElementById("account-health-list");
+  const poolListNode = document.getElementById("routing-explanation-list");
+  const modal = document.getElementById("account-health-modal");
+  if (!summaryNode || !previewNode || !accountListNode || !poolListNode || !modal) {
+    return;
+  }
+  modal.hidden = !state.accountHealthModalOpen;
+
+  if (state.accountHealthLoading) {
+    summaryNode.innerHTML = "";
+    previewNode.innerHTML = "<div class='empty-card'>正在读取账号健康数据。</div>";
+    accountListNode.innerHTML = "<div class='empty-card'>正在读取账号健康数据。</div>";
+    poolListNode.innerHTML = "<div class='empty-card'>正在读取路由解释。</div>";
+    return;
+  }
+
+  const health = state.accountHealth;
+  if (!health) {
+    summaryNode.innerHTML = "";
+    previewNode.innerHTML = "<div class='empty-card'>等待账号健康数据。</div>";
+    accountListNode.innerHTML = "<div class='empty-card'>等待账号健康数据。</div>";
+    poolListNode.innerHTML = "<div class='empty-card'>等待路由解释数据。</div>";
+    return;
+  }
+
+  summaryNode.innerHTML = `
+    <div class="ops-audit-kpi tone-neutral"><small>账号</small><strong>${escapeHtml(formatCompactCount(health.summary.accountCount))}</strong></div>
+    <div class="ops-audit-kpi tone-success"><small>可用</small><strong>${escapeHtml(formatCompactCount(health.summary.availableCount))}</strong></div>
+    <div class="ops-audit-kpi ${health.summary.cooldownCount > 0 ? "tone-warning" : "tone-neutral"}"><small>冷却</small><strong>${escapeHtml(formatCompactCount(health.summary.cooldownCount))}</strong></div>
+    <div class="ops-audit-kpi ${health.summary.unhealthyCount > 0 ? "tone-danger" : "tone-success"}"><small>异常</small><strong>${escapeHtml(formatCompactCount(health.summary.unhealthyCount))}</strong></div>
+    <div class="ops-audit-kpi tone-info"><small>已选中</small><strong>${escapeHtml(formatCompactCount(health.summary.selectedCount))}</strong></div>
+  `;
+  const riskAccounts = health.accounts.filter((account) => account.status !== "available");
+  const selectedAccount = health.accounts.find((account) => account.selected);
+  previewNode.innerHTML = `
+    <div class="ops-preview-line">
+      <div>
+        <strong>${escapeHtml(selectedAccount ? `当前路由：${selectedAccount.title}` : "当前未选中路由账号")}</strong>
+        <span>${escapeHtml(riskAccounts.length > 0 ? `需关注 ${formatCompactCount(riskAccounts.length)} 个账号` : "账号健康状态稳定")} · ${escapeHtml(formatCompactCount(health.pools.length))} 个号池参与观测</span>
+      </div>
+      <button class="btn secondary mini" data-action="open-account-health-modal" type="button">查看详情</button>
+    </div>
+  `;
+
+  accountListNode.innerHTML = health.accounts.length
+    ? health.accounts
+        .map((account) => {
+          const tone = formatAccountHealthTone(account.status);
+          const poolText =
+            account.pools
+              .slice(0, 3)
+              .map((pool) => `${pool.poolName}${pool.selected ? " · 当前" : ""}`)
+              .join(" / ") || "未归属号池";
+          const reasonText =
+            account.reasons.slice(0, 2).join("；") ||
+            (account.eligiblePoolCount > 0 ? "可参与调度" : "当前不可参与调度");
+          return `
+            <div class="ops-account-row" data-status="${escapeHtml(account.status)}">
+              <div class="ops-account-main">
+                <div>
+                  <strong>${escapeHtml(account.title)}</strong>
+                  ${account.selected ? `<span class="badge active">当前路由</span>` : ""}
+                  <span class="badge ${tone}">${escapeHtml(account.statusLabel)}</span>
+                </div>
+                <span>${escapeHtml(account.subtitle || account.accountId || account.sessionId || "未绑定账号标识")}</span>
+                <span>${escapeHtml(poolText)}</span>
+                <span>${escapeHtml(reasonText)}</span>
+              </div>
+              <div class="ops-account-metrics">
+                <strong>${escapeHtml(formatCompactCount(account.score))}</strong>
+                <span class="badge ${tone}">健康分</span>
+                <span>额度 ${escapeHtml(formatAccountHealthQuota(account.quotaPercentage))}</span>
+                <span>连续失败 ${escapeHtml(formatCompactCount(account.consecutiveFailures))}</span>
+                <span>${escapeHtml(formatAccountHealthFailureClass(account.lastFailureClass))}</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : "<div class='empty-card'>暂无号池账号可观测。请先在号池中添加成员。</div>";
+
+  poolListNode.innerHTML = health.pools.length
+    ? health.pools
+        .map((pool) => {
+          const events = (pool.recentEvents || []).slice(0, 3);
+          const eventText = events.length
+            ? events
+                .map((event) => {
+                  const target = event.toSessionId || event.selectedSessionId || "未选中";
+                  const source = event.fromSessionId ? `从 ${event.fromSessionId} ` : "";
+                  const failure = event.failureClass
+                    ? ` · ${formatAccountHealthFailureClass(event.failureClass)}`
+                    : "";
+                  return escapeHtml(
+                    `${formatDate(event.timestamp)} · ${event.eventType === "failover" ? "切号" : "选择"} · ${source}到 ${target}${failure}`,
+                  );
+                })
+                .join("<br />")
+            : "暂无近期切号事件";
+          return `
+            <div class="ops-routing-row">
+              <div class="ops-routing-main">
+                <strong>${escapeHtml(pool.poolName)}</strong>
+                <span>当前 ${escapeHtml(pool.selectedSessionId || pool.selectedSelector || "未选中")} · ${escapeHtml(pool.selectionReason || "等待选择")}</span>
+                <span>候选 ${escapeHtml(formatCompactCount(pool.eligibleMemberCount))} / ${escapeHtml(formatCompactCount(pool.memberCount))} · 冷却 ${escapeHtml(formatCompactCount(pool.coolingMemberCount))}</span>
+                ${pool.warnings.length ? `<span>${escapeHtml(pool.warnings.join("；"))}</span>` : ""}
+              </div>
+              <div class="ops-routing-events">${eventText}</div>
+            </div>
+          `;
+        })
+        .join("")
+    : "<div class='empty-card'>暂无启用中的号池路由。</div>";
+}
+
 function renderOperations(): void {
   const status = state.operationsStatus;
   if (!status) {
     renderOpsFacts("ops-gateway-facts", [["状态", "等待运维状态"]]);
     renderOpsFacts("ops-cloudflare-facts", [["状态", "等待运维状态"]]);
     renderOpsFacts("ops-public-probe-facts", [["状态", "等待探测"]]);
+    renderAccountHealth();
     return;
   }
 
@@ -5953,10 +6572,17 @@ function renderOperations(): void {
     ],
   ]);
 
+  const probe = status.publicProbe;
+  const publicProbeOk = Boolean(probe?.expectedGatewayAuth || probe?.status === 200);
+  const publicProbeConfigured = Boolean(status.cloudflare.publicBaseUrl || probe?.url);
   setOpsBadge(
     "ops-cloudflare-badge",
-    launchAgentTone(status.cloudflare),
-    launchAgentLabel(status.cloudflare),
+    publicProbeConfigured && !publicProbeOk
+      ? "warning"
+      : launchAgentTone(status.cloudflare),
+    publicProbeConfigured && !publicProbeOk
+      ? "隧道未通"
+      : launchAgentLabel(status.cloudflare),
   );
   renderOpsFacts("ops-cloudflare-facts", [
     ["LaunchAgent", status.cloudflare.installed ? "已安装" : "未安装"],
@@ -5965,10 +6591,9 @@ function renderOperations(): void {
     ["Hostname", status.cloudflare.hostname || "未配置"],
   ]);
 
-  const probe = status.publicProbe;
   setOpsBadge(
     "ops-public-probe-badge",
-    probe?.expectedGatewayAuth || probe?.status === 200
+    publicProbeOk
       ? "active"
       : probe?.reachable
         ? "warning"
@@ -5989,6 +6614,8 @@ function renderOperations(): void {
   ]);
 
   renderOperationsLogSources(status);
+  renderAccountHealth();
+  renderRequestAudit();
   const output = document.getElementById("ops-log-output");
   if (output) {
     output.textContent = state.operationsLogLoading
@@ -6009,6 +6636,40 @@ async function refreshOperationsStatus(): Promise<void> {
   const response = await api.getOperationsStatus();
   state.operationsStatus = response.data;
   renderOperations();
+}
+
+async function refreshRequestAudit(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.getRequestAudit) {
+    setBanner("当前桌面桥接未提供请求审计接口。", "error");
+    return;
+  }
+  state.requestAuditLoading = true;
+  renderRequestAudit();
+  try {
+    const response = await api.getRequestAudit(readRequestAuditFilters());
+    state.requestAudit = response.data;
+  } finally {
+    state.requestAuditLoading = false;
+    renderRequestAudit();
+  }
+}
+
+async function refreshAccountHealth(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.getAccountHealth) {
+    setBanner("当前桌面桥接未提供账号健康接口。", "error");
+    return;
+  }
+  state.accountHealthLoading = true;
+  renderAccountHealth();
+  try {
+    const response = await api.getAccountHealth();
+    state.accountHealth = response.data;
+  } finally {
+    state.accountHealthLoading = false;
+    renderAccountHealth();
+  }
 }
 
 async function readOperationsLog(): Promise<void> {
@@ -9969,6 +10630,15 @@ function applySystemSettingsToForm(): void {
   const gatewayPortHint = document.getElementById(
     "gateway-port-hint",
   ) as HTMLElement | null;
+  const requestContentAuditEnabled = document.getElementById(
+    "request-content-audit-enabled",
+  ) as HTMLInputElement | null;
+  const requestContentAuditMaxCharacters = document.getElementById(
+    "request-content-audit-max-characters",
+  ) as HTMLInputElement | null;
+  const requestContentAuditMaxEvents = document.getElementById(
+    "request-content-audit-max-events",
+  ) as HTMLInputElement | null;
 
   if (launchAtLogin) {
     launchAtLogin.checked = Boolean(settings.launchAtLogin);
@@ -9991,6 +10661,19 @@ function applySystemSettingsToForm(): void {
 
   if (gatewayPortHint) {
     gatewayPortHint.textContent = `当前网关入口：http://127.0.0.1:${gatewayPort}/v1`;
+  }
+  if (requestContentAuditEnabled) {
+    requestContentAuditEnabled.checked = Boolean(settings.requestContentAudit?.enabled);
+  }
+  if (requestContentAuditMaxCharacters) {
+    requestContentAuditMaxCharacters.value = String(
+      settings.requestContentAudit?.maxCharacters ?? 32_000,
+    );
+  }
+  if (requestContentAuditMaxEvents) {
+    requestContentAuditMaxEvents.value = String(
+      settings.requestContentAudit?.maxEvents ?? 500,
+    );
   }
 }
 
@@ -10220,6 +10903,19 @@ async function saveSystemSettings(): Promise<void> {
       ),
     ),
     pinnedSessionId: state.systemSettings?.pinnedSessionId,
+    requestContentAudit: {
+      enabled:
+        (document.getElementById("request-content-audit-enabled") as HTMLInputElement | null)
+          ?.checked ?? false,
+      maxCharacters: Number(
+        (document.getElementById("request-content-audit-max-characters") as HTMLInputElement | null)
+          ?.value ?? "32000",
+      ),
+      maxEvents: Number(
+        (document.getElementById("request-content-audit-max-events") as HTMLInputElement | null)
+          ?.value ?? "500",
+      ),
+    },
   };
 
   const response = await api.saveSystemSettings(payload);
@@ -13426,6 +14122,33 @@ function bindActions(): void {
       }
     });
 
+  document
+    .getElementById("account-health-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        state.accountHealthModalOpen = false;
+        renderAccountHealth();
+      }
+    });
+
+  document
+    .getElementById("request-audit-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        state.requestAuditModalOpen = false;
+        renderRequestAudit();
+      }
+    });
+
+  document
+    .getElementById("request-audit-content-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        state.requestAuditContentModalOpen = false;
+        renderRequestAuditContentModal();
+      }
+    });
+
   for (const systemModal of Array.from(
     document.querySelectorAll<HTMLElement>("[id^='system-'][id$='-modal']"),
   )) {
@@ -13527,6 +14250,26 @@ function bindActions(): void {
       const usageDetailsModal = document.getElementById("usage-details-modal");
       if (usageDetailsModal && !usageDetailsModal.hidden) {
         closeUsageDetailsModal();
+        return;
+      }
+      const requestAuditContentModal = document.getElementById(
+        "request-audit-content-modal",
+      );
+      if (requestAuditContentModal && !requestAuditContentModal.hidden) {
+        state.requestAuditContentModalOpen = false;
+        renderRequestAuditContentModal();
+        return;
+      }
+      const requestAuditModal = document.getElementById("request-audit-modal");
+      if (requestAuditModal && !requestAuditModal.hidden) {
+        state.requestAuditModalOpen = false;
+        renderRequestAudit();
+        return;
+      }
+      const accountHealthModal = document.getElementById("account-health-modal");
+      if (accountHealthModal && !accountHealthModal.hidden) {
+        state.accountHealthModalOpen = false;
+        renderAccountHealth();
         return;
       }
       const usageAlertsModal = document.getElementById("usage-alerts-modal");
@@ -13659,6 +14402,8 @@ function bindActions(): void {
       try {
         setButtonLoading(button as HTMLButtonElement, true, "刷新中");
         await refreshOperationsStatus();
+        await refreshAccountHealth();
+        await refreshRequestAudit();
         await readOperationsLog();
         setBanner("运维状态已刷新。", "success");
       } catch (error) {
@@ -13666,6 +14411,73 @@ function bindActions(): void {
       } finally {
         setButtonLoading(button as HTMLButtonElement, false);
       }
+      return;
+    }
+
+    if (action === "account-health-refresh") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "刷新中");
+        await refreshAccountHealth();
+        setBanner("账号健康已刷新。", "success");
+      } catch (error) {
+        setBanner(`刷新账号健康失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "request-audit-refresh") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "刷新中");
+        await refreshRequestAudit();
+        setBanner("请求审计已刷新。", "success");
+      } catch (error) {
+        setBanner(`刷新请求审计失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "open-account-health-modal") {
+      state.accountHealthModalOpen = true;
+      renderAccountHealth();
+      return;
+    }
+
+    if (action === "close-account-health-modal") {
+      state.accountHealthModalOpen = false;
+      renderAccountHealth();
+      return;
+    }
+
+    if (action === "open-request-audit-modal") {
+      state.requestAuditModalOpen = true;
+      renderRequestAudit();
+      return;
+    }
+
+    if (action === "close-request-audit-modal") {
+      state.requestAuditModalOpen = false;
+      renderRequestAudit();
+      return;
+    }
+
+    if (action === "open-request-audit-content" && button.dataset.sourceEventKey) {
+      try {
+        await openRequestAuditContent(button.dataset.sourceEventKey);
+      } catch (error) {
+        state.requestAuditContentModalOpen = false;
+        renderRequestAuditContentModal();
+        setBanner(`读取请求内容失败：${String(error)}`, "error");
+      }
+      return;
+    }
+
+    if (action === "close-request-audit-content") {
+      state.requestAuditContentModalOpen = false;
+      renderRequestAuditContentModal();
       return;
     }
 
@@ -14296,6 +15108,8 @@ async function refresh(): Promise<void> {
     systemSettingsResult,
     appDataStatusResult,
     operationsStatusResult,
+    requestAuditResult,
+    accountHealthResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     api.getProviders(),
@@ -14310,6 +15124,12 @@ async function refresh(): Promise<void> {
     api.getAppDataStatus(),
     api.getOperationsStatus
       ? api.getOperationsStatus()
+      : Promise.resolve(undefined),
+    api.getRequestAudit
+      ? api.getRequestAudit({ limit: "100", status: "all" })
+      : Promise.resolve(undefined),
+    api.getAccountHealth
+      ? api.getAccountHealth()
       : Promise.resolve(undefined),
   ]);
   const loadFailures: RuntimeDiagnosticLoadFailure[] = [];
@@ -14474,12 +15294,39 @@ async function refresh(): Promise<void> {
     state.operationsStatus = undefined;
   }
 
+  if (
+    requestAuditResult.status === "fulfilled" &&
+    requestAuditResult.value
+  ) {
+    state.requestAudit = requestAuditResult.value.data;
+  } else if (requestAuditResult.status === "rejected") {
+    loadFailures.push({
+      scope: "request-audit",
+      message: normalizeErrorMessage(requestAuditResult.reason),
+    });
+    state.requestAudit = undefined;
+  }
+
+  if (
+    accountHealthResult.status === "fulfilled" &&
+    accountHealthResult.value
+  ) {
+    state.accountHealth = accountHealthResult.value.data;
+  } else if (accountHealthResult.status === "rejected") {
+    loadFailures.push({
+      scope: "account-health",
+      message: normalizeErrorMessage(accountHealthResult.reason),
+    });
+    state.accountHealth = undefined;
+  }
+
   updateRuntimeDiagnostics(loadFailures);
 
   renderActiveViewContent();
   applyActiveViewFormState();
   renderPoolEventsModal();
   renderUsageDetailsModal();
+  renderRequestAuditContentModal();
   configureAutoRefreshTimer();
   configureSessionActivityTimer();
   setOAuthBusyState(Boolean(state.oauthInFlight));
@@ -14505,6 +15352,8 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     accessAlertsResult,
     sessionsResult,
     operationsStatusResult,
+    requestAuditResult,
+    accountHealthResult,
   ] = await Promise.allSettled([
     api.getHealth(),
     shouldFetchUsage
@@ -14523,6 +15372,12 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     shouldFetchOperations && api.getOperationsStatus
       ? api.getOperationsStatus()
       : Promise.resolve(undefined),
+    shouldFetchOperations && api.getRequestAudit
+      ? api.getRequestAudit(readRequestAuditFilters())
+      : Promise.resolve(undefined),
+    shouldFetchOperations && api.getAccountHealth
+      ? api.getAccountHealth()
+      : Promise.resolve(undefined),
   ]);
 
   if (
@@ -14530,7 +15385,9 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     usageSummaryResult.status !== "fulfilled" &&
     accessAlertsResult.status !== "fulfilled" &&
     sessionsResult.status !== "fulfilled" &&
-    operationsStatusResult.status !== "fulfilled"
+    operationsStatusResult.status !== "fulfilled" &&
+    requestAuditResult.status !== "fulfilled" &&
+    accountHealthResult.status !== "fulfilled"
   ) {
     throw (
       healthResult.reason ??
@@ -14538,6 +15395,8 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
       accessAlertsResult.reason ??
       sessionsResult.reason ??
       operationsStatusResult.reason ??
+      requestAuditResult.reason ??
+      accountHealthResult.reason ??
       new Error("无法刷新桌面端运行态数据。")
     );
   }
@@ -14574,6 +15433,18 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     operationsStatusResult.value
   ) {
     state.operationsStatus = operationsStatusResult.value.data;
+  }
+  if (
+    requestAuditResult.status === "fulfilled" &&
+    requestAuditResult.value
+  ) {
+    state.requestAudit = requestAuditResult.value.data;
+  }
+  if (
+    accountHealthResult.status === "fulfilled" &&
+    accountHealthResult.value
+  ) {
+    state.accountHealth = accountHealthResult.value.data;
   }
   updateRuntimeDiagnostics([]);
   scheduleVisibleRefresh();

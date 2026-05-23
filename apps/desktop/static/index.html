@@ -950,6 +950,82 @@
                   <div id="ops-control-result" class="ops-control-result"></div>
                 </div>
 
+                <div class="card ops-account-health-panel">
+                  <div class="card-header">
+                    <div>
+                      <span class="card-title">账号健康与路由解释</span>
+                      <p class="card-description">查看号池账号当前可用性、冷却状态和最近切号原因。</p>
+                    </div>
+                    <div class="card-actions">
+                      <button class="btn secondary" data-action="open-account-health-modal" type="button">查看详情</button>
+                      <button class="btn secondary" data-action="account-health-refresh" type="button">刷新健康</button>
+                    </div>
+                  </div>
+                  <div id="account-health-summary" class="ops-account-health-summary"></div>
+                  <div id="account-health-preview" class="ops-compact-preview">
+                    <div class="empty-card">等待账号健康数据。</div>
+                  </div>
+                </div>
+
+                <div class="card ops-audit-panel">
+                  <div class="card-header">
+                    <div>
+                      <span class="card-title">请求审计</span>
+                      <p class="card-description">按成员、Key、模型和账号筛选最近推理请求；内容留痕开启后可查看单条请求正文。</p>
+                    </div>
+                    <div class="card-actions">
+                      <button class="btn secondary" data-action="open-request-audit-modal" type="button">查看明细</button>
+                      <button class="btn secondary" data-action="request-audit-refresh" type="button">刷新审计</button>
+                    </div>
+                  </div>
+                  <div class="ops-audit-toolbar">
+                    <div class="form-field compact">
+                      <label>状态</label>
+                      <select id="request-audit-status" class="input-field">
+                        <option value="all">全部</option>
+                        <option value="success">成功</option>
+                        <option value="failure">失败</option>
+                      </select>
+                    </div>
+                    <div class="form-field compact">
+                      <label>数量</label>
+                      <select id="request-audit-limit" class="input-field">
+                        <option value="50">50</option>
+                        <option value="100" selected>100</option>
+                        <option value="200">200</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label>成员</label>
+                      <select id="request-audit-consumer" class="input-field">
+                        <option value="">全部成员</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label>Key</label>
+                      <select id="request-audit-key" class="input-field">
+                        <option value="">全部 Key</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label>模型</label>
+                      <select id="request-audit-model" class="input-field">
+                        <option value="">全部模型</option>
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label>账号</label>
+                      <select id="request-audit-account" class="input-field">
+                        <option value="">全部账号</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div id="request-audit-summary" class="ops-audit-summary"></div>
+                  <div id="request-audit-preview" class="ops-compact-preview">
+                    <div class="empty-card">等待请求审计数据。</div>
+                  </div>
+                </div>
+
                 <div class="card ops-log-viewer">
                   <div class="ops-log-toolbar">
                     <div class="form-field">
@@ -1052,6 +1128,28 @@
                             <small>根据客户端专属 API Key 自动写入来源标签，减少对 `x-client-tag` 的依赖。</small>
                           </span>
                         </label>
+                      </div>
+                    </fieldset>
+
+                    <fieldset class="system-config-fieldset">
+                      <legend>请求内容留痕</legend>
+                      <p>仅用于本机管理员排障。关闭后仍保留轻量请求审计，但不记录提示词正文。</p>
+                      <div class="system-config-form-grid">
+                        <label class="system-switch-card full">
+                          <input id="request-content-audit-enabled" type="checkbox" />
+                          <span>
+                            <strong>记录请求提示词正文</strong>
+                            <small>开启后保存最近请求的 messages / tool 名称摘要；不会保存完整 API Key 或 OAuth token。</small>
+                          </span>
+                        </label>
+                        <div class="form-field">
+                          <label>单条最大字符</label>
+                          <input id="request-content-audit-max-characters" class="input-field" type="number" min="1000" max="200000" step="1000" />
+                        </div>
+                        <div class="form-field">
+                          <label>最多保留条数</label>
+                          <input id="request-content-audit-max-events" class="input-field" type="number" min="0" max="10000" step="50" />
+                        </div>
                       </div>
                     </fieldset>
 
@@ -1643,6 +1741,60 @@
           <button id="close-usage-details-modal" class="btn ghost mini" type="button">关闭</button>
         </div>
         <div id="usage-details-modal-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <div id="account-health-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>账号健康与路由解释</h3>
+            <p>查看当前公网调度可用性、账号状态与号池选择原因。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-account-health-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="account-health-list" class="ops-account-list">
+            <div class="empty-card">等待账号健康数据。</div>
+          </div>
+          <div class="ops-modal-section-head">号池路由</div>
+          <div id="routing-explanation-list" class="ops-routing-list">
+            <div class="empty-card">等待路由解释数据。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="request-audit-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>请求审计明细</h3>
+            <p>查看最近请求、上游账号、Token、延迟和错误归因。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-request-audit-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="request-audit-list" class="ops-audit-list">
+            <div class="empty-card">等待请求审计数据。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="request-audit-content-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>请求内容</h3>
+            <p>仅展示已开启内容留痕后捕获的本地请求正文。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-request-audit-content" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="request-audit-content-meta" class="ops-control-result"></div>
+          <pre id="request-audit-content-output" class="ops-log-output">等待读取请求内容。</pre>
+        </div>
       </div>
     </div>
 
