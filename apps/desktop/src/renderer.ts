@@ -157,11 +157,12 @@ declare global {
         maxLines?: number,
       ) => Promise<OperationsLogReadResponse>;
       controlGatewayService?: (
-        action: "install" | "start" | "stop" | "restart",
+        action: "install" | "start" | "stop" | "restart" | "repair",
       ) => Promise<{ ok: boolean; data: OperationsStatus["gateway"] }>;
       controlCloudflareService?: (
         action: "start" | "stop" | "restart",
       ) => Promise<{ ok: boolean; data: OperationsStatus["cloudflare"] }>;
+      repairPublicGateway?: () => Promise<OperationsStatusResponse>;
       loginCodexOAuth: () => Promise<{
         ok: boolean;
         data: {
@@ -714,6 +715,7 @@ type LaunchAgentStatus = {
   plistPath: string;
   installed: boolean;
   loaded: boolean;
+  disabled?: boolean;
   running: boolean;
   state?: string;
   pid?: number;
@@ -6599,6 +6601,7 @@ function renderOperations(): void {
   );
   renderOpsFacts("ops-gateway-facts", [
     ["LaunchAgent", status.gateway.installed ? "已安装" : "未安装"],
+    ["启用状态", status.gateway.disabled === true ? "已禁用" : status.gateway.disabled === false ? "已启用" : "未知"],
     ["状态", `${status.gateway.state || "unknown"} · ${formatOpsPid(status.gateway.pid)}`],
     ["端口", `${status.gateway.baseUrl}/v1`],
     [
@@ -6625,6 +6628,7 @@ function renderOperations(): void {
   );
   renderOpsFacts("ops-cloudflare-facts", [
     ["LaunchAgent", status.cloudflare.installed ? "已安装" : "未安装"],
+    ["启用状态", status.cloudflare.disabled === true ? "已禁用" : status.cloudflare.disabled === false ? "已启用" : "未知"],
     ["状态", `${status.cloudflare.state || "unknown"} · ${formatOpsPid(status.cloudflare.pid)}`],
     ["Tunnel", status.cloudflare.tunnelName || "未配置"],
     ["Hostname", status.cloudflare.hostname || "未配置"],
@@ -6734,7 +6738,7 @@ async function readOperationsLog(): Promise<void> {
 }
 
 async function controlGatewayService(
-  action: "install" | "start" | "stop" | "restart",
+  action: "install" | "start" | "stop" | "restart" | "repair",
 ): Promise<void> {
   const api = getGatewayApi();
   if (!api.controlGatewayService) {
@@ -6745,12 +6749,33 @@ async function controlGatewayService(
     start: "启动",
     stop: "停止",
     restart: "重启",
+    repair: "修复",
   };
   setBanner(`正在${labels[action]}网关常驻服务...`, "info");
   await api.controlGatewayService(action);
   await refreshOperationsStatus();
   await readOperationsLog();
   setBanner(`网关常驻服务已${labels[action]}。`, "success");
+}
+
+async function repairPublicGateway(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.repairPublicGateway) {
+    throw new Error("当前桌面桥接未提供一键修复接口。");
+  }
+  setBanner("正在一键修复公网网关链路...", "info");
+  const response = await api.repairPublicGateway();
+  state.operationsStatus = response.data;
+  renderOperations();
+  await readOperationsLog();
+  const publicProbe = response.data.publicProbe;
+  const probeOk = Boolean(publicProbe?.expectedGatewayAuth || publicProbe?.status === 200);
+  setBanner(
+    probeOk
+      ? "公网网关链路已修复，公网探测正常。"
+      : "网关服务已修复，请查看公网探测和 Tunnel 日志确认外网链路。",
+    probeOk ? "success" : "info",
+  );
 }
 
 async function controlCloudflareService(action: "start" | "stop" | "restart"): Promise<void> {
@@ -14567,8 +14592,9 @@ function bindActions(): void {
         | "install"
         | "start"
         | "stop"
-        | "restart";
-      if (!["install", "start", "stop", "restart"].includes(serviceAction)) {
+        | "restart"
+        | "repair";
+      if (!["install", "start", "stop", "restart", "repair"].includes(serviceAction)) {
         return;
       }
       try {
@@ -14576,6 +14602,18 @@ function bindActions(): void {
         await controlGatewayService(serviceAction);
       } catch (error) {
         setBanner(`网关服务操作失败：${String(error)}`, "error");
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
+      return;
+    }
+
+    if (action === "repair-public-gateway") {
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "修复中");
+        await repairPublicGateway();
+      } catch (error) {
+        setBanner(`一键修复失败：${String(error)}`, "error");
       } finally {
         setButtonLoading(button as HTMLButtonElement, false);
       }

@@ -505,7 +505,7 @@ export class GatewayDatabase {
       this.db,
       "request_content_audit_events",
       "prompt_text",
-      "TEXT",
+      "prompt_text TEXT",
     );
     ensureColumnIfMissing(
       this.db,

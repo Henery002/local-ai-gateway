@@ -87,6 +87,7 @@ const desktopMainLogPath = join(gatewayPaths.logsDir, "desktop-main.log");
 const launchAgentsDir = join(app.getPath("home"), "Library", "LaunchAgents");
 const GATEWAY_SERVICE_LABEL = "com.local-ai-gateway.gateway";
 const CLOUDFLARED_SERVICE_LABEL = "com.local-ai-gateway.cloudflared";
+const LEGACY_DEV_GATEWAY_SERVICE_LABELS = ["com.local-ai-gateway.gateway.devsource"];
 const gatewayServiceDir = join(gatewayPaths.rootDir, "service");
 const gatewayServiceLauncherPath = join(gatewayServiceDir, "gateway-launcher.mjs");
 const gatewayServiceRunnerPath = join(gatewayServiceDir, "gateway-service-runner.mjs");
@@ -349,6 +350,7 @@ type LaunchAgentStatus = {
   plistPath: string;
   installed: boolean;
   loaded: boolean;
+  disabled?: boolean;
   running: boolean;
   state?: string;
   pid?: number;
@@ -379,7 +381,7 @@ type OperationsLogSource = {
   updatedAt?: number;
 };
 
-type GatewayServiceAction = "install" | "start" | "stop" | "restart";
+type GatewayServiceAction = "install" | "start" | "stop" | "restart" | "repair";
 type CloudflareServiceAction = "start" | "stop" | "restart";
 
 function sleep(ms: number): Promise<void> {
@@ -419,6 +421,15 @@ function tryExecText(command: string, args: string[]): string | undefined {
     return execText(command, args);
   } catch {
     return undefined;
+  }
+}
+
+function tryExecFile(command: string, args: string[]): boolean {
+  try {
+    execFileSync(command, args, { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -542,6 +553,7 @@ function parseLaunchAgentStatus(
 ): LaunchAgentStatus {
   const installed = existsSync(plistPath);
   const target = getLaunchctlServiceTarget(label);
+  const disabled = isLaunchAgentDisabled(label);
   try {
     const output = execText("launchctl", ["print", target]);
     const state = output.match(/\bstate = ([^\n]+)/)?.[1]?.trim();
@@ -553,6 +565,7 @@ function parseLaunchAgentStatus(
       label,
       plistPath,
       installed,
+      disabled,
       loaded: true,
       running: state === "running",
       state,
@@ -564,6 +577,7 @@ function parseLaunchAgentStatus(
       label,
       plistPath,
       installed,
+      disabled,
       loaded: false,
       running: false,
       state: installed ? "unloaded" : "missing",
@@ -572,29 +586,61 @@ function parseLaunchAgentStatus(
   }
 }
 
+function isLaunchAgentDisabled(label: string): boolean | undefined {
+  try {
+    const output = execText("launchctl", ["print-disabled", getLaunchctlDomain()]);
+    const pattern = new RegExp(`"${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\s*=>\\s*(enabled|disabled)`);
+    const match = output.match(pattern);
+    return match ? match[1] === "disabled" : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function enableLaunchAgent(label: string): void {
+  tryExecFile("launchctl", ["enable", getLaunchctlServiceTarget(label)]);
+}
+
+function disableLaunchAgent(label: string): void {
+  tryExecFile("launchctl", ["disable", getLaunchctlServiceTarget(label)]);
+}
+
+function stopLegacyDevGatewayLaunchAgents(): void {
+  for (const label of LEGACY_DEV_GATEWAY_SERVICE_LABELS) {
+    bootoutLaunchAgent(label);
+    disableLaunchAgent(label);
+  }
+}
+
 function bootstrapLaunchAgent(label: string, plistPath: string): void {
-  execFileSync("launchctl", ["bootstrap", getLaunchctlDomain(), plistPath], {
-    stdio: "pipe",
-  });
-  execFileSync("launchctl", ["enable", getLaunchctlServiceTarget(label)], {
-    stdio: "pipe",
-  });
+  enableLaunchAgent(label);
+  try {
+    execFileSync("launchctl", ["bootstrap", getLaunchctlDomain(), plistPath], {
+      stdio: "pipe",
+    });
+  } catch (error) {
+    enableLaunchAgent(label);
+    if (!parseLaunchAgentStatus(label, plistPath).loaded) {
+      execFileSync("launchctl", ["bootstrap", getLaunchctlDomain(), plistPath], {
+        stdio: "pipe",
+      });
+    }
+  }
+  enableLaunchAgent(label);
 }
 
 function bootoutLaunchAgent(label: string): void {
-  try {
-    execFileSync("launchctl", ["bootout", getLaunchctlServiceTarget(label)], {
-      stdio: "pipe",
-    });
-  } catch {
-    // Already unloaded.
-  }
+  tryExecFile("launchctl", ["bootout", getLaunchctlServiceTarget(label)]);
 }
 
 function kickstartLaunchAgent(label: string): void {
   execFileSync("launchctl", ["kickstart", "-k", getLaunchctlServiceTarget(label)], {
     stdio: "pipe",
   });
+}
+
+function tryKickstartLaunchAgent(label: string): boolean {
+  return tryExecFile("launchctl", ["kickstart", "-k", getLaunchctlServiceTarget(label)]);
 }
 
 function resolveNodeExecutable(): string {
@@ -979,6 +1025,7 @@ class GatewayServiceManager {
       GATEWAY_SERVICE_LABEL,
       gatewayServicePlistPath,
     ).pid;
+    stopLegacyDevGatewayLaunchAgents();
     writeGatewayServiceFiles();
     writeGatewayServicePlist();
     bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
@@ -1002,6 +1049,7 @@ class GatewayServiceManager {
       GATEWAY_SERVICE_LABEL,
       gatewayServicePlistPath,
     ).pid;
+    stopLegacyDevGatewayLaunchAgents();
     writeGatewayServiceFiles();
     writeGatewayServicePlist();
     bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
@@ -1030,6 +1078,7 @@ class GatewayServiceManager {
       GATEWAY_SERVICE_LABEL,
       gatewayServicePlistPath,
     ).pid;
+    stopLegacyDevGatewayLaunchAgents();
     writeGatewayServiceFiles();
     writeGatewayServicePlist();
     bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
@@ -1039,6 +1088,31 @@ class GatewayServiceManager {
     if (duplicate.blocked) {
       throw new Error(
         `端口 ${port} 已被非网关进程占用，无法重启常驻服务。PID=${duplicate.pid}`,
+      );
+    }
+    bootstrapLaunchAgent(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath);
+    kickstartLaunchAgent(GATEWAY_SERVICE_LABEL);
+    await waitForGatewayEndpointHealthy(port);
+    return this.status();
+  }
+
+  async repair(): Promise<GatewayServiceStatus> {
+    const port = getConfiguredGatewayPort();
+    const previousServicePid = parseLaunchAgentStatus(
+      GATEWAY_SERVICE_LABEL,
+      gatewayServicePlistPath,
+    ).pid;
+    stopLegacyDevGatewayLaunchAgents();
+    writeGatewayServiceFiles();
+    writeGatewayServicePlist();
+    enableLaunchAgent(GATEWAY_SERVICE_LABEL);
+    bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    const duplicate = await killLocalGatewayProcessOnPort(port, {
+      knownGatewayPids: [previousServicePid],
+    });
+    if (duplicate.blocked) {
+      throw new Error(
+        `端口 ${port} 已被非网关进程占用，无法一键修复网关服务。PID=${duplicate.pid}`,
       );
     }
     bootstrapLaunchAgent(GATEWAY_SERVICE_LABEL, gatewayServicePlistPath);
@@ -1228,6 +1302,12 @@ class GatewayProcessManager {
 
   private async startManagedGateway(): Promise<void> {
     const port = getConfiguredGatewayPort();
+    if (!app.isPackaged && gatewayServiceManager.isInstalled()) {
+      bootoutLaunchAgent(GATEWAY_SERVICE_LABEL);
+    }
+    if (!app.isPackaged) {
+      stopLegacyDevGatewayLaunchAgents();
+    }
     const duplicate = await killLocalGatewayProcessOnPort(port);
     if (duplicate.blocked) {
       throw new Error(
@@ -1835,7 +1915,7 @@ async function buildOperationsStatus() {
 }
 
 async function controlGatewayService(action: GatewayServiceAction) {
-  if (action === "install" || action === "start" || action === "restart") {
+  if (action === "install" || action === "start" || action === "restart" || action === "repair") {
     await gatewayManager.stopManaged();
   }
   if (action === "install") {
@@ -1847,7 +1927,39 @@ async function controlGatewayService(action: GatewayServiceAction) {
   if (action === "stop") {
     return gatewayServiceManager.stop();
   }
+  if (action === "repair") {
+    return gatewayServiceManager.repair();
+  }
   return gatewayServiceManager.restart();
+}
+
+async function repairPublicGatewayConnectivity() {
+  const gateway = await controlGatewayService("repair");
+  let cloudflare = buildCloudflareServiceStatus();
+  let cloudflareRepaired = false;
+  if (cloudflare.installed) {
+    try {
+      cloudflare = controlCloudflareService("restart");
+      cloudflareRepaired = true;
+    } catch (error) {
+      cloudflare = {
+        ...buildCloudflareServiceStatus(),
+        error: toErrorMessage(error),
+      };
+    }
+  }
+  const publicProbe = await probePublicModelsEndpoint(cloudflare.publicBaseUrl);
+  return {
+    ok: true,
+    data: {
+      generatedAt: toIsoNow(),
+      gateway,
+      cloudflare,
+      cloudflareRepaired,
+      publicProbe,
+      logs: getOperationsLogSources(),
+    },
+  };
 }
 
 function controlCloudflareService(action: CloudflareServiceAction) {
@@ -1861,13 +1973,13 @@ function controlCloudflareService(action: CloudflareServiceAction) {
   if (action === "restart") {
     bootoutLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
     bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
-    kickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    tryKickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
     return buildCloudflareServiceStatus();
   }
   if (!parseLaunchAgentStatus(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath).loaded) {
     bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
   }
-  kickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+  tryKickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
   return buildCloudflareServiceStatus();
 }
 
@@ -3166,7 +3278,7 @@ ipcMain.handle(
   "gateway:control-gateway-service",
   async (_event, action: GatewayServiceAction) => {
     const normalized = String(action ?? "") as GatewayServiceAction;
-    if (!["install", "start", "stop", "restart"].includes(normalized)) {
+    if (!["install", "start", "stop", "restart", "repair"].includes(normalized)) {
       throw new Error("不支持的网关服务操作。");
     }
     const data = await controlGatewayService(normalized);
@@ -3174,6 +3286,12 @@ ipcMain.handle(
     return { ok: true, data };
   },
 );
+
+ipcMain.handle("gateway:repair-public-gateway", async () => {
+  const result = await repairPublicGatewayConnectivity();
+  void refreshTrayStatus();
+  return result;
+});
 
 ipcMain.handle(
   "gateway:control-cloudflare-service",

@@ -61,6 +61,7 @@ const api = {
     ipcRenderer.invoke("gateway:control-gateway-service", action),
   controlCloudflareService: (action: string) =>
     ipcRenderer.invoke("gateway:control-cloudflare-service", action),
+  repairPublicGateway: () => ipcRenderer.invoke("gateway:repair-public-gateway"),
   loginCodexOAuth: () => ipcRenderer.invoke("gateway:login-codex-oauth"),
   submitCodexOAuthInput: (input: string) =>
     ipcRenderer.invoke("gateway:submit-codex-oauth-input", input),
