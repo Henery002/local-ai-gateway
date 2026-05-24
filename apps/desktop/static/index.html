@@ -728,6 +728,30 @@
                     <button class="usage-window-chip" data-action="notification-filter" data-notification-filter="unread" data-active="false">未读</button>
                     <button class="usage-window-chip" data-action="notification-filter" data-notification-filter="read" data-active="false">已读</button>
                   </div>
+                  <div class="notification-filter-row">
+                    <label>
+                      类型
+                      <select id="notification-type-filter" class="input-field">
+                        <option value="all">全部类型</option>
+                        <option value="quota">额度</option>
+                        <option value="rate-limit">限流/并发</option>
+                        <option value="pool">号池</option>
+                        <option value="public-access">公网访问</option>
+                        <option value="session-safety">账号保护</option>
+                        <option value="request-safety">请求安全</option>
+                        <option value="model-policy">模型权限</option>
+                        <option value="other">其他</option>
+                      </select>
+                    </label>
+                    <label>
+                      每页
+                      <select id="notification-page-size" class="input-field">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                      </select>
+                    </label>
+                  </div>
                   <button class="btn secondary" data-action="mark-all-notifications-read" type="button">全部标为已读</button>
                 </div>
                 <div id="notification-summary" class="notification-summary-grid">
@@ -736,6 +760,7 @@
                 <div id="notification-list" class="notification-list">
                   <div class="empty-card">当前暂无消息通知。</div>
                 </div>
+                <div id="notification-pagination" class="notification-pagination"></div>
               </div>
             </section>
           </div>

@@ -949,6 +949,9 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"usage-alert-status-filter\"");
     expect(indexHtml).toContain("id=\"usage-alert-severity-filter\"");
     expect(indexHtml).toContain("id=\"usage-alert-consumer-type-filter\"");
+    expect(indexHtml).toContain("id=\"notification-type-filter\"");
+    expect(indexHtml).toContain("id=\"notification-page-size\"");
+    expect(indexHtml).toContain("id=\"notification-pagination\"");
     expect(indexHtml).toContain("公网成员");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
@@ -1013,6 +1016,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("data-action=\"ack-access-alert\"");
     expect(rendererSource).toContain("data-action=\"ack-all-access-alerts\"");
     expect(rendererSource).toContain("data-action=\"clear-acknowledged-access-alerts\"");
+    expect(rendererSource).toContain("formatAccessAlertTypeLabel");
+    expect(rendererSource).toContain("buildAccessAlertReadableBody");
+    expect(rendererSource).toContain("buildAccessAlertNotification");
+    expect(rendererSource).toContain("normalizeNotificationTypeFilter");
+    expect(rendererSource).toContain("notificationPageSize");
     expect(rendererSource).toContain("class=\"usage-alert-event-card");
     expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("occurrenceCount");
@@ -1059,6 +1067,10 @@ describe("desktop build output", () => {
     expect(styles).toContain(".system-diagnostics-modal {");
     expect(styles).toContain(".usage-alert-action-grid {");
     expect(styles).toContain(".notification-list {");
+    expect(styles).toContain(".notification-filter-row {");
+    expect(styles).toContain(".notification-meta {");
+    expect(styles).toContain(".notification-pagination {");
+    expect(styles).toContain(".notification-card.tone-danger");
     expect(styles).toContain(".notification-unread-badge {");
     expect(styles).toContain(".usage-chart-bars {");
     expect(styles).toContain(".usage-timeline-bars {");

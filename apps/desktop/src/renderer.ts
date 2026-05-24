@@ -1280,6 +1280,16 @@ type UsageAlertStatusFilter = "all" | "unacknowledged" | "acknowledged";
 type UsageAlertSeverityFilter = "all" | AccessAlertEvent["severity"];
 type UsageAlertConsumerTypeFilter = "all" | SecurityAccessConsumer["type"];
 type NotificationFilter = "all" | "unread" | "read";
+type NotificationTypeFilter =
+  | "all"
+  | "quota"
+  | "rate-limit"
+  | "pool"
+  | "public-access"
+  | "session-safety"
+  | "request-safety"
+  | "model-policy"
+  | "other";
 type PublicValidationCheckId = "models" | "chat" | "stream";
 type PublicValidationState = Record<PublicValidationCheckId, boolean>;
 type NotificationItem = {
@@ -1287,6 +1297,11 @@ type NotificationItem = {
   title: string;
   body: string;
   severity: AccessAlertEvent["severity"];
+  typeFilter: NotificationTypeFilter;
+  typeLabel: string;
+  consumerLabel?: string;
+  accessKeyLabel?: string;
+  meta: string[];
   source: "access-alert";
   timestamp: number;
   read: boolean;
@@ -1339,6 +1354,9 @@ const state: {
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
   usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
   notificationFilter: NotificationFilter;
+  notificationTypeFilter: NotificationTypeFilter;
+  notificationPage: number;
+  notificationPageSize: number;
   notificationReadIds: Set<string>;
   nativePushedNotificationIds: Set<string>;
   routingClientFilter: string;
@@ -1363,6 +1381,9 @@ const state: {
   usageAlertSeverityFilter: "all",
   usageAlertConsumerTypeFilter: "all",
   notificationFilter: "all",
+  notificationTypeFilter: "all",
+  notificationPage: 1,
+  notificationPageSize: 20,
   notificationReadIds: new Set<string>(),
   nativePushedNotificationIds: new Set<string>(),
   routingClientFilter: "all",
@@ -5874,26 +5895,209 @@ function getNotificationIdForAlert(event: AccessAlertEvent): string {
   return `access-alert:${event.id ?? event.dedupeKey ?? `${event.type}:${event.timestamp}`}`;
 }
 
+function formatShortReference(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (value.length <= 18) {
+    return value;
+  }
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function getNotificationTypeFilter(eventType: string): NotificationTypeFilter {
+  if (
+    eventType.includes("quota") ||
+    eventType.includes("token_limit") ||
+    eventType === "usage_quota_warning"
+  ) {
+    return "quota";
+  }
+  if (eventType.includes("rate_limit") || eventType.includes("concurrency")) {
+    return "rate-limit";
+  }
+  if (eventType.includes("pool")) {
+    return "pool";
+  }
+  if (eventType.includes("public_user") || eventType.includes("public_pool")) {
+    return "public-access";
+  }
+  if (eventType.startsWith("session_safety")) {
+    return "session-safety";
+  }
+  if (eventType.startsWith("request_")) {
+    return "request-safety";
+  }
+  if (eventType.includes("model")) {
+    return "model-policy";
+  }
+  return "other";
+}
+
+function formatNotificationTypeFilterLabel(type: NotificationTypeFilter): string {
+  if (type === "quota") {
+    return "额度";
+  }
+  if (type === "rate-limit") {
+    return "限流/并发";
+  }
+  if (type === "pool") {
+    return "号池";
+  }
+  if (type === "public-access") {
+    return "公网访问";
+  }
+  if (type === "session-safety") {
+    return "账号保护";
+  }
+  if (type === "request-safety") {
+    return "请求安全";
+  }
+  if (type === "model-policy") {
+    return "模型权限";
+  }
+  if (type === "other") {
+    return "其他";
+  }
+  return "全部类型";
+}
+
+function formatAccessAlertTypeLabel(eventType: string): string {
+  const labels: Record<string, string> = {
+    usage_quota_warning: "额度使用接近阈值",
+    access_policy_daily_quota_exceeded: "日额度已用尽",
+    access_policy_total_quota_exceeded: "总额度已用尽",
+    access_policy_period_expired: "周期包已过期",
+    access_policy_period_quota_exceeded: "周期额度已用尽",
+    access_policy_rate_limit_exceeded: "请求频率超限",
+    access_policy_concurrency_exceeded: "并发请求超限",
+    access_policy_model_denied: "模型权限不足",
+    access_policy_expired: "成员策略已过期",
+    access_policy_pool_denied: "未授权访问号池",
+    access_policy_pool_visibility_denied: "号池可见性不允许",
+    access_policy_public_pool_requires_member_key: "公网号池需要成员 Key",
+    access_policy_public_user_disabled: "公网成员未启用",
+    request_body_limit_exceeded: "请求体过大",
+    request_messages_limit_exceeded: "消息数量过多",
+    request_tools_limit_exceeded: "工具数量过多",
+    request_tool_schema_limit_exceeded: "工具 schema 过大",
+    request_message_text_limit_exceeded: "单条消息过长",
+    request_tool_result_limit_exceeded: "工具结果过长",
+    access_policy_output_token_limit_exceeded: "输出 Token 超限",
+    access_policy_input_token_limit_exceeded: "输入 Token 超限",
+    session_safety_concurrency_exceeded: "同账号并发保护",
+    session_safety_rate_limit_exceeded: "同账号短窗限流",
+  };
+  return labels[eventType] ?? eventType.replace(/_/g, " ");
+}
+
+function getAccessAlertDetailNumber(
+  event: AccessAlertEvent,
+  keys: string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = event.details?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function getAccessAlertDetailString(
+  event: AccessAlertEvent,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = event.details?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function buildAccessAlertReadableBody(
+  event: AccessAlertEvent,
+  consumerLabel?: string,
+  accessKeyLabel?: string,
+): string {
+  const actor = consumerLabel ?? accessKeyLabel ?? "未知成员";
+  const limit = getAccessAlertDetailNumber(event, [
+    "limit",
+    "maxTools",
+    "maxMessages",
+    "limitBytes",
+    "limitChars",
+  ]);
+  const used = getAccessAlertDetailNumber(event, [
+    "usedTokens",
+    "usedRequests",
+    "requestBytes",
+    "toolCount",
+    "messageCount",
+    "inFlightRequests",
+  ]);
+  const poolId = getAccessAlertDetailString(event, ["poolId", "resolvedPoolId"]);
+  const model = getAccessAlertDetailString(event, ["modelAlias", "requestedModelAlias"]);
+  const resetAt = getAccessAlertDetailString(event, ["resetAt", "periodEndedAt"]);
+  const bits = [
+    `${actor} 触发「${formatAccessAlertTypeLabel(event.type)}」。`,
+    model ? `模型 ${model}` : undefined,
+    poolId ? `号池 ${poolId}` : undefined,
+    typeof used === "number" ? `当前 ${formatCompactCount(used)}` : undefined,
+    typeof limit === "number" ? `上限 ${formatCompactCount(limit)}` : undefined,
+    resetAt ? `恢复时间 ${resetAt}` : undefined,
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
+function buildAccessAlertNotification(event: AccessAlertEvent): NotificationItem {
+  const id = getNotificationIdForAlert(event);
+  const consumerType = getAccessAlertConsumerType(event);
+  const typeFilter = getNotificationTypeFilter(event.type);
+  const typeLabel = formatAccessAlertTypeLabel(event.type);
+  const consumerLabel = event.consumerId
+    ? formatAuditConsumerLabel(event.consumerId)
+    : consumerType
+      ? formatAccessAlertConsumerTypeLabel(consumerType)
+      : undefined;
+  const accessKeyLabel = event.accessKeyId
+    ? formatAuditAccessKeyLabel(event.accessKeyId, event.consumerId)
+    : undefined;
+  const occurrenceCount = event.occurrenceCount ?? 1;
+  const meta = [
+    consumerType ? formatAccessAlertConsumerTypeLabel(consumerType) : undefined,
+    consumerLabel ? `成员 ${consumerLabel}` : undefined,
+    accessKeyLabel ? `Key ${accessKeyLabel}` : undefined,
+    occurrenceCount > 1 ? `重复 ${formatCompactCount(occurrenceCount)} 次` : undefined,
+    event.lastSeenAt ? `最近 ${formatDate(event.lastSeenAt)}` : undefined,
+    event.consumerId && !getAccessConsumerById(event.consumerId)
+      ? `原始成员 ${formatShortReference(event.consumerId)}`
+      : undefined,
+    event.accessKeyId && !getAccessKeyById(event.accessKeyId)
+      ? `原始 Key ${formatShortReference(event.accessKeyId)}`
+      : undefined,
+  ].filter(Boolean) as string[];
+  return {
+    id,
+    title: `${formatAccessAlertSeverityLabel(event.severity)} · ${typeLabel}`,
+    body: buildAccessAlertReadableBody(event, consumerLabel, accessKeyLabel),
+    severity: event.severity,
+    typeFilter,
+    typeLabel,
+    consumerLabel,
+    accessKeyLabel,
+    meta,
+    source: "access-alert",
+    timestamp: event.lastSeenAt ?? event.timestamp,
+    read: state.notificationReadIds.has(id) || Boolean(event.acknowledgedAt),
+    alert: event,
+  };
+}
+
 function deriveNotificationItems(): NotificationItem[] {
-  return (state.accessAlerts ?? []).map((event) => {
-    const id = getNotificationIdForAlert(event);
-    const consumerType = getAccessAlertConsumerType(event);
-    const parts = [
-      consumerType ? formatAccessAlertConsumerTypeLabel(consumerType) : undefined,
-      event.consumerId ? `成员 ${event.consumerId}` : undefined,
-      event.accessKeyId ? `Key ${event.accessKeyId}` : undefined,
-    ].filter(Boolean);
-    return {
-      id,
-      title: `${formatAccessAlertSeverityLabel(event.severity)} · ${event.type}`,
-      body: `${event.message}${parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}`,
-      severity: event.severity,
-      source: "access-alert",
-      timestamp: event.lastSeenAt ?? event.timestamp,
-      read: state.notificationReadIds.has(id) || Boolean(event.acknowledgedAt),
-      alert: event,
-    };
-  });
+  return (state.accessAlerts ?? []).map(buildAccessAlertNotification);
 }
 
 function updateNotificationUnreadBadge(): void {
@@ -5955,9 +6159,32 @@ function markAllNotificationsRead(): void {
   renderUsageAlertEventsPreview();
 }
 
+function normalizeNotificationTypeFilter(value: string | undefined): NotificationTypeFilter {
+  const allowed: NotificationTypeFilter[] = [
+    "all",
+    "quota",
+    "rate-limit",
+    "pool",
+    "public-access",
+    "session-safety",
+    "request-safety",
+    "model-policy",
+    "other",
+  ];
+  return allowed.includes(value as NotificationTypeFilter)
+    ? (value as NotificationTypeFilter)
+    : "all";
+}
+
+function normalizeNotificationPageSize(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return [10, 20, 50].includes(parsed) ? parsed : 20;
+}
+
 function renderNotificationCenter(): void {
   const summaryNode = document.getElementById("notification-summary");
   const listNode = document.getElementById("notification-list");
+  const paginationNode = document.getElementById("notification-pagination");
   if (!summaryNode || !listNode) {
     updateNotificationUnreadBadge();
     return;
@@ -5991,33 +6218,57 @@ function renderNotificationCenter(): void {
           ? "true"
           : "false";
     });
+  const typeFilterNode = document.getElementById(
+    "notification-type-filter",
+  ) as HTMLSelectElement | null;
+  const pageSizeNode = document.getElementById(
+    "notification-page-size",
+  ) as HTMLSelectElement | null;
+  if (typeFilterNode) {
+    typeFilterNode.value = state.notificationTypeFilter;
+  }
+  if (pageSizeNode) {
+    pageSizeNode.value = String(state.notificationPageSize);
+  }
 
   const items = allItems.filter((item) => {
     if (state.notificationFilter === "unread") {
-      return !item.read;
+      return !item.read && (state.notificationTypeFilter === "all" || item.typeFilter === state.notificationTypeFilter);
     }
     if (state.notificationFilter === "read") {
-      return item.read;
+      return item.read && (state.notificationTypeFilter === "all" || item.typeFilter === state.notificationTypeFilter);
     }
-    return true;
+    return state.notificationTypeFilter === "all" || item.typeFilter === state.notificationTypeFilter;
   });
   if (items.length === 0) {
     listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无消息通知。</div>";
+    if (paginationNode) {
+      paginationNode.innerHTML = "";
+    }
     updateNotificationUnreadBadge();
     return;
   }
-  listNode.innerHTML = items
+  const totalPages = Math.max(1, Math.ceil(items.length / state.notificationPageSize));
+  state.notificationPage = Math.min(Math.max(1, state.notificationPage), totalPages);
+  const pageStart = (state.notificationPage - 1) * state.notificationPageSize;
+  const pageItems = items.slice(pageStart, pageStart + state.notificationPageSize);
+  listNode.innerHTML = pageItems
     .map(
       (item) => `
-        <div class="notification-card ${item.read ? "read" : "unread"}">
+        <div class="notification-card ${item.read ? "read" : "unread"} tone-${escapeHtml(accessAlertSeverityTone(item.severity))}">
           <div class="notification-main">
             <div class="notification-title">
               <strong>${escapeHtml(item.title)}</strong>
+              <span class="badge neutral">${escapeHtml(item.typeLabel)}</span>
               <span class="badge ${escapeHtml(accessAlertSeverityTone(item.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(item.severity))}</span>
               <span class="badge ${item.read ? "active" : "warning"}">${item.read ? "已读" : "未读"}</span>
             </div>
             <p>${escapeHtml(item.body)}</p>
-            <span>${escapeHtml(formatDate(item.timestamp))} · 站内消息 · ${escapeHtml(item.source === "access-alert" ? "访问告警" : "系统")}</span>
+            <div class="notification-meta">
+              ${item.meta.map((meta) => `<span>${escapeHtml(meta)}</span>`).join("")}
+              <span>${escapeHtml(formatDate(item.timestamp))}</span>
+              <span>${escapeHtml(item.source === "access-alert" ? "访问告警" : "系统")}</span>
+            </div>
           </div>
           <div class="notification-actions">
             ${item.read ? "" : `<button class="btn secondary mini" data-action="mark-notification-read" data-notification-id="${escapeHtml(item.id)}">标为已读</button>`}
@@ -6027,6 +6278,15 @@ function renderNotificationCenter(): void {
       `,
     )
     .join("");
+  if (paginationNode) {
+    paginationNode.innerHTML = `
+      <span>第 ${escapeHtml(String(state.notificationPage))} / ${escapeHtml(String(totalPages))} 页 · 共 ${escapeHtml(formatCompactCount(items.length))} 条</span>
+      <div class="notification-page-actions">
+        <button class="btn secondary mini" data-action="notification-page" data-page="prev" type="button" ${state.notificationPage <= 1 ? "disabled" : ""}>上一页</button>
+        <button class="btn secondary mini" data-action="notification-page" data-page="next" type="button" ${state.notificationPage >= totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    `;
+  }
   updateNotificationUnreadBadge();
 }
 
@@ -14417,6 +14677,18 @@ function bindActions(): void {
 
   document.addEventListener("change", (event) => {
     const target = event.target as HTMLSelectElement | null;
+    if (target?.id === "notification-type-filter") {
+      state.notificationTypeFilter = normalizeNotificationTypeFilter(target.value);
+      state.notificationPage = 1;
+      renderNotificationCenter();
+      return;
+    }
+    if (target?.id === "notification-page-size") {
+      state.notificationPageSize = normalizeNotificationPageSize(target.value);
+      state.notificationPage = 1;
+      renderNotificationCenter();
+      return;
+    }
     if (
       !target ||
       ![
@@ -14813,6 +15085,13 @@ function bindActions(): void {
       const nextFilter = button.dataset.notificationFilter;
       state.notificationFilter =
         nextFilter === "unread" || nextFilter === "read" ? nextFilter : "all";
+      state.notificationPage = 1;
+      renderNotificationCenter();
+      return;
+    }
+
+    if (action === "notification-page" && button.dataset.page) {
+      state.notificationPage += button.dataset.page === "next" ? 1 : -1;
       renderNotificationCenter();
       return;
     }

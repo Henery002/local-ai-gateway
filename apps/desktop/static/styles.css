@@ -3425,6 +3425,26 @@ button, input, select {
   flex-wrap: wrap;
 }
 
+.notification-filter-row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.notification-filter-row label {
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  min-width: 132px;
+}
+
+.notification-filter-row .input-field {
+  min-height: 34px;
+}
+
 .notification-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3493,14 +3513,28 @@ button, input, select {
   gap: 12px;
   align-items: start;
   padding: 14px 16px;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
 }
 
 .notification-card.unread {
   border-color: var(--warning-border);
+}
+
+.notification-card.tone-danger {
+  background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+  border-color: var(--danger-border);
+}
+
+.notification-card.tone-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
+}
+
+.notification-card.tone-neutral {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .notification-card.read {
@@ -3537,9 +3571,39 @@ button, input, select {
   line-height: 1.5;
 }
 
+.notification-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.notification-meta span,
 .notification-main span:not(.badge) {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.notification-meta span {
+  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.notification-pagination {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 34px;
+}
+
+.notification-page-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .form-row {
