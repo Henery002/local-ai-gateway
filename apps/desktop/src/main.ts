@@ -643,6 +643,40 @@ function tryKickstartLaunchAgent(label: string): boolean {
   return tryExecFile("launchctl", ["kickstart", "-k", getLaunchctlServiceTarget(label)]);
 }
 
+async function waitForLaunchAgentLoaded(
+  label: string,
+  plistPath: string,
+  timeoutMs = 8_000,
+): Promise<LaunchAgentStatus> {
+  const deadline = Date.now() + timeoutMs;
+  let latest = parseLaunchAgentStatus(label, plistPath);
+  while (Date.now() < deadline) {
+    latest = parseLaunchAgentStatus(label, plistPath);
+    if (latest.loaded) {
+      return latest;
+    }
+    await sleep(300);
+  }
+  return latest;
+}
+
+async function waitForLaunchAgentRunning(
+  label: string,
+  plistPath: string,
+  timeoutMs = 10_000,
+): Promise<LaunchAgentStatus> {
+  const deadline = Date.now() + timeoutMs;
+  let latest = parseLaunchAgentStatus(label, plistPath);
+  while (Date.now() < deadline) {
+    latest = parseLaunchAgentStatus(label, plistPath);
+    if (latest.running) {
+      return latest;
+    }
+    await sleep(400);
+  }
+  return latest;
+}
+
 function resolveNodeExecutable(): string {
   const candidates = [
     process.env.LOCAL_AI_GATEWAY_NODE_PATH,
@@ -1939,7 +1973,7 @@ async function repairPublicGatewayConnectivity() {
   let cloudflareRepaired = false;
   if (cloudflare.installed) {
     try {
-      cloudflare = controlCloudflareService("restart");
+      cloudflare = await controlCloudflareService("restart");
       cloudflareRepaired = true;
     } catch (error) {
       cloudflare = {
@@ -1962,7 +1996,7 @@ async function repairPublicGatewayConnectivity() {
   };
 }
 
-function controlCloudflareService(action: CloudflareServiceAction) {
+async function controlCloudflareService(action: CloudflareServiceAction) {
   if (!existsSync(cloudflaredPlistPath)) {
     throw new Error("尚未发现 Cloudflare Tunnel LaunchAgent，请先完成 Tunnel 常驻配置。");
   }
@@ -1972,14 +2006,29 @@ function controlCloudflareService(action: CloudflareServiceAction) {
   }
   if (action === "restart") {
     bootoutLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    await sleep(500);
     bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
     tryKickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+    let status = await waitForLaunchAgentRunning(
+      CLOUDFLARED_SERVICE_LABEL,
+      cloudflaredPlistPath,
+    );
+    if (!status.loaded) {
+      bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
+      tryKickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+      status = await waitForLaunchAgentRunning(
+        CLOUDFLARED_SERVICE_LABEL,
+        cloudflaredPlistPath,
+      );
+    }
     return buildCloudflareServiceStatus();
   }
   if (!parseLaunchAgentStatus(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath).loaded) {
     bootstrapLaunchAgent(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
+    await waitForLaunchAgentLoaded(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
   }
   tryKickstartLaunchAgent(CLOUDFLARED_SERVICE_LABEL);
+  await waitForLaunchAgentRunning(CLOUDFLARED_SERVICE_LABEL, cloudflaredPlistPath);
   return buildCloudflareServiceStatus();
 }
 
@@ -3300,7 +3349,7 @@ ipcMain.handle(
     if (!["start", "stop", "restart"].includes(normalized)) {
       throw new Error("不支持的 Cloudflare Tunnel 操作。");
     }
-    return { ok: true, data: controlCloudflareService(normalized) };
+    return { ok: true, data: await controlCloudflareService(normalized) };
   },
 );
 

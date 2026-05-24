@@ -6760,11 +6760,10 @@ async function controlGatewayService(
 
 async function repairPublicGateway(): Promise<void> {
   const api = getGatewayApi();
-  if (!api.repairPublicGateway) {
-    throw new Error("当前桌面桥接未提供一键修复接口。");
-  }
   setBanner("正在一键修复公网网关链路...", "info");
-  const response = await api.repairPublicGateway();
+  const response = api.repairPublicGateway
+    ? await api.repairPublicGateway()
+    : await repairPublicGatewayWithServiceFallback(api);
   state.operationsStatus = response.data;
   renderOperations();
   await readOperationsLog();
@@ -6776,6 +6775,16 @@ async function repairPublicGateway(): Promise<void> {
       : "网关服务已修复，请查看公网探测和 Tunnel 日志确认外网链路。",
     probeOk ? "success" : "info",
   );
+}
+
+async function repairPublicGatewayWithServiceFallback(
+  api: NonNullable<Window["localAIGateway"]>,
+): Promise<OperationsStatusResponse> {
+  if (!api.controlGatewayService || !api.getOperationsStatus) {
+    throw new Error("当前桌面桥接未提供一键修复接口。");
+  }
+  await api.controlGatewayService("repair");
+  return api.getOperationsStatus();
 }
 
 async function controlCloudflareService(action: "start" | "stop" | "restart"): Promise<void> {

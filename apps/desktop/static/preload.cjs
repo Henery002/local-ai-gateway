@@ -41,6 +41,7 @@ const api = {
   readOperationsLog: (sourceId, maxLines) => ipcRenderer.invoke("gateway:read-operations-log", sourceId, maxLines),
   controlGatewayService: (action) => ipcRenderer.invoke("gateway:control-gateway-service", action),
   controlCloudflareService: (action) => ipcRenderer.invoke("gateway:control-cloudflare-service", action),
+  repairPublicGateway: () => ipcRenderer.invoke("gateway:repair-public-gateway"),
   loginCodexOAuth: () => ipcRenderer.invoke("gateway:login-codex-oauth"),
   submitCodexOAuthInput: (input) => ipcRenderer.invoke("gateway:submit-codex-oauth-input", input),
   cancelCodexOAuth: () => ipcRenderer.invoke("gateway:cancel-codex-oauth"),
