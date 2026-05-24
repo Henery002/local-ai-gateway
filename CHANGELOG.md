@@ -18,6 +18,7 @@
 - 用量趋势扩展到近 7 天和近 30 天：`weekly / monthly` summary 现在输出按天聚合的成员、模型、Access Key 和号池 timeline，供图表时间窗口切换使用。
 - 新增只读用量分析接口 `GET /admin/usage/analytics`，支持 `range / granularity / clientFilter / consumerId / accessKeyId / modelAlias / poolId / outcome` 查询参数，便于后续图表按成员、Key、模型、号池和成功 / 失败状态做精细过滤。
 - 桌面端“用量与告警”第一屏新增成员健康度横向大卡片，默认展示当前筛选成员或最近调用成员，按成功率、失败量、平均延迟和近 7 天告警数量给出健康分与语义状态。
+- 桌面端用量图表刷新链路已优先消费 `/admin/usage/analytics`：刷新、后台轮询、时间窗口切换和成员筛选都会同步拉取精细分析数据；旧 `usageSummary` 继续作为兼容兜底。
 
 ### 文档
 

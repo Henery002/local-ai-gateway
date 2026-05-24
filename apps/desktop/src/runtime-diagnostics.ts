@@ -20,6 +20,7 @@ export interface RuntimeDiagnosticLoadFailure {
     | "system-settings"
     | "app-data-status"
     | "usage-summary"
+    | "usage-analytics"
     | "access-alerts"
     | "operations-status"
     | "request-audit"
@@ -150,6 +151,7 @@ export function classifyLoadFailure(
     "system-settings": "系统配置加载失败",
     "app-data-status": "应用数据概况加载失败",
     "usage-summary": "Token 用量统计加载失败",
+    "usage-analytics": "用量分析加载失败",
     "access-alerts": "访问告警事件加载失败",
     "operations-status": "运维状态加载失败",
     "request-audit": "请求审计加载失败",

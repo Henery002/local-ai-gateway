@@ -969,6 +969,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("applyUsageConsumerFilter");
     expect(rendererSource).toContain("renderUsageMemberHealthCard");
     expect(rendererSource).toContain("getUsageAnalytics");
+    expect(rendererSource).toContain("buildUsageAnalyticsRequest");
+    expect(rendererSource).toContain("refreshUsageAnalyticsOnly");
+    expect(rendererSource).toContain("state.usageAnalytics.summary");
     expect(preloadSource).toContain("getUsageAnalytics");
     expect(staticPreloadSource).toContain("getUsageAnalytics");
     expect(mainSource).toContain("gateway:get-usage-analytics");

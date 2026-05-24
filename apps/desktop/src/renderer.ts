@@ -354,6 +354,7 @@ type UsageAnalyticsResponse = {
     summary: UsageWindowSummary;
   };
 };
+type UsageAnalyticsData = UsageAnalyticsResponse["data"];
 
 type RequestAuditStatusFilter = "all" | "success" | "failure";
 
@@ -1335,6 +1336,8 @@ const state: {
   health?: DashboardHealth;
   providers?: DashboardProviders;
   usageSummary?: UsageObservability;
+  usageAnalytics?: UsageAnalyticsData;
+  usageAnalyticsKey?: string;
   accessAlerts?: AccessAlertEvent[];
   sessions?: DashboardSessions;
   settings?: ProviderSettings;
@@ -1742,6 +1745,47 @@ function normalizeUsageObservability(
   };
 }
 
+function getUsageAnalyticsRange(): UsageAnalyticsData["range"] {
+  if (state.usageObserveWindow === "weekly") {
+    return "7d";
+  }
+  if (state.usageObserveWindow === "monthly") {
+    return "30d";
+  }
+  if (state.usageObserveWindow === "history") {
+    return "all";
+  }
+  return "24h";
+}
+
+function getUsageAnalyticsGranularity(): UsageAnalyticsData["granularity"] {
+  return state.usageObserveWindow === "daily" ? "hour" : "day";
+}
+
+function buildUsageAnalyticsRequest(): Record<string, string> {
+  const request: Record<string, string> = {
+    range: getUsageAnalyticsRange(),
+    granularity: getUsageAnalyticsGranularity(),
+    clientFilter: state.usageClientFilter,
+  };
+  const consumerId = getSelectedUsageConsumerId();
+  if (consumerId) {
+    request.consumerId = consumerId;
+  }
+  return request;
+}
+
+function getUsageAnalyticsKey(request = buildUsageAnalyticsRequest()): string {
+  return JSON.stringify(
+    Object.keys(request)
+      .sort()
+      .reduce<Record<string, string>>((accumulator, key) => {
+        accumulator[key] = request[key];
+        return accumulator;
+      }, {}),
+  );
+}
+
 function normalizeAccessAlertEvents(
   value?: Partial<AccessAlertListResponse>,
 ): AccessAlertEvent[] {
@@ -1752,6 +1796,12 @@ function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
   const summary = state.usageSummary;
   if (!summary) {
     return undefined;
+  }
+  if (
+    state.usageAnalytics &&
+    state.usageAnalyticsKey === getUsageAnalyticsKey()
+  ) {
+    return state.usageAnalytics.summary;
   }
   const activeSummary =
     state.usageObserveWindow === "history"
@@ -14832,6 +14882,9 @@ function bindActions(): void {
     ) {
       state.usageConsumerFilter = target.value || "all";
       renderUsageWorkbench();
+      void refreshUsageAnalyticsOnly().catch((error) => {
+        setBanner(`刷新成员用量分析失败：${normalizeErrorMessage(error)}`, "error");
+      });
       return;
     }
 
@@ -15397,6 +15450,9 @@ function bindActions(): void {
       }
       state.usageObserveWindow = normalizedWindow;
       renderUsagePanelsForWindowChange();
+      void refreshUsageAnalyticsOnly().catch((error) => {
+        setBanner(`刷新用量分析失败：${normalizeErrorMessage(error)}`, "error");
+      });
       return;
     }
 
@@ -16205,6 +16261,7 @@ async function refresh(): Promise<void> {
     healthResult,
     providersResult,
     usageSummaryResult,
+    usageAnalyticsResult,
     accessAlertsResult,
     sessionsResult,
     settingsResult,
@@ -16220,6 +16277,9 @@ async function refresh(): Promise<void> {
     api.getHealth(),
     api.getProviders(),
     api.getUsageSummary(state.usageClientFilter),
+    api.getUsageAnalytics
+      ? api.getUsageAnalytics(buildUsageAnalyticsRequest())
+      : Promise.resolve(undefined),
     api.getAccessAlerts(),
     api.getSessions(),
     api.getProviderSettings(),
@@ -16276,6 +16336,20 @@ async function refresh(): Promise<void> {
     state.usageSummary = normalizeUsageObservability(
       state.health?.usageObservability,
     );
+  }
+  if (
+    usageAnalyticsResult.status === "fulfilled" &&
+    usageAnalyticsResult.value
+  ) {
+    state.usageAnalytics = usageAnalyticsResult.value.data;
+    state.usageAnalyticsKey = getUsageAnalyticsKey();
+  } else if (usageAnalyticsResult.status === "rejected") {
+    loadFailures.push({
+      scope: "usage-analytics",
+      message: normalizeErrorMessage(usageAnalyticsResult.reason),
+    });
+    state.usageAnalytics = undefined;
+    state.usageAnalyticsKey = undefined;
   }
 
   if (accessAlertsResult.status === "fulfilled") {
@@ -16455,6 +16529,7 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   const [
     healthResult,
     usageSummaryResult,
+    usageAnalyticsResult,
     accessAlertsResult,
     sessionsResult,
     operationsStatusResult,
@@ -16467,6 +16542,9 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
       : Promise.resolve(
           state.usageSummary ? { data: state.usageSummary } : undefined,
         ),
+    shouldFetchUsage && api.getUsageAnalytics
+      ? api.getUsageAnalytics(buildUsageAnalyticsRequest())
+      : Promise.resolve(undefined),
     shouldFetchUsage
       ? api.getAccessAlerts()
       : Promise.resolve(
@@ -16489,6 +16567,7 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
   if (
     healthResult.status !== "fulfilled" &&
     usageSummaryResult.status !== "fulfilled" &&
+    usageAnalyticsResult.status !== "fulfilled" &&
     accessAlertsResult.status !== "fulfilled" &&
     sessionsResult.status !== "fulfilled" &&
     operationsStatusResult.status !== "fulfilled" &&
@@ -16498,6 +16577,7 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     throw (
       healthResult.reason ??
       usageSummaryResult.reason ??
+      usageAnalyticsResult.reason ??
       accessAlertsResult.reason ??
       sessionsResult.reason ??
       operationsStatusResult.reason ??
@@ -16522,6 +16602,14 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
     state.usageSummary = normalizeUsageObservability(
       healthResult.value.usageObservability,
     );
+  }
+  if (
+    usageAnalyticsResult.status === "fulfilled" &&
+    usageAnalyticsResult.value &&
+    "data" in usageAnalyticsResult.value
+  ) {
+    state.usageAnalytics = usageAnalyticsResult.value.data;
+    state.usageAnalyticsKey = getUsageAnalyticsKey();
   }
   if (
     accessAlertsResult.status === "fulfilled" &&
@@ -16560,14 +16648,41 @@ async function refreshHealthAndSessionsOnly(): Promise<void> {
 
 async function refreshUsageSummaryOnly(): Promise<void> {
   const api = getGatewayApi();
-  const [response, alerts] = await Promise.all([
+  const [response, analytics, alerts] = await Promise.all([
     api.getUsageSummary(state.usageClientFilter),
+    api.getUsageAnalytics
+      ? api.getUsageAnalytics(buildUsageAnalyticsRequest())
+      : Promise.resolve(undefined),
     api.getAccessAlerts(),
   ]);
   state.usageSummary = normalizeUsageObservability(response.data);
+  if (analytics) {
+    state.usageAnalytics = analytics.data;
+    state.usageAnalyticsKey = getUsageAnalyticsKey();
+  }
   state.accessAlerts = normalizeAccessAlertEvents(alerts);
   handleAccessAlertsUpdated();
   scheduleVisibleRefresh();
+}
+
+async function refreshUsageAnalyticsOnly(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.getUsageAnalytics) {
+    renderUsageWorkbench();
+    return;
+  }
+  const request = buildUsageAnalyticsRequest();
+  const key = getUsageAnalyticsKey(request);
+  const [analytics, alerts] = await Promise.all([
+    api.getUsageAnalytics(request),
+    api.getAccessAlerts(),
+  ]);
+  state.usageAnalytics = analytics.data;
+  state.usageAnalyticsKey = key;
+  state.accessAlerts = normalizeAccessAlertEvents(alerts);
+  handleAccessAlertsUpdated();
+  renderUsageWorkbench();
+  renderUsageDetailsModal();
 }
 
 async function refreshWithLiveUsage(
