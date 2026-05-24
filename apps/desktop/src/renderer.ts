@@ -1915,6 +1915,22 @@ function getUsageTrendTitle(): string {
   return `${getUsageMetricLabel(metric)}走势`;
 }
 
+function formatUsageTrendMetricValue(
+  value: number,
+  metric: UsageMetricFilter = state.usageMetricFilter,
+): string {
+  if (metric === "failureRate") {
+    return `${formatCompactCount(value)}%`;
+  }
+  if (metric === "latency") {
+    return `${formatCompactCount(value)} ms`;
+  }
+  if (metric === "requests" || metric === "failures") {
+    return `${formatCompactCount(value)} 次`;
+  }
+  return `${formatCompactCount(value)} Token`;
+}
+
 function applyUsageLocalFilters(summary: UsageWindowSummary): UsageWindowSummary {
   const modelAlias =
     state.usageModelFilter === "all" ? undefined : state.usageModelFilter;
@@ -5306,6 +5322,10 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
               areaStyle: { opacity: 0.12 },
               lineStyle: { width: 3 },
               data: points.map((point) => point.usage.totalTokens),
+              tooltip: {
+                valueFormatter: (value: number) =>
+                  formatUsageTrendMetricValue(value, "tokens"),
+              },
             },
             {
               name: "输入",
@@ -5314,6 +5334,10 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
               symbol: "none",
               lineStyle: { width: 1.8 },
               data: points.map((point) => point.usage.inputTokens),
+              tooltip: {
+                valueFormatter: (value: number) =>
+                  formatUsageTrendMetricValue(value, "tokens"),
+              },
             },
             {
               name: "输出",
@@ -5322,6 +5346,10 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
               symbol: "none",
               lineStyle: { width: 1.8 },
               data: points.map((point) => point.usage.outputTokens),
+              tooltip: {
+                valueFormatter: (value: number) =>
+                  formatUsageTrendMetricValue(value, "tokens"),
+              },
             },
             {
               name: "请求数",
@@ -5330,6 +5358,10 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
               barMaxWidth: 12,
               itemStyle: { opacity: 0.22 },
               data: points.map((point) => point.usage.requestCount),
+              tooltip: {
+                valueFormatter: (value: number) =>
+                  formatUsageTrendMetricValue(value, "requests"),
+              },
             },
           ]
         : [
@@ -5342,6 +5374,10 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
               areaStyle: { opacity: 0.1 },
               lineStyle: { width: 3 },
               data: metricValues,
+              tooltip: {
+                valueFormatter: (value: number) =>
+                  formatUsageTrendMetricValue(value, metric),
+              },
             },
           ],
   };

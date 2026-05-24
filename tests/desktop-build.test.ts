@@ -972,6 +972,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("usageMetricFilter");
     expect(rendererSource).toContain("getUsageMetricLabel");
     expect(rendererSource).toContain("getUsageTrendTitle");
+    expect(rendererSource).toContain("formatUsageTrendMetricValue");
+    expect(rendererSource).toContain("valueFormatter");
     expect(rendererSource).toContain("failureRate");
     expect(rendererSource).toContain("totalLatencyMs / usage.successCount");
     expect(rendererSource).toContain("buildUsageTokenMixChartOption");
