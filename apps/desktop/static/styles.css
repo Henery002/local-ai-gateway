@@ -2583,20 +2583,24 @@ button, input, select {
   font-size: 12px;
 }
 
-.usage-consumer-filter {
+.usage-analysis-filter {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 220px;
+  min-width: 180px;
 }
 
-.usage-consumer-filter span {
+.usage-analysis-filter.compact {
+  min-width: 128px;
+}
+
+.usage-analysis-filter span {
   color: var(--text-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
-.usage-consumer-filter .input-field {
+.usage-analysis-filter .input-field {
   min-height: 32px;
   padding-block: 5px;
 }
@@ -7047,10 +7051,10 @@ button, input, select {
   .usage-alert-header > .badge {
     align-self: flex-start;
   }
-  .usage-consumer-filter {
+  .usage-analysis-filter {
     width: 100%;
   }
-  .usage-consumer-filter .input-field {
+  .usage-analysis-filter .input-field {
     width: 100%;
   }
   .usage-operations-dashboard {

@@ -19,6 +19,7 @@
 - 新增只读用量分析接口 `GET /admin/usage/analytics`，支持 `range / granularity / clientFilter / consumerId / accessKeyId / modelAlias / poolId / outcome` 查询参数，便于后续图表按成员、Key、模型、号池和成功 / 失败状态做精细过滤。
 - 桌面端“用量与告警”第一屏新增成员健康度横向大卡片，默认展示当前筛选成员或最近调用成员，按成功率、失败量、平均延迟和近 7 天告警数量给出健康分与语义状态。
 - 桌面端用量图表刷新链路已优先消费 `/admin/usage/analytics`：刷新、后台轮询、时间窗口切换和成员筛选都会同步拉取精细分析数据；旧 `usageSummary` 继续作为兼容兜底。
+- “窗口用量结构”筛选条扩展到成员、模型、Access Key、号池和请求结果，多维筛选会统一驱动 analytics 查询与 ECharts 看板刷新。
 
 ### 文档
 

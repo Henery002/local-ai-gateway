@@ -954,6 +954,10 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"notification-pagination\"");
     expect(indexHtml).toContain("echarts/dist/echarts.min.js");
     expect(indexHtml).toContain("id=\"usage-consumer-filter\"");
+    expect(indexHtml).toContain("id=\"usage-model-filter\"");
+    expect(indexHtml).toContain("id=\"usage-key-filter\"");
+    expect(indexHtml).toContain("id=\"usage-pool-filter\"");
+    expect(indexHtml).toContain("id=\"usage-outcome-filter\"");
     expect(indexHtml).toContain("公网成员");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
@@ -972,6 +976,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageAnalyticsRequest");
     expect(rendererSource).toContain("refreshUsageAnalyticsOnly");
     expect(rendererSource).toContain("state.usageAnalytics.summary");
+    expect(rendererSource).toContain("syncUsageAnalysisFilterControls");
+    expect(rendererSource).toContain("usageOutcomeFilter");
     expect(preloadSource).toContain("getUsageAnalytics");
     expect(staticPreloadSource).toContain("getUsageAnalytics");
     expect(mainSource).toContain("gateway:get-usage-analytics");

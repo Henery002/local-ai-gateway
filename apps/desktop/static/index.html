@@ -681,10 +681,36 @@
                           <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="false">总览</button>
                         </div>
                       </div>
-                      <label class="usage-consumer-filter">
+                      <label class="usage-analysis-filter">
                         <span>成员</span>
                         <select id="usage-consumer-filter" class="input-field">
                           <option value="all">全部成员</option>
+                        </select>
+                      </label>
+                      <label class="usage-analysis-filter">
+                        <span>模型</span>
+                        <select id="usage-model-filter" class="input-field">
+                          <option value="all">全部模型</option>
+                        </select>
+                      </label>
+                      <label class="usage-analysis-filter">
+                        <span>Key</span>
+                        <select id="usage-key-filter" class="input-field">
+                          <option value="all">全部 Key</option>
+                        </select>
+                      </label>
+                      <label class="usage-analysis-filter">
+                        <span>号池</span>
+                        <select id="usage-pool-filter" class="input-field">
+                          <option value="all">全部号池</option>
+                        </select>
+                      </label>
+                      <label class="usage-analysis-filter compact">
+                        <span>结果</span>
+                        <select id="usage-outcome-filter" class="input-field">
+                          <option value="all">全部</option>
+                          <option value="success">成功</option>
+                          <option value="failure">失败</option>
                         </select>
                       </label>
                       <span class="badge active">真实统计</span>

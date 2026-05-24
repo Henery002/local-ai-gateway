@@ -212,6 +212,7 @@ type ProviderConfigurationStatus = "active" | "disabled" | "incomplete";
 type UsageClientFilter = "all" | "openclaw" | "hermes" | "other";
 type UsageObserveWindow = "history" | "daily" | "weekly" | "monthly";
 type UsageTrendDimension = "all" | "members" | "models" | "attribution";
+type UsageOutcomeFilter = "all" | "success" | "failure";
 type EChartsInstance = {
   setOption: (option: Record<string, unknown>, notMerge?: boolean) => void;
   resize: () => void;
@@ -1378,6 +1379,10 @@ const state: {
   usageObserveWindow: UsageObserveWindow;
   usageTrendDimension: UsageTrendDimension;
   usageConsumerFilter: string;
+  usageModelFilter: string;
+  usageAccessKeyFilter: string;
+  usagePoolFilter: string;
+  usageOutcomeFilter: UsageOutcomeFilter;
   usageAlertStatusFilter: UsageAlertStatusFilter;
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
   usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
@@ -1406,6 +1411,10 @@ const state: {
   usageObserveWindow: "daily",
   usageTrendDimension: "members",
   usageConsumerFilter: "all",
+  usageModelFilter: "all",
+  usageAccessKeyFilter: "all",
+  usagePoolFilter: "all",
+  usageOutcomeFilter: "all",
   usageAlertStatusFilter: "all",
   usageAlertSeverityFilter: "all",
   usageAlertConsumerTypeFilter: "all",
@@ -1772,6 +1781,18 @@ function buildUsageAnalyticsRequest(): Record<string, string> {
   if (consumerId) {
     request.consumerId = consumerId;
   }
+  if (state.usageModelFilter !== "all") {
+    request.modelAlias = state.usageModelFilter;
+  }
+  if (state.usageAccessKeyFilter !== "all") {
+    request.accessKeyId = state.usageAccessKeyFilter;
+  }
+  if (state.usagePoolFilter !== "all") {
+    request.poolId = state.usagePoolFilter;
+  }
+  if (state.usageOutcomeFilter !== "all") {
+    request.outcome = state.usageOutcomeFilter;
+  }
   return request;
 }
 
@@ -1817,7 +1838,7 @@ function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
 function applyUsageConsumerFilter(summary: UsageWindowSummary): UsageWindowSummary {
   const consumerId = getSelectedUsageConsumerId();
   if (!consumerId) {
-    return summary;
+    return applyUsageLocalFilters(summary);
   }
   const consumers = summary.consumers.filter(
     (item) => item.consumerId === consumerId,
@@ -1831,14 +1852,14 @@ function applyUsageConsumerFilter(summary: UsageWindowSummary): UsageWindowSumma
   const accessKeyTimeline = (summary.accessKeyTimeline ?? []).filter(
     (item) => item.consumerId === consumerId,
   );
-  return {
+  return applyUsageLocalFilters({
     ...summary,
     totals: sumUsageCounters(consumers),
     consumers,
     accessKeys,
     consumerTimeline,
     accessKeyTimeline,
-  };
+  });
 }
 
 function getSelectedUsageConsumerId(): string | undefined {
@@ -1855,6 +1876,42 @@ function getUsageConsumerDisplayLabel(consumerId: string): string {
 function getUsageConsumerFilterLabel(): string {
   const consumerId = getSelectedUsageConsumerId();
   return consumerId ? getUsageConsumerDisplayLabel(consumerId) : "全部成员";
+}
+
+function getUsageOutcomeFilterLabel(): string {
+  if (state.usageOutcomeFilter === "success") {
+    return "成功请求";
+  }
+  if (state.usageOutcomeFilter === "failure") {
+    return "失败请求";
+  }
+  return "全部结果";
+}
+
+function applyUsageLocalFilters(summary: UsageWindowSummary): UsageWindowSummary {
+  const modelAlias =
+    state.usageModelFilter === "all" ? undefined : state.usageModelFilter;
+  const accessKeyId =
+    state.usageAccessKeyFilter === "all" ? undefined : state.usageAccessKeyFilter;
+  const poolId = state.usagePoolFilter === "all" ? undefined : state.usagePoolFilter;
+  if (!modelAlias && !accessKeyId && !poolId && state.usageOutcomeFilter === "all") {
+    return summary;
+  }
+  const models = modelAlias
+    ? summary.models.filter((item) => item.modelAlias === modelAlias)
+    : summary.models;
+  const accessKeys = accessKeyId
+    ? summary.accessKeys.filter((item) => item.accessKeyId === accessKeyId)
+    : summary.accessKeys;
+  const pools = poolId
+    ? summary.pools.filter((item) => item.poolId === poolId)
+    : summary.pools;
+  return {
+    ...summary,
+    models,
+    accessKeys,
+    pools,
+  };
 }
 
 function formatCompactCount(value: number): string {
@@ -4540,7 +4597,7 @@ function renderUsageOverview(): void {
 function renderUsageWorkbench(): void {
   const summary = getActiveUsageWindowSummary();
   syncUsageTrendDimensionControls();
-  syncUsageConsumerFilterControl();
+  syncUsageAnalysisFilterControls();
   renderUsageTrendChart(summary);
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
@@ -4549,13 +4606,30 @@ function renderUsageWorkbench(): void {
   renderUsageAlertEventsPreview();
 }
 
-function syncUsageConsumerFilterControl(): void {
-  const select = document.getElementById(
-    "usage-consumer-filter",
-  ) as HTMLSelectElement | null;
+function syncSelectOptions(
+  id: string,
+  value: string,
+  rows: Array<{ id: string; label: string; detail?: string }>,
+  allLabel: string,
+): boolean {
+  const select = document.getElementById(id) as HTMLSelectElement | null;
   if (!select) {
-    return;
+    return false;
   }
+  const exists = value === "all" || rows.some((row) => row.id === value);
+  const normalizedValue = exists ? value : "all";
+  select.innerHTML = [
+    `<option value="all">${escapeHtml(allLabel)}</option>`,
+    ...rows.map((row) => {
+      const label = row.detail ? `${row.label} · ${row.detail}` : row.label;
+      return `<option value="${escapeHtml(row.id)}">${escapeHtml(label)}</option>`;
+    }),
+  ].join("");
+  select.value = normalizedValue;
+  return exists;
+}
+
+function syncUsageAnalysisFilterControls(): void {
   const activeSummary =
     state.usageObserveWindow === "history"
       ? state.usageSummary?.history
@@ -4584,19 +4658,84 @@ function syncUsageConsumerFilterControl(): void {
       })),
   ].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
   if (
-    state.usageConsumerFilter !== "all" &&
-    !rows.some((row) => row.id === state.usageConsumerFilter)
+    !syncSelectOptions(
+      "usage-consumer-filter",
+      state.usageConsumerFilter,
+      rows,
+      "全部成员",
+    )
   ) {
     state.usageConsumerFilter = "all";
   }
-  select.innerHTML = [
-    `<option value="all">全部成员</option>`,
-    ...rows.map(
-      (row) =>
-        `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)} · ${escapeHtml(row.detail)}</option>`,
-    ),
-  ].join("");
-  select.value = state.usageConsumerFilter;
+  const modelRows = (activeSummary?.models ?? [])
+    .map((item) => ({
+      id: item.modelAlias,
+      label: item.modelAlias,
+      detail: `${formatCompactCount(item.usage.requestCount)} 次`,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  if (
+    !syncSelectOptions(
+      "usage-model-filter",
+      state.usageModelFilter,
+      modelRows,
+      "全部模型",
+    )
+  ) {
+    state.usageModelFilter = "all";
+  }
+  const keysById = new Map(
+    (state.securitySettings?.accessControl?.keys ?? []).map((key) => [key.id, key]),
+  );
+  const keyRows = (activeSummary?.accessKeys ?? [])
+    .map((item) => {
+      const key = keysById.get(item.accessKeyId);
+      return {
+        id: item.accessKeyId,
+        label: key?.name || item.clientTag || item.accessKeyId,
+        detail: key ? `${key.keyPrefix}...${key.keySuffix}` : "Access Key",
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  if (
+    !syncSelectOptions(
+      "usage-key-filter",
+      state.usageAccessKeyFilter,
+      keyRows,
+      "全部 Key",
+    )
+  ) {
+    state.usageAccessKeyFilter = "all";
+  }
+  const poolsById = new Map(
+    (state.poolSettings?.pools ?? []).map((pool) => [pool.id, pool]),
+  );
+  const poolRows = (activeSummary?.pools ?? [])
+    .map((item) => {
+      const pool = poolsById.get(item.poolId);
+      return {
+        id: item.poolId,
+        label: pool?.name || item.poolId,
+        detail: pool?.visibility ? formatPoolVisibilityLabel(pool.visibility) : "号池",
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  if (
+    !syncSelectOptions(
+      "usage-pool-filter",
+      state.usagePoolFilter,
+      poolRows,
+      "全部号池",
+    )
+  ) {
+    state.usagePoolFilter = "all";
+  }
+  const outcomeSelect = document.getElementById(
+    "usage-outcome-filter",
+  ) as HTMLSelectElement | null;
+  if (outcomeSelect) {
+    outcomeSelect.value = state.usageOutcomeFilter;
+  }
 }
 
 function syncUsageTrendDimensionControls(): void {
@@ -5438,6 +5577,8 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
       <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
       <span>观测：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
       <span>成员：${escapeHtml(activeConsumer)}</span>
+      <span>模型：${escapeHtml(state.usageModelFilter === "all" ? "全部模型" : state.usageModelFilter)}</span>
+      <span>结果：${escapeHtml(getUsageOutcomeFilterLabel())}</span>
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
       <span>平均延迟：${escapeHtml(formatUsageLatency(summary.totals))}</span>
@@ -14878,12 +15019,29 @@ function bindActions(): void {
 
     if (
       target instanceof HTMLSelectElement &&
-      target.id === "usage-consumer-filter"
+      (target.id === "usage-consumer-filter" ||
+        target.id === "usage-model-filter" ||
+        target.id === "usage-key-filter" ||
+        target.id === "usage-pool-filter" ||
+        target.id === "usage-outcome-filter")
     ) {
-      state.usageConsumerFilter = target.value || "all";
+      if (target.id === "usage-consumer-filter") {
+        state.usageConsumerFilter = target.value || "all";
+      } else if (target.id === "usage-model-filter") {
+        state.usageModelFilter = target.value || "all";
+      } else if (target.id === "usage-key-filter") {
+        state.usageAccessKeyFilter = target.value || "all";
+      } else if (target.id === "usage-pool-filter") {
+        state.usagePoolFilter = target.value || "all";
+      } else {
+        state.usageOutcomeFilter =
+          target.value === "success" || target.value === "failure"
+            ? target.value
+            : "all";
+      }
       renderUsageWorkbench();
       void refreshUsageAnalyticsOnly().catch((error) => {
-        setBanner(`刷新成员用量分析失败：${normalizeErrorMessage(error)}`, "error");
+        setBanner(`刷新用量分析失败：${normalizeErrorMessage(error)}`, "error");
       });
       return;
     }
