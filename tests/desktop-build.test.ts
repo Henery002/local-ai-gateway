@@ -958,6 +958,7 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"usage-key-filter\"");
     expect(indexHtml).toContain("id=\"usage-pool-filter\"");
     expect(indexHtml).toContain("id=\"usage-outcome-filter\"");
+    expect(indexHtml).toContain("id=\"usage-metric-filter\"");
     expect(indexHtml).toContain("公网成员");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
@@ -968,6 +969,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageTrendChart");
     expect(rendererSource).toContain("renderUsageEChartsDashboard");
     expect(rendererSource).toContain("buildUsageTrendChartOption");
+    expect(rendererSource).toContain("usageMetricFilter");
+    expect(rendererSource).toContain("getUsageMetricLabel");
+    expect(rendererSource).toContain("getUsageTrendTitle");
+    expect(rendererSource).toContain("failureRate");
+    expect(rendererSource).toContain("totalLatencyMs / usage.successCount");
     expect(rendererSource).toContain("buildUsageTokenMixChartOption");
     expect(rendererSource).toContain("buildUsageRankingChartOption");
     expect(rendererSource).toContain("applyUsageConsumerFilter");

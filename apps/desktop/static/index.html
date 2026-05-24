@@ -713,10 +713,20 @@
                           <option value="failure">失败</option>
                         </select>
                       </label>
+                      <label class="usage-analysis-filter compact">
+                        <span>指标</span>
+                        <select id="usage-metric-filter" class="input-field">
+                          <option value="tokens">Token</option>
+                          <option value="requests">请求数</option>
+                          <option value="failures">失败数</option>
+                          <option value="failureRate">失败率</option>
+                          <option value="latency">平均延迟</option>
+                        </select>
+                      </label>
                       <span class="badge active">真实统计</span>
                     </div>
                   </div>
-                  <div id="usage-trend-chart" class="usage-chart-frame" aria-label="Token 消耗结构">
+                  <div id="usage-trend-chart" class="usage-chart-frame" aria-label="用量趋势结构">
                     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
                       <div class="empty-card">正在等待用量统计。</div>
                     </div>

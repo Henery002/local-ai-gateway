@@ -213,6 +213,7 @@ type UsageClientFilter = "all" | "openclaw" | "hermes" | "other";
 type UsageObserveWindow = "history" | "daily" | "weekly" | "monthly";
 type UsageTrendDimension = "all" | "members" | "models" | "attribution";
 type UsageOutcomeFilter = "all" | "success" | "failure";
+type UsageMetricFilter = "tokens" | "requests" | "failures" | "failureRate" | "latency";
 type EChartsInstance = {
   setOption: (option: Record<string, unknown>, notMerge?: boolean) => void;
   resize: () => void;
@@ -1383,6 +1384,7 @@ const state: {
   usageAccessKeyFilter: string;
   usagePoolFilter: string;
   usageOutcomeFilter: UsageOutcomeFilter;
+  usageMetricFilter: UsageMetricFilter;
   usageAlertStatusFilter: UsageAlertStatusFilter;
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
   usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
@@ -1415,6 +1417,7 @@ const state: {
   usageAccessKeyFilter: "all",
   usagePoolFilter: "all",
   usageOutcomeFilter: "all",
+  usageMetricFilter: "tokens",
   usageAlertStatusFilter: "all",
   usageAlertSeverityFilter: "all",
   usageAlertConsumerTypeFilter: "all",
@@ -1886,6 +1889,30 @@ function getUsageOutcomeFilterLabel(): string {
     return "失败请求";
   }
   return "全部结果";
+}
+
+function getUsageMetricLabel(metric: UsageMetricFilter = state.usageMetricFilter): string {
+  if (metric === "requests") {
+    return "请求数";
+  }
+  if (metric === "failures") {
+    return "失败数";
+  }
+  if (metric === "failureRate") {
+    return "失败率";
+  }
+  if (metric === "latency") {
+    return "平均延迟";
+  }
+  return "Token";
+}
+
+function getUsageTrendTitle(): string {
+  const metric = state.usageMetricFilter;
+  if (metric === "tokens") {
+    return "Token 消耗走势";
+  }
+  return `${getUsageMetricLabel(metric)}走势`;
 }
 
 function applyUsageLocalFilters(summary: UsageWindowSummary): UsageWindowSummary {
@@ -4736,6 +4763,12 @@ function syncUsageAnalysisFilterControls(): void {
   if (outcomeSelect) {
     outcomeSelect.value = state.usageOutcomeFilter;
   }
+  const metricSelect = document.getElementById(
+    "usage-metric-filter",
+  ) as HTMLSelectElement | null;
+  if (metricSelect) {
+    metricSelect.value = state.usageMetricFilter;
+  }
 }
 
 function syncUsageTrendDimensionControls(): void {
@@ -5195,6 +5228,30 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
   const points = getUsageTrendTimelinePoints(summary);
   const labels = points.map((point) => formatUsageAxisLabel(point.bucketStart));
   const palette = getUsageChartPalette();
+  const metric = state.usageMetricFilter;
+  const metricLabel = getUsageMetricLabel(metric);
+  const metricValues = points.map((point) => {
+    const usage = point.usage;
+    if (metric === "requests") {
+      return usage.requestCount;
+    }
+    if (metric === "failures") {
+      return usage.failureCount;
+    }
+    if (metric === "failureRate") {
+      return usage.requestCount > 0
+        ? Math.round((usage.failureCount / usage.requestCount) * 100)
+        : 0;
+    }
+    if (metric === "latency") {
+      return usage.successCount > 0
+        ? Math.round(usage.totalLatencyMs / usage.successCount)
+        : 0;
+    }
+    return usage.totalTokens;
+  });
+  const yAxisName =
+    metric === "failureRate" ? "%" : metric === "latency" ? "ms" : metricLabel;
   return {
     color: palette,
     tooltip: {
@@ -5221,7 +5278,7 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
     },
     yAxis: {
       type: "value",
-      name: "Token",
+      name: yAxisName,
       nameTextStyle: { color: "#64748b" },
       axisLabel: { color: "#64748b" },
       splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
@@ -5237,42 +5294,56 @@ function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string,
         handleStyle: { color: "#2563eb" },
       },
     ],
-    series: [
-      {
-        name: "总 Token",
-        type: "line",
-        smooth: true,
-        symbol: "circle",
-        symbolSize: 6,
-        areaStyle: { opacity: 0.12 },
-        lineStyle: { width: 3 },
-        data: points.map((point) => point.usage.totalTokens),
-      },
-      {
-        name: "输入",
-        type: "line",
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 1.8 },
-        data: points.map((point) => point.usage.inputTokens),
-      },
-      {
-        name: "输出",
-        type: "line",
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 1.8 },
-        data: points.map((point) => point.usage.outputTokens),
-      },
-      {
-        name: "请求数",
-        type: "bar",
-        yAxisIndex: 0,
-        barMaxWidth: 12,
-        itemStyle: { opacity: 0.22 },
-        data: points.map((point) => point.usage.requestCount),
-      },
-    ],
+    series:
+      metric === "tokens"
+        ? [
+            {
+              name: "总 Token",
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 6,
+              areaStyle: { opacity: 0.12 },
+              lineStyle: { width: 3 },
+              data: points.map((point) => point.usage.totalTokens),
+            },
+            {
+              name: "输入",
+              type: "line",
+              smooth: true,
+              symbol: "none",
+              lineStyle: { width: 1.8 },
+              data: points.map((point) => point.usage.inputTokens),
+            },
+            {
+              name: "输出",
+              type: "line",
+              smooth: true,
+              symbol: "none",
+              lineStyle: { width: 1.8 },
+              data: points.map((point) => point.usage.outputTokens),
+            },
+            {
+              name: "请求数",
+              type: "bar",
+              yAxisIndex: 0,
+              barMaxWidth: 12,
+              itemStyle: { opacity: 0.22 },
+              data: points.map((point) => point.usage.requestCount),
+            },
+          ]
+        : [
+            {
+              name: metricLabel,
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 6,
+              areaStyle: { opacity: 0.1 },
+              lineStyle: { width: 3 },
+              data: metricValues,
+            },
+          ],
   };
 }
 
@@ -5668,6 +5739,7 @@ function renderUsageMemberHealthMatrix(summary: UsageWindowSummary): string {
 
 function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
   const activeConsumer = getUsageConsumerFilterLabel();
+  const trendTitle = getUsageTrendTitle();
   return `
     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
       <div class="usage-operations-health">
@@ -5680,7 +5752,7 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
         <div class="usage-echart-card usage-echart-card-large">
           <div class="usage-chart-section-header">
             <div>
-              <strong>Token 消耗走势</strong>
+              <strong>${escapeHtml(trendTitle)}</strong>
               <span>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))} · ${escapeHtml(activeConsumer)} · ${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
             </div>
             <span class="badge neutral">ECharts · 可缩放</span>
@@ -5733,6 +5805,7 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
       <span>观测：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
       <span>成员：${escapeHtml(activeConsumer)}</span>
       <span>模型：${escapeHtml(state.usageModelFilter === "all" ? "全部模型" : state.usageModelFilter)}</span>
+      <span>指标：${escapeHtml(getUsageMetricLabel())}</span>
       <span>结果：${escapeHtml(getUsageOutcomeFilterLabel())}</span>
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
@@ -5747,10 +5820,13 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
     return;
   }
   disposeUsageCharts();
-  if (!summary || summary.totals.totalTokens <= 0) {
+  if (
+    !summary ||
+    (summary.totals.totalTokens <= 0 && summary.totals.requestCount <= 0)
+  ) {
     node.innerHTML = renderUsageTrendEmptyState(
-      "当前窗口暂无 Token 用量统计",
-      "发起请求后这里会展示输入、输出、缓存、思考 Token 以及成员、模型、Key 和号池归因趋势。",
+      "当前窗口暂无用量统计",
+      "发起请求后这里会展示 Token、请求数、失败率、延迟以及成员、模型、Key 和号池归因趋势。",
     );
     return;
   }
@@ -15178,7 +15254,8 @@ function bindActions(): void {
         target.id === "usage-model-filter" ||
         target.id === "usage-key-filter" ||
         target.id === "usage-pool-filter" ||
-        target.id === "usage-outcome-filter")
+        target.id === "usage-outcome-filter" ||
+        target.id === "usage-metric-filter")
     ) {
       if (target.id === "usage-consumer-filter") {
         state.usageConsumerFilter = target.value || "all";
@@ -15188,16 +15265,28 @@ function bindActions(): void {
         state.usageAccessKeyFilter = target.value || "all";
       } else if (target.id === "usage-pool-filter") {
         state.usagePoolFilter = target.value || "all";
-      } else {
+      } else if (target.id === "usage-outcome-filter") {
         state.usageOutcomeFilter =
           target.value === "success" || target.value === "failure"
             ? target.value
             : "all";
+      } else {
+        state.usageMetricFilter =
+          target.value === "requests" ||
+          target.value === "failures" ||
+          target.value === "failureRate" ||
+          target.value === "latency"
+            ? target.value
+            : "tokens";
       }
-      renderUsageWorkbench();
-      void refreshUsageAnalyticsOnly().catch((error) => {
-        setBanner(`刷新用量分析失败：${normalizeErrorMessage(error)}`, "error");
-      });
+      if (target.id === "usage-metric-filter") {
+        renderUsageTrendChart(getActiveUsageWindowSummary());
+      } else {
+        renderUsageWorkbench();
+        void refreshUsageAnalyticsOnly().catch((error) => {
+          setBanner(`刷新用量分析失败：${normalizeErrorMessage(error)}`, "error");
+        });
+      }
       return;
     }
 
