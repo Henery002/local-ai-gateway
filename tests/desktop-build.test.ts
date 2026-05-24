@@ -977,6 +977,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageFilterContextBar");
     expect(rendererSource).toContain("buildUsageFilterContextItems");
     expect(rendererSource).toContain("renderUsageChartDataHint");
+    expect(rendererSource).toContain("buildUsageChartEmptyGraphic");
+    expect(rendererSource).toContain("当前视角暂无 Token 构成");
     expect(rendererSource).toContain("failureRate");
     expect(rendererSource).toContain("totalLatencyMs / usage.successCount");
     expect(rendererSource).toContain("buildUsageTokenMixChartOption");

@@ -5360,6 +5360,21 @@ function formatUsageAxisLabel(timestamp: number): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+function buildUsageChartEmptyGraphic(message: string): Record<string, unknown> {
+  return {
+    type: "text",
+    left: "center",
+    top: "middle",
+    style: {
+      text: message,
+      fill: "#64748b",
+      fontSize: 13,
+      fontWeight: 700,
+      textAlign: "center",
+    },
+  };
+}
+
 function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string, unknown> {
   const points = getUsageTrendTimelinePoints(summary);
   const labels = points.map((point) => formatUsageAxisLabel(point.bucketStart));
@@ -5510,6 +5525,7 @@ function buildUsageTokenMixChartOption(summary: UsageWindowSummary): Record<stri
     { name: "缓存", value: Math.max(0, summary.totals.cachedTokens) },
     { name: "思考", value: Math.max(0, summary.totals.reasoningTokens) },
   ].filter((item) => item.value > 0);
+  const hasData = data.length > 0;
   return {
     color: getUsageChartPalette(),
     tooltip: {
@@ -5532,21 +5548,23 @@ function buildUsageTokenMixChartOption(summary: UsageWindowSummary): Record<stri
         center: ["50%", "42%"],
         avoidLabelOverlap: true,
         label: { formatter: "{b}\n{d}%", color: "#334155" },
-        data: data.length > 0 ? data : [{ name: "暂无", value: 1 }],
+        data: hasData ? data : [],
       },
     ],
-    graphic: {
-      type: "text",
-      left: "center",
-      top: "39%",
-      style: {
-        text: formatCompactCount(summary.totals.totalTokens),
-        fill: "#0f172a",
-        fontSize: 20,
-        fontWeight: 700,
-        textAlign: "center",
-      },
-    },
+    graphic: hasData
+      ? {
+          type: "text",
+          left: "center",
+          top: "39%",
+          style: {
+            text: formatCompactCount(summary.totals.totalTokens),
+            fill: "#0f172a",
+            fontSize: 20,
+            fontWeight: 700,
+            textAlign: "center",
+          },
+        }
+      : buildUsageChartEmptyGraphic("当前视角暂无 Token 构成"),
   };
 }
 
@@ -5602,6 +5620,10 @@ function buildUsageRankingChartOption(summary: UsageWindowSummary): Record<strin
         data: rows.map((row) => row.usage.totalTokens),
       },
     ],
+    graphic:
+      rows.length > 0
+        ? undefined
+        : buildUsageChartEmptyGraphic("当前视角暂无排行数据"),
   };
 }
 
