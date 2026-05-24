@@ -5967,14 +5967,14 @@ function renderNotificationCenter(): void {
   const criticalCount = allItems.filter((item) => item.severity === "critical").length;
   const warningCount = allItems.filter((item) => item.severity === "warning").length;
   summaryNode.innerHTML = [
-    { label: "未读", value: unreadCount, detail: "需要查看" },
-    { label: "严重", value: criticalCount, detail: "critical" },
-    { label: "警告", value: warningCount, detail: "warning" },
-    { label: "全部", value: allItems.length, detail: "消息总量" },
+    { label: "未读", value: unreadCount, detail: "需要查看", tone: unreadCount > 0 ? "info" : "neutral" },
+    { label: "严重", value: criticalCount, detail: "critical", tone: criticalCount > 0 ? "danger" : "neutral" },
+    { label: "警告", value: warningCount, detail: "warning", tone: warningCount > 0 ? "warning" : "neutral" },
+    { label: "全部", value: allItems.length, detail: "消息总量", tone: "success" },
   ]
     .map(
       (item) => `
-        <div class="notification-summary-card">
+        <div class="notification-summary-card tone-${item.tone}">
           <small>${escapeHtml(item.label)}</small>
           <strong>${escapeHtml(formatCompactCount(item.value))}</strong>
           <span>${escapeHtml(item.detail)}</span>
@@ -8191,7 +8191,7 @@ function renderStartupChecklist(): void {
   ];
 
   const renderItem = (item: StartupCheckItem): string => `
-    <div class="startup-check-item">
+    <div class="startup-check-item tone-${escapeHtml(item.badgeTone)}">
       <div class="startup-check-item-top">
         <strong>${escapeHtml(item.title)}</strong>
         <span class="badge ${item.badgeTone}">${escapeHtml(item.badgeLabel)}</span>

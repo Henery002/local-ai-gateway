@@ -986,6 +986,107 @@ button, input, select {
 .badge.neutral { background: #f8fafc; color: var(--text-secondary); border-color: var(--border-strong); }
 .badge.featured { background: var(--warning-bg); color: var(--warning); border-color: var(--warning-border); }
 
+.inline-help {
+  align-items: center;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: 999px;
+  color: var(--info);
+  cursor: help;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  margin-left: 6px;
+  position: relative;
+  vertical-align: text-bottom;
+  width: 18px;
+}
+
+.inline-help::after {
+  background: var(--color-neutral-900);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-floating);
+  color: #ffffff;
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 500;
+  left: 50%;
+  line-height: 1.5;
+  max-width: 340px;
+  opacity: 0;
+  padding: 8px 10px;
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%) translateY(-2px);
+  transition:
+    opacity 0.16s,
+    transform 0.16s;
+  visibility: hidden;
+  width: max-content;
+  z-index: 20;
+}
+
+.inline-help:hover::after,
+.inline-help:focus::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  visibility: visible;
+}
+
+.inline-help-details,
+.inline-page-note {
+  background: rgba(239, 246, 255, 0.55);
+  border: 1px dashed var(--info-border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.inline-help-details {
+  padding: 10px 12px;
+}
+
+.inline-help-details summary {
+  color: var(--info);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inline-help-details ul {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.inline-help-details li {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inline-page-note {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.inline-page-note strong {
+  color: var(--info);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.inline-page-note span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .mode-card {
   display: grid;
   gap: 12px;
@@ -1019,6 +1120,24 @@ button, input, select {
 
 .mode-card[data-status="disabled"] {
   background: var(--color-bg-card);
+}
+
+.dashboard-mode-card[data-status="active"],
+.access-surface-card[data-status="active"] {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border);
+}
+
+.dashboard-mode-card[data-dashboard-mode="public"],
+.access-surface-card[data-access-surface="public"] {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  border-color: var(--info-border);
+}
+
+.dashboard-mode-card[data-dashboard-mode="lan"],
+.access-surface-card[data-access-surface="lan"] {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
 }
 
 .dashboard-mode-grid {
@@ -1591,9 +1710,10 @@ button, input, select {
   display: grid;
   gap: 6px;
   padding: 14px 16px;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-card);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
 }
 
 .account-source-card strong {
@@ -1609,6 +1729,16 @@ button, input, select {
 .account-source-card[data-account-source="external-readonly"] {
   border-color: var(--warning-border);
   background: var(--warning-bg);
+}
+
+.account-source-card[data-account-source="managed"] {
+  border-color: var(--success-border);
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+}
+
+.account-source-card[data-account-source="local-copy"] {
+  border-color: var(--info-border);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
 }
 
 .account-assets-shell {
@@ -2084,6 +2214,27 @@ button, input, select {
   transform: translateY(-1px);
 }
 
+.startup-check-item.tone-active,
+.startup-check-item.tone-success,
+.system-status-strip .startup-check-item.tone-active,
+.system-status-strip .startup-check-item.tone-success {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border);
+}
+
+.startup-check-item.tone-incomplete,
+.startup-check-item.tone-warning,
+.system-status-strip .startup-check-item.tone-incomplete,
+.system-status-strip .startup-check-item.tone-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
+}
+
+.startup-check-item.tone-neutral,
+.system-status-strip .startup-check-item.tone-neutral {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
 .system-status-strip .startup-check-item p {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -2120,6 +2271,26 @@ button, input, select {
   border-color: var(--card-border-hover);
   box-shadow: var(--card-shadow-hover);
   transform: translateY(-1px);
+}
+
+.system-action-card:nth-child(1) {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
+}
+
+.system-action-card:nth-child(2) {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  border-color: var(--info-border);
+}
+
+.system-action-card:nth-child(3) {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border);
+}
+
+.system-action-card:nth-child(4) {
+  background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%);
+  border-color: var(--danger-border);
 }
 
 .system-action-card .badge {
@@ -3278,6 +3449,26 @@ button, input, select {
   border-color: var(--card-border-hover);
   box-shadow: var(--card-shadow-hover);
   transform: translateY(-1px);
+}
+
+.notification-summary-card.tone-info {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  border-color: var(--info-border);
+}
+
+.notification-summary-card.tone-success {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border);
+}
+
+.notification-summary-card.tone-warning {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
+}
+
+.notification-summary-card.tone-danger {
+  background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%);
+  border-color: var(--danger-border);
 }
 
 .notification-summary-card small,
@@ -6019,6 +6210,21 @@ button, input, select {
   min-height: 180px;
   border-color: var(--card-border);
   background: var(--card-surface-strong);
+}
+
+#ops-gateway-status {
+  background: linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border);
+}
+
+#ops-cloudflare-status {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  border-color: var(--info-border);
+}
+
+#ops-public-probe {
+  background: linear-gradient(180deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border);
 }
 
 .ops-status-card-head {

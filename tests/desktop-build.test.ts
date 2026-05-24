@@ -417,6 +417,13 @@ describe("desktop build output", () => {
     expect(operationsView).toContain('data-action="cloudflare-service-restart"');
     expect(operationsView).toContain('data-action="copy-public-snippet"');
     expect(operationsView).toContain("高级服务控制");
+    const advancedControlPanel = operationsView?.match(
+      /<div class="card ops-control-panel">([\s\S]*?)<\/div>\s*<div id="ops-control-result"/,
+    )?.[1];
+    expect(advancedControlPanel).toBeTruthy();
+    expect(advancedControlPanel).not.toContain('data-action="gateway-service-restart"');
+    expect(advancedControlPanel).not.toContain('data-action="cloudflare-service-restart"');
+    expect(advancedControlPanel).not.toContain('data-action="copy-public-snippet"');
     expect(requestAuditToolbar).toBeTruthy();
     expect(requestAuditToolbar?.indexOf('id="request-audit-consumer"')).toBeLessThan(
       requestAuditToolbar?.indexOf('id="request-audit-status"') ?? Number.MAX_SAFE_INTEGER,
@@ -432,6 +439,10 @@ describe("desktop build output", () => {
     expect(styles).toContain(".ops-audit-member-focus");
     expect(styles).toContain(".notification-summary-card:hover");
     expect(styles).toContain(".system-status-strip .startup-check-item:hover");
+    expect(styles).toContain("#ops-cloudflare-status");
+    expect(styles).toContain(".notification-summary-card.tone-danger");
+    expect(styles).toContain(".inline-help::after");
+    expect(styles).toContain(".inline-page-note");
   });
 
   it("binds access member detail actions in the renderer", () => {

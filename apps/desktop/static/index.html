@@ -448,7 +448,7 @@
                 </div>
               </div>
 
-              <div class="card routing-rule-guide mt-4">
+              <div class="inline-page-note mt-4">
                 <strong>兼容密钥映射</strong>
                 <span>旧客户端密钥仍可使用；新增共享用户建议使用访问成员和独立 Key。</span>
               </div>
@@ -755,14 +755,13 @@
                 <div class="settings-header">
                   <div>
                     <h3>默认路由</h3>
-                    <p>当没有命中任何策略规则时，网关会从这里决定最终回退模型。</p>
+                    <p>
+                      当没有命中任何策略规则时，网关会从这里决定最终回退模型。
+                      <span class="inline-help" tabindex="0" aria-label="默认模型说明" data-tooltip="当客户端没有显式指定模型，或策略路由未改写目标模型时，请求会导向这里设置的默认模型别名。">?</span>
+                    </p>
                   </div>
                 </div>
                 <div class="settings-body">
-                  <div class="settings-note compact">
-                    <strong>默认模型的作用</strong>
-                    <p>当第三方客户端没有显式指定模型，或策略路由未改写目标模型时，网关会把请求导向这里设置的默认模型别名。这里决定的是“默认去哪里”，不影响 Provider 自身配置。</p>
-                  </div>
                   <div class="form-row">
                     <div class="form-field">
                       <label>默认模型别名</label>
@@ -787,8 +786,8 @@
                   </label>
                 </div>
                 <div class="settings-body">
-                  <div class="settings-note">
-                    <strong>策略路由使用说明</strong>
+                  <details class="inline-help-details">
+                    <summary>策略路由规则说明</summary>
                     <ul>
                       <li>一条规则 = 至少 1 个匹配条件 + 至少 1 个目标字段，可按客户端或模型把流量分配到不同模型、不同账号。</li>
                       <li>目标账号模式选择“沿用当前活动账号”时，命中规则后仍由账号页当前活动账号决定最终额度来源，适合你灵活切号。</li>
@@ -796,7 +795,7 @@
                       <li>目标账号模式选择“号池调度”时，命中规则的请求会转入左侧“号池调度”页定义的动态号池，再由池内策略自动选号。</li>
                       <li>多条规则按优先级生效，数字越小越先命中；只要命中第一条启用规则，就不会继续往下匹配。</li>
                     </ul>
-                  </div>
+                  </details>
                   <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
                     <button id="add-routing-rule" class="btn secondary">新增规则</button>
                   </div>
@@ -862,16 +861,15 @@
                   <div class="card-header pool-control-header">
                     <div>
                       <strong class="card-title">号池调度开关</strong>
-                      <div class="card-description">关闭后，所有“号池调度”目标模式都会退化为普通路由，不会再自动切号。</div>
+                      <div class="card-description">
+                        关闭后，所有“号池调度”目标模式都会退化为普通路由。
+                        <span class="inline-help" tabindex="0" aria-label="号池与策略路由说明" data-tooltip="策略路由负责把哪类请求导向哪个目标；号池调度负责目标号池内部如何选账号、何时跳过、何时切下一个。">?</span>
+                      </div>
                     </div>
                     <label class="switch-label">
                       <input id="pool-enabled" type="checkbox" /> 启用动态号池
                     </label>
                     <button id="save-pool-settings" class="btn secondary mini" type="button">保存调度开关</button>
-                  </div>
-                  <div class="settings-note compact pool-control-note">
-                    <strong>号池与策略路由的关系</strong>
-                    <p>策略路由负责“把哪类请求导向哪个目标”；号池调度负责“目标号池内部如何选账号、何时跳过、何时切下一个”。如果你仍想手动切号，请继续使用“沿用当前活动账号”模式。</p>
                   </div>
                 </div>
 
@@ -879,13 +877,12 @@
                   <div class="card-header pool-list-header">
                     <div>
                       <strong class="card-title">动态号池</strong>
-                      <div class="card-description">定义池成员、自动切号策略和公网共享号池。</div>
+                      <div class="card-description">
+                        定义池成员、自动切号策略和公网共享号池。
+                        <span class="inline-help" tabindex="0" aria-label="推荐使用方式" data-tooltip="公网共享建议把 public-user 路由到 public-ready 号池；池内放入多个可用账号，网关会在请求前选择满足阈值的账号，失败时按策略尝试下一个候选。">?</span>
+                      </div>
                     </div>
                     <button class="btn secondary" data-nav-target="routing" data-active="false" type="button">打开兼容策略路由配置</button>
-                  </div>
-                  <div class="settings-note compact">
-                    <strong>推荐使用方式</strong>
-                    <p>例如给 OpenClaw 配置一条 `clientTag=openclaw + model=codex-default -> 号池 A` 的策略路由，然后在号池 A 中放入多个桌面端 Codex 账号。网关会在每次请求开始前自动挑选一个满足阈值的账号；若本次请求命中的账号出现额度耗尽、鉴权失效或短期限流，会按池内策略尝试下一个候选账号。</p>
                   </div>
                   <div id="pool-list" class="pool-config-list"></div>
                 </div>
@@ -939,18 +936,14 @@
                   <div class="card-header">
                     <div>
                       <span class="card-title">高级服务控制</span>
-                      <p class="card-description">常驻服务使用 macOS 用户级 LaunchAgent；启动前会定向清理旧网关进程。</p>
+                      <p class="card-description">用于安装常驻、手动启停和打开日志目录；日常修复与重启请使用页面顶部操作。</p>
                     </div>
                   </div>
                   <div class="ops-control-grid">
                     <button class="btn primary" data-action="gateway-service-install" type="button">安装并启动网关常驻</button>
                     <button class="btn secondary" data-action="gateway-service-start" type="button">启动网关</button>
-                    <button class="btn secondary" data-action="gateway-service-restart" type="button">重启网关</button>
-                    <button class="btn secondary" data-action="gateway-service-repair" type="button">修复网关服务</button>
                     <button class="btn ghost" data-action="gateway-service-stop" type="button">停止网关</button>
-                    <button class="btn secondary" data-action="cloudflare-service-restart" type="button">重启 Tunnel</button>
                     <button class="btn ghost" data-action="open-logs" type="button">打开日志目录</button>
-                    <button class="btn secondary" data-action="copy-public-snippet" type="button">复制公网接入片段</button>
                   </div>
                   <div id="ops-control-result" class="ops-control-result"></div>
                 </div>
