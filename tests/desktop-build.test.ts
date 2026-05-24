@@ -978,6 +978,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageFilterContextItems");
     expect(rendererSource).toContain("renderUsageChartDataHint");
     expect(rendererSource).toContain("buildUsageChartEmptyGraphic");
+    expect(rendererSource).toContain("renderUsageTrendMetricStats");
+    expect(rendererSource).toContain("buildUsageTrendMetricStats");
+    expect(rendererSource).toContain("usage-trend-stat-grid");
     expect(rendererSource).toContain("当前视角暂无 Token 构成");
     expect(rendererSource).toContain("failureRate");
     expect(rendererSource).toContain("totalLatencyMs / usage.successCount");
@@ -1043,6 +1046,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".usage-health-score-pill");
     expect(styles).toContain(".usage-filter-context-bar");
     expect(styles).toContain(".usage-data-hint");
+    expect(styles).toContain(".usage-trend-stat-grid");
     expect(styles).toContain(".usage-tooltip-popover[data-visible=\"true\"]");
     expect(styles).toContain(".usage-timeline-bars { grid-template-columns: repeat(12");
     expect(rendererSource).toContain("renderUsageDimensionInsights");

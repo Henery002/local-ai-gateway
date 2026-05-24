@@ -2897,6 +2897,48 @@ button, input, select {
   min-height: 360px;
 }
 
+.usage-trend-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.usage-trend-stat {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent-color) 16%, var(--color-border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--accent-color) 7%, white);
+}
+
+.usage-trend-stat small,
+.usage-trend-stat strong,
+.usage-trend-stat span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-trend-stat small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.usage-trend-stat strong {
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.usage-trend-stat span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .usage-echart {
   position: relative;
   min-width: 0;
@@ -7223,6 +7265,9 @@ button, input, select {
   }
   .usage-operations-dashboard {
     grid-template-columns: 1fr;
+  }
+  .usage-trend-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .usage-member-health-card {
     align-items: flex-start;

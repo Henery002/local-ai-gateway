@@ -2051,6 +2051,104 @@ function renderUsageChartDataHint(summary: UsageWindowSummary): string {
   `;
 }
 
+function getUsageTrendMetricValue(usage: UsageCounters): number {
+  if (state.usageMetricFilter === "requests") {
+    return usage.requestCount;
+  }
+  if (state.usageMetricFilter === "failures") {
+    return usage.failureCount;
+  }
+  if (state.usageMetricFilter === "failureRate") {
+    return usage.requestCount > 0
+      ? Math.round((usage.failureCount / usage.requestCount) * 100)
+      : 0;
+  }
+  if (state.usageMetricFilter === "latency") {
+    return usage.successCount > 0
+      ? Math.round(usage.totalLatencyMs / usage.successCount)
+      : 0;
+  }
+  return usage.totalTokens;
+}
+
+function buildUsageTrendMetricStats(summary: UsageWindowSummary): Array<{
+  label: string;
+  value: string;
+  detail: string;
+}> {
+  const points = getUsageTrendTimelinePoints(summary);
+  const metricValues = points.map((point) => getUsageTrendMetricValue(point.usage));
+  const nonZeroValues = metricValues.filter((value) => value > 0);
+  const peak = Math.max(...metricValues, 0);
+  const latestIndex = [...metricValues]
+    .map((value, index) => ({ value, index }))
+    .reverse()
+    .find((item) => item.value > 0)?.index;
+  const latestValue = latestIndex === undefined ? 0 : metricValues[latestIndex];
+  const total =
+    state.usageMetricFilter === "failureRate" || state.usageMetricFilter === "latency"
+      ? (nonZeroValues.length > 0
+          ? Math.round(
+              nonZeroValues.reduce((sum, value) => sum + value, 0) /
+                nonZeroValues.length,
+            )
+          : 0)
+      : metricValues.reduce((sum, value) => sum + value, 0);
+  const average =
+    metricValues.length > 0
+      ? Math.round(
+          metricValues.reduce((sum, value) => sum + value, 0) /
+            metricValues.length,
+        )
+      : 0;
+  const latestLabel =
+    latestIndex === undefined ? "暂无非零点" : formatUsageAxisLabel(points[latestIndex].bucketStart);
+  const totalLabel =
+    state.usageMetricFilter === "failureRate" || state.usageMetricFilter === "latency"
+      ? "窗口均值"
+      : "窗口合计";
+  return [
+    {
+      label: "峰值",
+      value: formatUsageTrendMetricValue(peak),
+      detail: peak > 0 ? "当前窗口最高点" : "暂无峰值",
+    },
+    {
+      label: totalLabel,
+      value: formatUsageTrendMetricValue(total),
+      detail: usageWindowLabel(state.usageObserveWindow),
+    },
+    {
+      label: "桶均值",
+      value: formatUsageTrendMetricValue(average),
+      detail: `${formatCompactCount(metricValues.length)} 个时间桶`,
+    },
+    {
+      label: "最新非零",
+      value: formatUsageTrendMetricValue(latestValue),
+      detail: latestLabel,
+    },
+  ];
+}
+
+function renderUsageTrendMetricStats(summary: UsageWindowSummary): string {
+  return `
+    <div class="usage-trend-stat-grid">
+      ${buildUsageTrendMetricStats(summary)
+        .map(
+          (item) => `
+            <div class="usage-trend-stat">
+              <small>${escapeHtml(item.label)}</small>
+              <strong>${escapeHtml(item.value)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function applyUsageLocalFilters(summary: UsageWindowSummary): UsageWindowSummary {
   const modelAlias =
     state.usageModelFilter === "all" ? undefined : state.usageModelFilter;
@@ -5939,6 +6037,7 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
             </div>
             <span class="badge neutral">ECharts · 可缩放</span>
           </div>
+          ${renderUsageTrendMetricStats(summary)}
           <div id="usage-echart-trend" class="usage-echart usage-echart-trend">
             ${renderUsageTokenTrendLine(summary)}
           </div>
