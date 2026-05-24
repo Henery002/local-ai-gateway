@@ -972,6 +972,9 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageRankingChartOption");
     expect(rendererSource).toContain("applyUsageConsumerFilter");
     expect(rendererSource).toContain("renderUsageMemberHealthCard");
+    expect(rendererSource).toContain("renderUsageMemberHealthMatrix");
+    expect(rendererSource).toContain("buildUsageMemberHealthRows");
+    expect(rendererSource).toContain("focus-usage-consumer");
     expect(rendererSource).toContain("getUsageAnalytics");
     expect(rendererSource).toContain("buildUsageAnalyticsRequest");
     expect(rendererSource).toContain("refreshUsageAnalyticsOnly");
@@ -1023,6 +1026,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("bindUsageTooltipInteractions");
     expect(rendererSource).toContain("usage-tooltip-popover");
     expect(styles).toContain(".usage-tooltip-popover");
+    expect(styles).toContain(".usage-member-health-matrix");
+    expect(styles).toContain(".usage-health-score-pill");
     expect(styles).toContain(".usage-tooltip-popover[data-visible=\"true\"]");
     expect(styles).toContain(".usage-timeline-bars { grid-template-columns: repeat(12");
     expect(rendererSource).toContain("renderUsageDimensionInsights");

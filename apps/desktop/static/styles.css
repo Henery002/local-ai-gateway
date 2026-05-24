@@ -2715,6 +2715,104 @@ button, input, select {
   font-weight: 700;
 }
 
+.usage-member-health-matrix {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklab, var(--accent-color) 16%, var(--color-border-subtle));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.045), rgba(245, 158, 11, 0.04)),
+    var(--color-bg-card);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.055);
+}
+
+.usage-member-health-table {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usage-member-health-head,
+.usage-member-health-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) 120px 120px 72px 72px minmax(120px, 0.9fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.usage-member-health-head {
+  padding: 0 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.usage-member-health-row {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-bg-elevated) 76%, white);
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.usage-member-health-row:hover {
+  border-color: color-mix(in oklab, var(--accent-color) 36%, var(--color-border-subtle));
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.1);
+  transform: translateY(-1px);
+}
+
+.usage-member-health-row strong,
+.usage-member-health-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-member-health-row strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.usage-member-health-row small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.usage-health-score-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.usage-health-score-pill.tone-success {
+  background: color-mix(in oklab, var(--success) 14%, white);
+  color: color-mix(in oklab, var(--success) 72%, black);
+}
+
+.usage-health-score-pill.tone-active {
+  background: color-mix(in oklab, var(--accent-color) 14%, white);
+  color: color-mix(in oklab, var(--accent-color) 72%, black);
+}
+
+.usage-health-score-pill.tone-warning,
+.usage-health-score-pill.tone-danger {
+  background: color-mix(in oklab, var(--warning) 18%, white);
+  color: color-mix(in oklab, var(--danger) 70%, black);
+}
+
 .usage-echart-card {
   display: grid;
   gap: 12px;
@@ -7069,6 +7167,12 @@ button, input, select {
     width: auto;
     height: auto;
     min-height: 88px;
+  }
+  .usage-member-health-head {
+    display: none;
+  }
+  .usage-member-health-row {
+    grid-template-columns: 1fr;
   }
   .access-policy-item {
     align-items: flex-start;

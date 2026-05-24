@@ -5430,6 +5430,117 @@ function renderUsageScopeMatrix(summary: UsageWindowSummary): string {
   `;
 }
 
+type UsageMemberHealthRow = {
+  consumerId: string;
+  label: string;
+  usage: UsageCounters;
+  score: number;
+  tone: "success" | "active" | "warning" | "danger";
+  statusLabel: string;
+  alertCount: number;
+  latestAlert?: AccessAlertEvent;
+  updatedAt?: number;
+};
+
+function getUsageHealthTone(score: number): UsageMemberHealthRow["tone"] {
+  if (score >= 85) {
+    return "success";
+  }
+  if (score >= 70) {
+    return "active";
+  }
+  if (score >= 50) {
+    return "warning";
+  }
+  return "danger";
+}
+
+function getUsageHealthStatusLabel(score: number): string {
+  if (score >= 85) {
+    return "健康";
+  }
+  if (score >= 70) {
+    return "可关注";
+  }
+  if (score >= 50) {
+    return "风险";
+  }
+  return "严重";
+}
+
+function calculateUsageHealthScore(
+  usage: UsageCounters,
+  recentAlerts: AccessAlertEvent[],
+): number {
+  const failureRate =
+    usage.requestCount > 0 ? usage.failureCount / usage.requestCount : 0;
+  const averageLatency =
+    usage.successCount > 0 ? usage.totalLatencyMs / usage.successCount : 0;
+  const criticalPenalty =
+    recentAlerts.filter((event) => event.severity === "critical").length * 18;
+  const warningPenalty =
+    recentAlerts.filter((event) => event.severity === "warning").length * 8;
+  const latencyPenalty =
+    averageLatency > 5_000 ? 16 : averageLatency > 2_000 ? 8 : 0;
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        100 - failureRate * 45 - criticalPenalty - warningPenalty - latencyPenalty,
+      ),
+    ),
+  );
+}
+
+function buildUsageMemberHealthRows(
+  summary: UsageWindowSummary,
+): UsageMemberHealthRow[] {
+  const byConsumer = new Map<
+    string,
+    { usage: UsageCounters; updatedAt?: number; clientTag?: string }
+  >();
+  for (const consumer of summary.consumers) {
+    const current = byConsumer.get(consumer.consumerId) ?? {
+      usage: buildEmptyUsageCounters(),
+      updatedAt: undefined,
+      clientTag: consumer.clientTag,
+    };
+    current.usage = addUsageCounters(current.usage, consumer.usage);
+    current.updatedAt = Math.max(current.updatedAt ?? 0, consumer.updatedAt ?? 0);
+    current.clientTag = current.clientTag ?? consumer.clientTag;
+    byConsumer.set(consumer.consumerId, current);
+  }
+  const now = Date.now();
+  return Array.from(byConsumer.entries())
+    .map(([consumerId, item]) => {
+      const recentAlerts = (state.accessAlerts ?? [])
+        .filter((event) => event.consumerId === consumerId)
+        .filter((event) => now - event.timestamp <= 7 * 24 * 60 * 60 * 1000);
+      const score = calculateUsageHealthScore(item.usage, recentAlerts);
+      const latestAlert = [...recentAlerts].sort(
+        (left, right) => right.timestamp - left.timestamp,
+      )[0];
+      return {
+        consumerId,
+        label: getUsageConsumerDisplayLabel(consumerId),
+        usage: item.usage,
+        score,
+        tone: getUsageHealthTone(score),
+        statusLabel: getUsageHealthStatusLabel(score),
+        alertCount: recentAlerts.length,
+        latestAlert,
+        updatedAt: item.updatedAt,
+      };
+    })
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+      return right.usage.totalTokens - left.usage.totalTokens;
+    });
+}
+
 function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   const consumerId =
     getSelectedUsageConsumerId() ??
@@ -5458,27 +5569,9 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   const recentAlerts = alerts.filter(
     (event) => Date.now() - event.timestamp <= 7 * 24 * 60 * 60 * 1000,
   );
-  const failureRate =
-    usage.requestCount > 0 ? usage.failureCount / usage.requestCount : 0;
-  const averageLatency =
-    usage.successCount > 0 ? usage.totalLatencyMs / usage.successCount : 0;
-  const criticalPenalty =
-    recentAlerts.filter((event) => event.severity === "critical").length * 18;
-  const warningPenalty =
-    recentAlerts.filter((event) => event.severity === "warning").length * 8;
-  const latencyPenalty =
-    averageLatency > 5_000 ? 16 : averageLatency > 2_000 ? 8 : 0;
-  const score = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(100 - failureRate * 45 - criticalPenalty - warningPenalty - latencyPenalty),
-    ),
-  );
-  const tone =
-    score >= 85 ? "success" : score >= 70 ? "active" : score >= 50 ? "warning" : "danger";
-  const label =
-    score >= 85 ? "健康" : score >= 70 ? "可关注" : score >= 50 ? "风险" : "严重";
+  const score = calculateUsageHealthScore(usage, recentAlerts);
+  const tone = getUsageHealthTone(score);
+  const label = getUsageHealthStatusLabel(score);
   const latestAlert = [...recentAlerts].sort(
     (left, right) => right.timestamp - left.timestamp,
   )[0];
@@ -5514,12 +5607,74 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   `;
 }
 
+function renderUsageMemberHealthMatrix(summary: UsageWindowSummary): string {
+  const rows = buildUsageMemberHealthRows(summary).slice(0, 6);
+  if (rows.length === 0) {
+    return `
+      <div class="usage-member-health-matrix">
+        <div class="usage-chart-section-header">
+          <div>
+            <strong>成员健康矩阵</strong>
+            <span>成员产生请求后，会按风险优先展示健康分、失败、告警和最近活跃。</span>
+          </div>
+          <span class="badge neutral">成员</span>
+        </div>
+        <div class="empty-card">暂无成员健康数据。</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="usage-member-health-matrix">
+      <div class="usage-chart-section-header">
+        <div>
+          <strong>成员健康矩阵</strong>
+          <span>按风险优先排列，点击筛选成员后可聚焦单成员走势。</span>
+        </div>
+        <span class="badge neutral">Top ${escapeHtml(String(rows.length))}</span>
+      </div>
+      <div class="usage-member-health-table">
+        <div class="usage-member-health-head">
+          <span>成员</span>
+          <span>健康分</span>
+          <span>Token / 请求</span>
+          <span>失败</span>
+          <span>告警</span>
+          <span>最近活跃</span>
+        </div>
+        ${rows
+          .map((row) => `
+            <button
+              class="usage-member-health-row"
+              data-action="focus-usage-consumer"
+              data-consumer-id="${escapeHtml(row.consumerId)}"
+              type="button"
+            >
+              <span>
+                <strong>${escapeHtml(row.label)}</strong>
+                <small>${escapeHtml(row.latestAlert ? formatAccessAlertTypeLabel(row.latestAlert.type) : "近 7 天无告警")}</small>
+              </span>
+              <span class="usage-health-score-pill tone-${escapeHtml(row.tone)}">${escapeHtml(String(row.score))} · ${escapeHtml(row.statusLabel)}</span>
+              <span>${escapeHtml(formatCompactCount(row.usage.totalTokens))} / ${escapeHtml(formatCompactCount(row.usage.requestCount))}</span>
+              <span>${escapeHtml(formatCompactCount(row.usage.failureCount))}</span>
+              <span>${escapeHtml(formatCompactCount(row.alertCount))}</span>
+              <span>${escapeHtml(row.updatedAt ? formatDate(row.updatedAt) : "暂无")}</span>
+            </button>
+          `)
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
   const activeConsumer = getUsageConsumerFilterLabel();
   return `
     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
       <div class="usage-operations-health">
         ${renderUsageMemberHealthCard(summary)}
+      </div>
+      <div class="usage-operations-wide">
+        ${renderUsageMemberHealthMatrix(summary)}
       </div>
       <div class="usage-operations-main">
         <div class="usage-echart-card usage-echart-card-large">
@@ -15636,6 +15791,15 @@ function bindActions(): void {
 
     if (action === "open-usage-details") {
       openUsageDetailsModal();
+      return;
+    }
+
+    if (action === "focus-usage-consumer" && button.dataset.consumerId) {
+      state.usageConsumerFilter = button.dataset.consumerId;
+      renderUsageWorkbench();
+      void refreshUsageAnalyticsOnly().catch((error) => {
+        setBanner(`刷新成员用量分析失败：${normalizeErrorMessage(error)}`, "error");
+      });
       return;
     }
 
