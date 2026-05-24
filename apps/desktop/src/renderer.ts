@@ -1891,6 +1891,26 @@ function getUsageOutcomeFilterLabel(): string {
   return "全部结果";
 }
 
+function getUsageAccessKeyFilterLabel(): string {
+  if (state.usageAccessKeyFilter === "all") {
+    return "全部 Key";
+  }
+  const key = state.securitySettings?.accessControl?.keys.find(
+    (item) => item.id === state.usageAccessKeyFilter,
+  );
+  return key ? formatAccessKeyShortLabel(key) : state.usageAccessKeyFilter;
+}
+
+function getUsagePoolFilterLabel(): string {
+  if (state.usagePoolFilter === "all") {
+    return "全部号池";
+  }
+  const pool = state.poolSettings?.pools?.find(
+    (item) => item.id === state.usagePoolFilter,
+  );
+  return pool?.name || state.usagePoolFilter;
+}
+
 function getUsageMetricLabel(metric: UsageMetricFilter = state.usageMetricFilter): string {
   if (metric === "requests") {
     return "请求数";
@@ -1929,6 +1949,106 @@ function formatUsageTrendMetricValue(
     return `${formatCompactCount(value)} 次`;
   }
   return `${formatCompactCount(value)} Token`;
+}
+
+function buildUsageFilterContextItems(): Array<{
+  label: string;
+  value: string;
+  tone: "neutral" | "active";
+}> {
+  return [
+    {
+      label: "窗口",
+      value: usageWindowLabel(state.usageObserveWindow),
+      tone: "active",
+    },
+    {
+      label: "观测",
+      value: formatUsageTrendDimensionLabel(state.usageTrendDimension),
+      tone: "active",
+    },
+    {
+      label: "指标",
+      value: getUsageMetricLabel(),
+      tone: state.usageMetricFilter === "tokens" ? "neutral" : "active",
+    },
+    {
+      label: "成员",
+      value: getUsageConsumerFilterLabel(),
+      tone: state.usageConsumerFilter === "all" ? "neutral" : "active",
+    },
+    {
+      label: "模型",
+      value: state.usageModelFilter === "all" ? "全部模型" : state.usageModelFilter,
+      tone: state.usageModelFilter === "all" ? "neutral" : "active",
+    },
+    {
+      label: "Key",
+      value: getUsageAccessKeyFilterLabel(),
+      tone: state.usageAccessKeyFilter === "all" ? "neutral" : "active",
+    },
+    {
+      label: "号池",
+      value: getUsagePoolFilterLabel(),
+      tone: state.usagePoolFilter === "all" ? "neutral" : "active",
+    },
+    {
+      label: "结果",
+      value: getUsageOutcomeFilterLabel(),
+      tone: state.usageOutcomeFilter === "all" ? "neutral" : "active",
+    },
+  ];
+}
+
+function renderUsageFilterContextBar(): string {
+  return `
+    <div class="usage-filter-context-bar" aria-label="当前用量筛选条件">
+      ${buildUsageFilterContextItems()
+        .map(
+          (item) => `
+            <span class="usage-filter-context-chip tone-${escapeHtml(item.tone)}">
+              <small>${escapeHtml(item.label)}</small>
+              <strong>${escapeHtml(item.value)}</strong>
+            </span>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderUsageChartDataHint(summary: UsageWindowSummary): string {
+  const messages: string[] = [];
+  if (summary.totals.requestCount <= 0) {
+    messages.push("当前筛选条件下暂无请求记录。");
+  } else if (summary.totals.totalTokens <= 0) {
+    messages.push("当前筛选有请求记录，但暂无 Token 计量数据。");
+  }
+  if (state.usageMetricFilter === "failures" && summary.totals.failureCount <= 0) {
+    messages.push("当前窗口未记录失败请求，失败数曲线会保持为 0。");
+  }
+  if (
+    state.usageMetricFilter === "failureRate" &&
+    summary.totals.failureCount <= 0
+  ) {
+    messages.push("当前窗口成功率稳定，失败率曲线会保持为 0%。");
+  }
+  if (
+    state.usageMetricFilter === "latency" &&
+    summary.totals.successCount <= 0
+  ) {
+    messages.push("当前窗口暂无成功请求，平均延迟暂按 0 ms 展示。");
+  }
+  if (messages.length === 0) {
+    messages.push(
+      `当前看板基于 ${usageWindowLabel(state.usageObserveWindow)} 的本地持久化用量事件聚合。`,
+    );
+  }
+  return `
+    <div class="usage-data-hint">
+      ${messages.map((message) => `<span>${escapeHtml(message)}</span>`).join("")}
+    </div>
+  `;
 }
 
 function applyUsageLocalFilters(summary: UsageWindowSummary): UsageWindowSummary {
@@ -5778,6 +5898,10 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
   const trendTitle = getUsageTrendTitle();
   return `
     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
+      <div class="usage-operations-wide">
+        ${renderUsageFilterContextBar()}
+        ${renderUsageChartDataHint(summary)}
+      </div>
       <div class="usage-operations-health">
         ${renderUsageMemberHealthCard(summary)}
       </div>

@@ -2605,6 +2605,72 @@ button, input, select {
   padding-block: 5px;
 }
 
+.usage-filter-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.usage-filter-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-bg-elevated) 80%, white);
+  color: var(--text-secondary);
+}
+
+.usage-filter-context-chip.tone-active {
+  border-color: color-mix(in oklab, var(--accent-color) 30%, var(--color-border-subtle));
+  background: color-mix(in oklab, var(--accent-color) 10%, white);
+  color: color-mix(in oklab, var(--accent-color) 70%, black);
+}
+
+.usage-filter-context-chip small,
+.usage-filter-context-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-filter-context-chip small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.usage-filter-context-chip strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.usage-data-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 2px;
+}
+
+.usage-data-hint span {
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in oklab, var(--info) 18%, var(--color-border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--info) 8%, white);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .usage-operations-dashboard {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
