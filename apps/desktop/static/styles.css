@@ -2583,6 +2583,24 @@ button, input, select {
   font-size: 12px;
 }
 
+.usage-consumer-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.usage-consumer-filter span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.usage-consumer-filter .input-field {
+  min-height: 32px;
+  padding-block: 5px;
+}
+
 .usage-operations-dashboard {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
@@ -2602,6 +2620,45 @@ button, input, select {
 
 .usage-operations-card {
   min-width: 0;
+}
+
+.usage-echart-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  min-height: 100%;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklab, var(--accent-color) 18%, var(--color-border-subtle));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.045), rgba(16, 185, 129, 0.025)),
+    var(--color-bg-card);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
+}
+
+.usage-echart-card-large {
+  min-height: 360px;
+}
+
+.usage-echart {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+  min-height: 260px;
+}
+
+.usage-echart-trend {
+  min-height: 310px;
+}
+
+.usage-echart-ranking {
+  min-height: 300px;
+}
+
+.usage-echart .usage-line-chart,
+.usage-echart .usage-ranking-chart,
+.usage-echart .usage-donut-chart {
+  height: 100%;
 }
 
 .usage-line-chart,
@@ -6900,6 +6957,15 @@ button, input, select {
   .usage-chart-header > .badge,
   .usage-alert-header > .badge {
     align-self: flex-start;
+  }
+  .usage-consumer-filter {
+    width: 100%;
+  }
+  .usage-consumer-filter .input-field {
+    width: 100%;
+  }
+  .usage-operations-dashboard {
+    grid-template-columns: 1fr;
   }
   .access-policy-item {
     align-items: flex-start;

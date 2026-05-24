@@ -681,6 +681,12 @@
                           <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="false">总览</button>
                         </div>
                       </div>
+                      <label class="usage-consumer-filter">
+                        <span>成员</span>
+                        <select id="usage-consumer-filter" class="input-field">
+                          <option value="all">全部成员</option>
+                        </select>
+                      </label>
                       <span class="badge active">真实统计</span>
                     </div>
                   </div>
@@ -1834,6 +1840,7 @@
       </div>
     </div>
 
+    <script src="../../../node_modules/echarts/dist/echarts.min.js"></script>
     <script type="module" src="../dist/renderer.js"></script>
   </body>
 </html>

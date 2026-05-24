@@ -4564,7 +4564,8 @@ describe("gateway app", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json().data.daily.consumerTimeline).toEqual(
+      const summary = response.json().data;
+      expect(summary.daily.consumerTimeline).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             bucketStart: currentHour - hourMs,
@@ -4591,6 +4592,34 @@ describe("gateway app", () => {
             bucketEnd: currentHour + hourMs,
             consumerId: "consumer-bob",
             clientTag: "bob",
+            usage: expect.objectContaining({
+              requestCount: 1,
+              failureCount: 1,
+              totalTokens: 5,
+            }),
+          }),
+        ]),
+      );
+      const currentDay = Math.floor(currentHour / (24 * hourMs)) * 24 * hourMs;
+      expect(summary.weekly.consumerTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            bucketStart: currentDay,
+            bucketEnd: currentDay + 24 * hourMs,
+            consumerId: "consumer-alice",
+            usage: expect.objectContaining({
+              requestCount: 2,
+              totalTokens: 18,
+            }),
+          }),
+        ]),
+      );
+      expect(summary.monthly.consumerTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            bucketStart: currentDay,
+            bucketEnd: currentDay + 24 * hourMs,
+            consumerId: "consumer-bob",
             usage: expect.objectContaining({
               requestCount: 1,
               failureCount: 1,

@@ -53,6 +53,7 @@ const STALE_QUOTA_AFTER_REFRESH_ERROR_MS = 15 * 60_000;
 
 declare global {
   interface Window {
+    echarts?: EChartsNamespace;
     localAIGateway?: {
       getHealth: () => Promise<DashboardHealth>;
       getProviders: () => Promise<DashboardProviders>;
@@ -208,6 +209,15 @@ type ProviderConfigurationStatus = "active" | "disabled" | "incomplete";
 type UsageClientFilter = "all" | "openclaw" | "hermes" | "other";
 type UsageObserveWindow = "history" | "daily" | "weekly" | "monthly";
 type UsageTrendDimension = "all" | "members" | "models" | "attribution";
+type EChartsInstance = {
+  setOption: (option: Record<string, unknown>, notMerge?: boolean) => void;
+  resize: () => void;
+  dispose: () => void;
+};
+type EChartsNamespace = {
+  init: (element: HTMLElement, theme?: string | null, options?: Record<string, unknown>) => EChartsInstance;
+  getInstanceByDom?: (element: HTMLElement) => EChartsInstance | undefined;
+};
 
 type UsageCounters = {
   requestCount: number;
@@ -1351,6 +1361,7 @@ const state: {
   usageClientFilter: UsageClientFilter;
   usageObserveWindow: UsageObserveWindow;
   usageTrendDimension: UsageTrendDimension;
+  usageConsumerFilter: string;
   usageAlertStatusFilter: UsageAlertStatusFilter;
   usageAlertSeverityFilter: UsageAlertSeverityFilter;
   usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
@@ -1378,6 +1389,7 @@ const state: {
   usageClientFilter: "all",
   usageObserveWindow: "daily",
   usageTrendDimension: "members",
+  usageConsumerFilter: "all",
   usageAlertStatusFilter: "all",
   usageAlertSeverityFilter: "all",
   usageAlertConsumerTypeFilter: "all",
@@ -1414,6 +1426,8 @@ let activePoolModalDraft: PoolDefinition | undefined;
 let pendingConfirmResolver: ((confirmed: boolean) => void) | undefined;
 let usageTooltipElement: HTMLDivElement | undefined;
 let usageTooltipInteractionsBound = false;
+const usageChartInstances = new Map<string, EChartsInstance>();
+let usageChartResizeBound = false;
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -1575,6 +1589,27 @@ function buildEmptyUsageCounters(): UsageCounters {
   };
 }
 
+function addUsageCounters(left: UsageCounters, right: UsageCounters): UsageCounters {
+  return {
+    requestCount: left.requestCount + right.requestCount,
+    successCount: left.successCount + right.successCount,
+    failureCount: left.failureCount + right.failureCount,
+    totalLatencyMs: left.totalLatencyMs + right.totalLatencyMs,
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    totalTokens: left.totalTokens + right.totalTokens,
+    cachedTokens: left.cachedTokens + right.cachedTokens,
+    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+  };
+}
+
+function sumUsageCounters(items: Array<{ usage: UsageCounters }>): UsageCounters {
+  return items.reduce(
+    (total, item) => addUsageCounters(total, item.usage),
+    buildEmptyUsageCounters(),
+  );
+}
+
 function normalizeUsageCounters(value?: Partial<UsageCounters>): UsageCounters {
   const fallback = buildEmptyUsageCounters();
   return {
@@ -1705,16 +1740,58 @@ function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
   if (!summary) {
     return undefined;
   }
-  if (state.usageObserveWindow === "history") {
-    return summary.history;
+  const activeSummary =
+    state.usageObserveWindow === "history"
+      ? summary.history
+      : state.usageObserveWindow === "weekly"
+        ? summary.weekly
+        : state.usageObserveWindow === "monthly"
+          ? summary.monthly
+          : summary.daily;
+  return applyUsageConsumerFilter(activeSummary);
+}
+
+function applyUsageConsumerFilter(summary: UsageWindowSummary): UsageWindowSummary {
+  const consumerId = getSelectedUsageConsumerId();
+  if (!consumerId) {
+    return summary;
   }
-  if (state.usageObserveWindow === "weekly") {
-    return summary.weekly;
-  }
-  if (state.usageObserveWindow === "monthly") {
-    return summary.monthly;
-  }
-  return summary.daily;
+  const consumers = summary.consumers.filter(
+    (item) => item.consumerId === consumerId,
+  );
+  const accessKeys = summary.accessKeys.filter(
+    (item) => item.consumerId === consumerId,
+  );
+  const consumerTimeline = (summary.consumerTimeline ?? []).filter(
+    (item) => item.consumerId === consumerId,
+  );
+  const accessKeyTimeline = (summary.accessKeyTimeline ?? []).filter(
+    (item) => item.consumerId === consumerId,
+  );
+  return {
+    ...summary,
+    totals: sumUsageCounters(consumers),
+    consumers,
+    accessKeys,
+    consumerTimeline,
+    accessKeyTimeline,
+  };
+}
+
+function getSelectedUsageConsumerId(): string | undefined {
+  return state.usageConsumerFilter === "all" ? undefined : state.usageConsumerFilter;
+}
+
+function getUsageConsumerDisplayLabel(consumerId: string): string {
+  const consumer = state.securitySettings?.accessControl?.consumers.find(
+    (item) => item.id === consumerId,
+  );
+  return consumer?.name || getAccessConsumerDisplayName(consumerId);
+}
+
+function getUsageConsumerFilterLabel(): string {
+  const consumerId = getSelectedUsageConsumerId();
+  return consumerId ? getUsageConsumerDisplayLabel(consumerId) : "全部成员";
 }
 
 function formatCompactCount(value: number): string {
@@ -4400,12 +4477,63 @@ function renderUsageOverview(): void {
 function renderUsageWorkbench(): void {
   const summary = getActiveUsageWindowSummary();
   syncUsageTrendDimensionControls();
+  syncUsageConsumerFilterControl();
   renderUsageTrendChart(summary);
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
   renderUsageAlertEvents();
   renderUsageAlertSummaryPreview();
   renderUsageAlertEventsPreview();
+}
+
+function syncUsageConsumerFilterControl(): void {
+  const select = document.getElementById(
+    "usage-consumer-filter",
+  ) as HTMLSelectElement | null;
+  if (!select) {
+    return;
+  }
+  const activeSummary =
+    state.usageObserveWindow === "history"
+      ? state.usageSummary?.history
+      : state.usageObserveWindow === "weekly"
+        ? state.usageSummary?.weekly
+        : state.usageObserveWindow === "monthly"
+          ? state.usageSummary?.monthly
+          : state.usageSummary?.daily;
+  const configuredConsumers =
+    state.securitySettings?.accessControl?.consumers ?? [];
+  const usageConsumerIds = new Set(
+    (activeSummary?.consumers ?? []).map((item) => item.consumerId),
+  );
+  const rows = [
+    ...configuredConsumers.map((consumer) => ({
+      id: consumer.id,
+      label: consumer.name || consumer.clientTag || consumer.id,
+      detail: consumer.type === "public-user" ? "公网成员" : "成员",
+    })),
+    ...Array.from(usageConsumerIds)
+      .filter((id) => !configuredConsumers.some((consumer) => consumer.id === id))
+      .map((id) => ({
+        id,
+        label: getAccessConsumerDisplayName(id),
+        detail: "历史归因",
+      })),
+  ].sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+  if (
+    state.usageConsumerFilter !== "all" &&
+    !rows.some((row) => row.id === state.usageConsumerFilter)
+  ) {
+    state.usageConsumerFilter = "all";
+  }
+  select.innerHTML = [
+    `<option value="all">全部成员</option>`,
+    ...rows.map(
+      (row) =>
+        `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)} · ${escapeHtml(row.detail)}</option>`,
+    ),
+  ].join("");
+  select.value = state.usageConsumerFilter;
 }
 
 function syncUsageTrendDimensionControls(): void {
@@ -4509,7 +4637,15 @@ function getUsageRankingRows(summary: UsageWindowSummary): UsageRankingRow[] {
 function getUsageTrendTimelinePoints(
   summary: UsageWindowSummary,
 ): Array<{ bucketStart: number; usage: UsageCounters }> {
-  if (state.usageObserveWindow !== "daily") {
+  const timelineWindow =
+    state.usageObserveWindow === "daily"
+      ? { bucketMs: 60 * 60 * 1000, count: 24 }
+      : state.usageObserveWindow === "weekly"
+        ? { bucketMs: 24 * 60 * 60 * 1000, count: 7 }
+        : state.usageObserveWindow === "monthly"
+          ? { bucketMs: 24 * 60 * 60 * 1000, count: 30 }
+          : undefined;
+  if (!timelineWindow) {
     return [];
   }
   const merge = new Map<number, UsageCounters>();
@@ -4549,11 +4685,12 @@ function getUsageTrendTimelinePoints(
     pushTimeline(summary.consumerTimeline);
   }
 
-  const hourMs = 60 * 60 * 1000;
-  const currentHour = Math.floor(Date.now() / hourMs) * hourMs;
-  const firstBucketStart = currentHour - 23 * hourMs;
-  return Array.from({ length: 24 }, (_, index) => {
-    const bucketStart = firstBucketStart + index * hourMs;
+  const currentBucket =
+    Math.floor(Date.now() / timelineWindow.bucketMs) * timelineWindow.bucketMs;
+  const firstBucketStart =
+    currentBucket - (timelineWindow.count - 1) * timelineWindow.bucketMs;
+  return Array.from({ length: timelineWindow.count }, (_, index) => {
+    const bucketStart = firstBucketStart + index * timelineWindow.bucketMs;
     return {
       bucketStart,
       usage: merge.get(bucketStart) ?? buildEmptyUsageCounters(),
@@ -4565,8 +4702,8 @@ function renderUsageTokenTrendLine(summary: UsageWindowSummary): string {
   const points = getUsageTrendTimelinePoints(summary);
   if (points.length === 0 || points.every((point) => point.usage.totalTokens <= 0)) {
     return renderUsageTrendEmptyState(
-      "当前视角暂无小时曲线",
-      "日窗口会展示最近 24 小时走势；周、月和累计窗口先用于排行与构成观察。",
+      "当前视角暂无趋势曲线",
+      "近 24 小时按小时展示；近 7 天和近 30 天按天展示。累计窗口用于排行与构成观察。",
     );
   }
   const width = 720;
@@ -4800,6 +4937,264 @@ function renderUsageLatencySnapshot(summary: UsageWindowSummary): string {
   `;
 }
 
+function getUsageECharts(): EChartsNamespace | undefined {
+  return window.echarts;
+}
+
+function disposeUsageCharts(): void {
+  for (const chart of usageChartInstances.values()) {
+    chart.dispose();
+  }
+  usageChartInstances.clear();
+}
+
+function ensureUsageChartResizeBinding(): void {
+  if (usageChartResizeBound) {
+    return;
+  }
+  usageChartResizeBound = true;
+  window.addEventListener("resize", () => {
+    for (const chart of usageChartInstances.values()) {
+      chart.resize();
+    }
+  });
+}
+
+function getUsageChartInstance(id: string): EChartsInstance | undefined {
+  const element = document.getElementById(id);
+  const echarts = getUsageECharts();
+  if (!element || !echarts) {
+    return undefined;
+  }
+  const existing = usageChartInstances.get(id) ?? echarts.getInstanceByDom?.(element);
+  if (existing) {
+    usageChartInstances.set(id, existing);
+    return existing;
+  }
+  const chart = echarts.init(element, null, { renderer: "canvas" });
+  usageChartInstances.set(id, chart);
+  ensureUsageChartResizeBinding();
+  return chart;
+}
+
+function getUsageChartPalette(): string[] {
+  return ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4"];
+}
+
+function formatUsageAxisLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  if (state.usageObserveWindow === "daily") {
+    return `${String(date.getHours()).padStart(2, "0")}:00`;
+  }
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function buildUsageTrendChartOption(summary: UsageWindowSummary): Record<string, unknown> {
+  const points = getUsageTrendTimelinePoints(summary);
+  const labels = points.map((point) => formatUsageAxisLabel(point.bucketStart));
+  const palette = getUsageChartPalette();
+  return {
+    color: palette,
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+    },
+    legend: {
+      top: 0,
+      right: 8,
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: "#64748b", fontSize: 11 },
+    },
+    grid: { left: 48, right: 24, top: 42, bottom: 52 },
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: labels,
+      axisLabel: { color: "#64748b" },
+      axisLine: { lineStyle: { color: "#cbd5e1" } },
+    },
+    yAxis: {
+      type: "value",
+      name: "Token",
+      nameTextStyle: { color: "#64748b" },
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    dataZoom: [
+      { type: "inside", zoomOnMouseWheel: true, moveOnMouseMove: true },
+      {
+        type: "slider",
+        height: 20,
+        bottom: 16,
+        borderColor: "transparent",
+        fillerColor: "rgba(37, 99, 235, 0.16)",
+        handleStyle: { color: "#2563eb" },
+      },
+    ],
+    series: [
+      {
+        name: "总 Token",
+        type: "line",
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 6,
+        areaStyle: { opacity: 0.12 },
+        lineStyle: { width: 3 },
+        data: points.map((point) => point.usage.totalTokens),
+      },
+      {
+        name: "输入",
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 1.8 },
+        data: points.map((point) => point.usage.inputTokens),
+      },
+      {
+        name: "输出",
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 1.8 },
+        data: points.map((point) => point.usage.outputTokens),
+      },
+      {
+        name: "请求数",
+        type: "bar",
+        yAxisIndex: 0,
+        barMaxWidth: 12,
+        itemStyle: { opacity: 0.22 },
+        data: points.map((point) => point.usage.requestCount),
+      },
+    ],
+  };
+}
+
+function buildUsageTokenMixChartOption(summary: UsageWindowSummary): Record<string, unknown> {
+  const data = [
+    { name: "输入", value: Math.max(0, summary.totals.inputTokens) },
+    { name: "输出", value: Math.max(0, summary.totals.outputTokens) },
+    { name: "缓存", value: Math.max(0, summary.totals.cachedTokens) },
+    { name: "思考", value: Math.max(0, summary.totals.reasoningTokens) },
+  ].filter((item) => item.value > 0);
+  return {
+    color: getUsageChartPalette(),
+    tooltip: {
+      trigger: "item",
+      formatter: "{b}<br/>{c} Token ({d}%)",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+    },
+    legend: {
+      bottom: 0,
+      left: "center",
+      textStyle: { color: "#64748b", fontSize: 11 },
+    },
+    series: [
+      {
+        name: "Token 构成",
+        type: "pie",
+        radius: ["52%", "76%"],
+        center: ["50%", "42%"],
+        avoidLabelOverlap: true,
+        label: { formatter: "{b}\n{d}%", color: "#334155" },
+        data: data.length > 0 ? data : [{ name: "暂无", value: 1 }],
+      },
+    ],
+    graphic: {
+      type: "text",
+      left: "center",
+      top: "39%",
+      style: {
+        text: formatCompactCount(summary.totals.totalTokens),
+        fill: "#0f172a",
+        fontSize: 20,
+        fontWeight: 700,
+        textAlign: "center",
+      },
+    },
+  };
+}
+
+function buildUsageRankingChartOption(summary: UsageWindowSummary): Record<string, unknown> {
+  const rows = getUsageRankingRows(summary)
+    .filter((row) => row.usage.totalTokens > 0 || row.usage.requestCount > 0)
+    .sort((left, right) => right.usage.totalTokens - left.usage.totalTokens)
+    .slice(0, 10)
+    .reverse();
+  return {
+    color: ["#2563eb"],
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+    },
+    grid: { left: 112, right: 28, top: 18, bottom: 28 },
+    xAxis: {
+      type: "value",
+      name: "Token",
+      nameTextStyle: { color: "#64748b" },
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    yAxis: {
+      type: "category",
+      data: rows.map((row) => row.label),
+      axisLabel: { color: "#334155", width: 104, overflow: "truncate" },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: "Token",
+        type: "bar",
+        barMaxWidth: 18,
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: "#60a5fa" },
+              { offset: 1, color: "#2563eb" },
+            ],
+          },
+        },
+        data: rows.map((row) => row.usage.totalTokens),
+      },
+    ],
+  };
+}
+
+function renderUsageEChartsDashboard(summary: UsageWindowSummary): void {
+  const echarts = getUsageECharts();
+  if (!echarts) {
+    return;
+  }
+  getUsageChartInstance("usage-echart-trend")?.setOption(
+    buildUsageTrendChartOption(summary),
+    true,
+  );
+  getUsageChartInstance("usage-echart-mix")?.setOption(
+    buildUsageTokenMixChartOption(summary),
+    true,
+  );
+  getUsageChartInstance("usage-echart-ranking")?.setOption(
+    buildUsageRankingChartOption(summary),
+    true,
+  );
+}
+
 function renderUsageScopeMatrix(summary: UsageWindowSummary): string {
   const items = [
     { label: "成员", value: summary.consumers.length, detail: "consumer" },
@@ -4834,16 +5229,50 @@ function renderUsageScopeMatrix(summary: UsageWindowSummary): string {
 }
 
 function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
+  const activeConsumer = getUsageConsumerFilterLabel();
   return `
     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
       <div class="usage-operations-main">
-        ${renderUsageTokenTrendLine(summary)}
+        <div class="usage-echart-card usage-echart-card-large">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>Token 消耗走势</strong>
+              <span>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))} · ${escapeHtml(activeConsumer)} · ${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
+            </div>
+            <span class="badge neutral">ECharts · 可缩放</span>
+          </div>
+          <div id="usage-echart-trend" class="usage-echart usage-echart-trend">
+            ${renderUsageTokenTrendLine(summary)}
+          </div>
+        </div>
       </div>
       <div class="usage-operations-side">
-        ${renderUsageTokenMixDonut(summary)}
+        <div class="usage-echart-card">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>Token 构成</strong>
+              <span>输入、输出、缓存和思考 Token 占比</span>
+            </div>
+            <span class="badge neutral">Donut</span>
+          </div>
+          <div id="usage-echart-mix" class="usage-echart usage-echart-mix">
+            ${renderUsageTokenMixDonut(summary)}
+          </div>
+        </div>
       </div>
       <div class="usage-operations-wide">
-        ${renderUsageRankingBars(summary)}
+        <div class="usage-echart-card">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}排行</strong>
+              <span>按当前时间窗口统计，点击筛选成员后聚焦该成员相关 Key 与走势</span>
+            </div>
+            <span class="badge neutral">Bar</span>
+          </div>
+          <div id="usage-echart-ranking" class="usage-echart usage-echart-ranking">
+            ${renderUsageRankingBars(summary)}
+          </div>
+        </div>
       </div>
       <div class="usage-operations-card">
         ${renderUsageOutcomeBars(summary)}
@@ -4858,6 +5287,7 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
     <div class="usage-chart-legend">
       <span>窗口：${escapeHtml(usageWindowLabel(state.usageObserveWindow))}</span>
       <span>观测：${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}</span>
+      <span>成员：${escapeHtml(activeConsumer)}</span>
       <span>请求：${escapeHtml(formatCompactCount(summary.totals.requestCount))}</span>
       <span>成功率：${escapeHtml(formatUsageSuccessRate(summary.totals))}</span>
       <span>平均延迟：${escapeHtml(formatUsageLatency(summary.totals))}</span>
@@ -4870,6 +5300,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
   if (!node) {
     return;
   }
+  disposeUsageCharts();
   if (!summary || summary.totals.totalTokens <= 0) {
     node.innerHTML = renderUsageTrendEmptyState(
       "当前窗口暂无 Token 用量统计",
@@ -4879,6 +5310,7 @@ function renderUsageTrendChart(summary: UsageWindowSummary | undefined): void {
   }
 
   node.innerHTML = renderUsageOperationsDashboard(summary);
+  renderUsageEChartsDashboard(summary);
 }
 
 function renderUsageTrendEmptyState(title: string, message: string): string {
@@ -14291,6 +14723,15 @@ function bindActions(): void {
       void refreshUsageSummaryOnly().catch((error) => {
         setBanner(`刷新 Token 用量统计失败：${normalizeErrorMessage(error)}`, "error");
       });
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
+      target.id === "usage-consumer-filter"
+    ) {
+      state.usageConsumerFilter = target.value || "all";
+      renderUsageWorkbench();
       return;
     }
 

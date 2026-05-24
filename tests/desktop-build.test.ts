@@ -952,6 +952,8 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"notification-type-filter\"");
     expect(indexHtml).toContain("id=\"notification-page-size\"");
     expect(indexHtml).toContain("id=\"notification-pagination\"");
+    expect(indexHtml).toContain("echarts/dist/echarts.min.js");
+    expect(indexHtml).toContain("id=\"usage-consumer-filter\"");
     expect(indexHtml).toContain("公网成员");
     expect(usageView).toContain("class=\"usage-dimension-grid\"");
     expect(rendererSource).toContain("renderUsageWorkbench");
@@ -960,6 +962,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("formatAccessAlertConsumerTypeLabel");
     expect(rendererSource).toContain("usageAlertConsumerTypeFilter");
     expect(rendererSource).toContain("renderUsageTrendChart");
+    expect(rendererSource).toContain("renderUsageEChartsDashboard");
+    expect(rendererSource).toContain("buildUsageTrendChartOption");
+    expect(rendererSource).toContain("buildUsageTokenMixChartOption");
+    expect(rendererSource).toContain("buildUsageRankingChartOption");
+    expect(rendererSource).toContain("applyUsageConsumerFilter");
     expect(rendererSource).toContain("renderUsageOperationsDashboard");
     expect(rendererSource).toContain("renderUsageTokenTrendLine");
     expect(rendererSource).toContain("renderUsageRankingBars");
@@ -994,7 +1001,7 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("class=\"usage-trend-empty-state\"");
     expect(rendererSource).toContain("renderUsageTrendEmptyState");
     expect(rendererSource).toContain("data-usage-tooltip");
-    expect(rendererSource).toContain("当前视角暂无小时曲线");
+    expect(rendererSource).toContain("当前视角暂无趋势曲线");
     expect(rendererSource).toContain("当前视角暂无排行数据");
     expect(rendererSource).toContain("ensureUsageTooltip");
     expect(rendererSource).toContain("showUsageTooltip");
