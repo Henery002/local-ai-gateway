@@ -903,6 +903,9 @@
                 </div>
                 <div class="section-actions">
                   <button class="btn primary" data-action="repair-public-gateway" type="button">一键修复公网链路</button>
+                  <button class="btn secondary" data-action="gateway-service-restart" type="button">重启网关</button>
+                  <button class="btn secondary" data-action="cloudflare-service-restart" type="button">重启 Tunnel</button>
+                  <button class="btn secondary" data-action="copy-public-snippet" type="button">复制接入片段</button>
                   <button class="btn secondary" data-action="ops-refresh" type="button">刷新</button>
                 </div>
               </div>
@@ -935,7 +938,7 @@
                 <div class="card ops-control-panel">
                   <div class="card-header">
                     <div>
-                      <span class="card-title">服务控制</span>
+                      <span class="card-title">高级服务控制</span>
                       <p class="card-description">常驻服务使用 macOS 用户级 LaunchAgent；启动前会定向清理旧网关进程。</p>
                     </div>
                   </div>
@@ -981,6 +984,12 @@
                     </div>
                   </div>
                   <div class="ops-audit-toolbar">
+                    <div class="form-field">
+                      <label>成员</label>
+                      <select id="request-audit-consumer" class="input-field">
+                        <option value="">全部成员</option>
+                      </select>
+                    </div>
                     <div class="form-field compact">
                       <label>状态</label>
                       <select id="request-audit-status" class="input-field">
@@ -995,12 +1004,6 @@
                         <option value="50">50</option>
                         <option value="100" selected>100</option>
                         <option value="200">200</option>
-                      </select>
-                    </div>
-                    <div class="form-field">
-                      <label>成员</label>
-                      <select id="request-audit-consumer" class="input-field">
-                        <option value="">全部成员</option>
                       </select>
                     </div>
                     <div class="form-field">
@@ -1022,6 +1025,7 @@
                       </select>
                     </div>
                   </div>
+                  <div id="request-audit-member-focus"></div>
                   <div id="request-audit-summary" class="ops-audit-summary"></div>
                   <div id="request-audit-preview" class="ops-compact-preview">
                     <div class="empty-card">等待请求审计数据。</div>

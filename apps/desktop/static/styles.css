@@ -42,6 +42,12 @@
   --color-border-default: #d9e0ea;
   --color-border-subtle: #e8edf4;
   --color-border-strong: #c4ccd8;
+  --card-border: #cfd8e6;
+  --card-border-hover: #aebbd0;
+  --card-surface: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  --card-surface-strong: linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+  --card-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 20px rgba(15, 23, 42, 0.045);
+  --card-shadow-hover: 0 1px 2px rgba(15, 23, 42, 0.06), 0 14px 30px rgba(15, 23, 42, 0.09);
   --color-text-primary: #111827;
   --color-text-secondary: #4b5563;
   --color-text-tertiary: #6b7280;
@@ -610,19 +616,21 @@ button, input, select {
 }
 
 .card {
-  background: var(--color-bg-card);
-  border: 1px solid var(--border-light);
+  background: var(--card-surface);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   padding: var(--space-4);
   transition:
     border-color 0.2s,
     box-shadow 0.2s,
-    background-color 0.2s;
+    background 0.2s,
+    transform 0.2s;
 }
 
 .card:hover {
-  border-color: var(--color-border-default);
-  box-shadow: var(--shadow-md);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .card-header {
@@ -654,9 +662,9 @@ button, input, select {
 .stat-card {
   position: relative;
   min-width: 0;
-  border-color: var(--color-border-subtle);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
+  border-color: var(--card-border);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
 }
 
 .stat-card-grid {
@@ -1142,6 +1150,8 @@ button, input, select {
 
 .access-surface-card {
   min-height: 170px;
+  border-color: var(--card-border);
+  background: var(--card-surface-strong);
 }
 
 .access-workbench {
@@ -1791,12 +1801,12 @@ button, input, select {
 
 .startup-check-card {
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
-  background: var(--color-bg-card);
+  border: 1px solid var(--card-border);
+  background: var(--card-surface);
   padding: 20px;
   display: grid;
   gap: 16px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--card-shadow);
 }
 
 .startup-check-head {
@@ -2058,10 +2068,20 @@ button, input, select {
 .system-status-strip .startup-check-item {
   min-width: 0;
   padding: 14px;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+}
+
+.system-status-strip .startup-check-item:hover {
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-1px);
 }
 
 .system-status-strip .startup-check-item p {
@@ -2084,10 +2104,10 @@ button, input, select {
   min-width: 0;
   min-height: 126px;
   padding: 16px;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
   text-align: left;
   cursor: pointer;
   transition:
@@ -2097,8 +2117,8 @@ button, input, select {
 }
 
 .system-action-card:hover {
-  border-color: var(--accent-color);
-  box-shadow: var(--shadow-md);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover);
   transform: translateY(-1px);
 }
 
@@ -3244,10 +3264,20 @@ button, input, select {
   display: grid;
   gap: 6px;
   padding: 14px;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--color-bg-card);
-  box-shadow: var(--shadow-sm);
+  background: var(--card-surface-strong);
+  box-shadow: var(--card-shadow);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+}
+
+.notification-summary-card:hover {
+  border-color: var(--card-border-hover);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-1px);
 }
 
 .notification-summary-card small,
@@ -5987,6 +6017,8 @@ button, input, select {
   flex-direction: column;
   gap: 14px;
   min-height: 180px;
+  border-color: var(--card-border);
+  background: var(--card-surface-strong);
 }
 
 .ops-status-card-head {
@@ -6056,7 +6088,86 @@ button, input, select {
   align-items: end;
   display: grid;
   gap: 12px;
-  grid-template-columns: 120px 120px repeat(4, minmax(120px, 1fr));
+  grid-template-columns: minmax(220px, 1.5fr) 120px 120px repeat(3, minmax(130px, 1fr));
+}
+
+.ops-audit-member-focus {
+  align-items: stretch;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  padding: 14px;
+}
+
+.ops-audit-member-focus > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-audit-member-focus small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.ops-audit-member-focus strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.ops-audit-member-focus span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ops-audit-member-metrics {
+  align-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ops-audit-chip {
+  align-items: center;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  min-height: 28px;
+  padding: 5px 10px;
+}
+
+.ops-audit-chip.tone-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.ops-audit-chip.tone-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.ops-audit-chip.tone-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.ops-audit-chip.tone-info {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  color: var(--info);
 }
 
 .ops-audit-summary {
@@ -6067,7 +6178,7 @@ button, input, select {
 
 .ops-audit-kpi {
   background: var(--bg-surface);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--card-border);
   border-radius: 8px;
   display: grid;
   gap: 4px;

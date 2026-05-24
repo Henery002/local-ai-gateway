@@ -391,6 +391,49 @@ describe("desktop build output", () => {
     expect(styles).toContain(".access-key-create-form .btn");
   });
 
+  it("renders member-first request audit controls and stronger operations cards", () => {
+    const indexHtml = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/index.html"),
+      "utf8",
+    );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      resolve(process.cwd(), "apps/desktop/static/styles.css"),
+      "utf8",
+    );
+
+    const operationsView = indexHtml.match(
+      /<div class="view" data-view="operations" hidden>([\s\S]*?)<!-- View: System & Diagnostics -->/,
+    )?.[1];
+    const requestAuditToolbar = operationsView?.match(
+      /<div class="ops-audit-toolbar">([\s\S]*?)<\/div>\s*<div id="request-audit-member-focus">/,
+    )?.[1];
+
+    expect(operationsView).toBeTruthy();
+    expect(operationsView).toContain('data-action="gateway-service-restart"');
+    expect(operationsView).toContain('data-action="cloudflare-service-restart"');
+    expect(operationsView).toContain('data-action="copy-public-snippet"');
+    expect(operationsView).toContain("高级服务控制");
+    expect(requestAuditToolbar).toBeTruthy();
+    expect(requestAuditToolbar?.indexOf('id="request-audit-consumer"')).toBeLessThan(
+      requestAuditToolbar?.indexOf('id="request-audit-status"') ?? Number.MAX_SAFE_INTEGER,
+    );
+    expect(indexHtml).toContain('id="request-audit-member-focus"');
+    expect(rendererSource).toContain("function buildAuditConsumerOptions");
+    expect(rendererSource).toContain("function buildAuditAccessKeyOptions");
+    expect(rendererSource).toContain("function scheduleRequestAuditRefresh");
+    expect(rendererSource).toContain("request-audit-consumer");
+    expect(rendererSource).toContain("renderRequestAuditMemberFocus");
+    expect(styles).toContain("--card-border: #cfd8e6");
+    expect(styles).toContain("--card-shadow-hover:");
+    expect(styles).toContain(".ops-audit-member-focus");
+    expect(styles).toContain(".notification-summary-card:hover");
+    expect(styles).toContain(".system-status-strip .startup-check-item:hover");
+  });
+
   it("binds access member detail actions in the renderer", () => {
     const rendererSource = readFileSync(
       resolve(process.cwd(), "apps/desktop/src/renderer.ts"),

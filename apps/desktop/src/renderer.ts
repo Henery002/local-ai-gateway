@@ -1382,6 +1382,7 @@ let viewStackScrollIdleTimer: number | undefined;
 let visibleRefreshFrame: number | undefined;
 let accountRenderFrame: number | undefined;
 let accountRenderToken = 0;
+let requestAuditFilterTimer: number | undefined;
 const SESSION_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 const poolMemberFieldFrames = new Map<string, number>();
 const poolMemberPanelState = new Map<string, PoolMemberPanelState>();
@@ -6139,6 +6140,57 @@ function formatAuditConsumerLabel(consumerId?: string, fallbackClientTag?: strin
     .join(" · ");
 }
 
+function getRequestAuditFacetCount(
+  options: RequestAuditFacetOption[] | undefined,
+  value: string,
+): number {
+  return options?.find((option) => option.value === value)?.count ?? 0;
+}
+
+function mergeRequestAuditFacetOptions(
+  primary: RequestAuditFacetOption[],
+  secondary: RequestAuditFacetOption[] | undefined,
+): RequestAuditFacetOption[] {
+  const seen = new Set<string>();
+  const merged: RequestAuditFacetOption[] = [];
+  for (const option of [...primary, ...(secondary ?? [])]) {
+    if (!option.value || seen.has(option.value)) {
+      continue;
+    }
+    seen.add(option.value);
+    merged.push(option);
+  }
+  return merged;
+}
+
+function buildAuditConsumerOptions(
+  options: RequestAuditFacetOption[] | undefined,
+): RequestAuditFacetOption[] {
+  const configured = state.securitySettings?.accessControl?.consumers ?? [];
+  const configuredOptions = configured.map((consumer) => ({
+    value: consumer.id,
+    label: consumer.name,
+    count: getRequestAuditFacetCount(options, consumer.id),
+  }));
+  return mergeRequestAuditFacetOptions(configuredOptions, options);
+}
+
+function buildAuditAccessKeyOptions(
+  options: RequestAuditFacetOption[] | undefined,
+  consumerId?: string,
+): RequestAuditFacetOption[] {
+  const configured = state.securitySettings?.accessControl?.keys ?? [];
+  const filtered = consumerId
+    ? configured.filter((key) => key.consumerId === consumerId)
+    : configured;
+  const configuredOptions = filtered.map((key) => ({
+    value: key.id,
+    label: key.name,
+    count: getRequestAuditFacetCount(options, key.id),
+  }));
+  return mergeRequestAuditFacetOptions(configuredOptions, options);
+}
+
 function formatAuditAccessKeyLabel(accessKeyId?: string, fallbackConsumerId?: string): string {
   if (!accessKeyId) {
     return "未归因 Key";
@@ -6206,7 +6258,8 @@ function renderRequestAuditFacetSelect(
       const seenCount = seenLabels.get(baseLabel) ?? 0;
       seenLabels.set(baseLabel, seenCount + 1);
       const label = seenCount > 0 ? `${baseLabel} #${seenCount + 1}` : baseLabel;
-      return `<option value="${escapeHtml(option.value)}">${escapeHtml(label)} (${escapeHtml(formatCompactCount(option.count))})</option>`;
+      const countSuffix = option.count > 0 ? ` (${formatCompactCount(option.count)})` : "";
+      return `<option value="${escapeHtml(option.value)}">${escapeHtml(label)}${escapeHtml(countSuffix)}</option>`;
     }),
   ].join("");
   select.value = (options ?? []).some((option) => option.value === value)
@@ -6235,19 +6288,24 @@ function readRequestAuditFilters(): RequestAuditFilters {
 function renderRequestAuditFilters(): void {
   const facets = state.requestAudit?.facets;
   const filters = readRequestAuditFilters();
+  const selectedKey = filters.accessKeyId ? getAccessKeyById(filters.accessKeyId) : undefined;
+  const effectiveKeyFilter =
+    filters.consumerId && selectedKey && selectedKey.consumerId !== filters.consumerId
+      ? ""
+      : filters.accessKeyId;
   renderRequestAuditFacetSelect(
     "request-audit-consumer",
     "全部成员",
     "consumer",
-    facets?.consumers,
+    buildAuditConsumerOptions(facets?.consumers),
     filters.consumerId,
   );
   renderRequestAuditFacetSelect(
     "request-audit-key",
     "全部 Key",
     "accessKey",
-    facets?.accessKeys,
-    filters.accessKeyId,
+    buildAuditAccessKeyOptions(facets?.accessKeys, filters.consumerId),
+    effectiveKeyFilter,
   );
   renderRequestAuditFacetSelect(
     "request-audit-model",
@@ -6265,8 +6323,53 @@ function renderRequestAuditFilters(): void {
   );
 }
 
+function scheduleRequestAuditRefresh(): void {
+  window.clearTimeout(requestAuditFilterTimer);
+  requestAuditFilterTimer = window.setTimeout(() => {
+    void refreshRequestAudit().catch((error) => {
+      setBanner(`刷新请求审计失败：${String(error)}`, "error");
+    });
+  }, 120);
+}
+
+function renderRequestAuditMemberFocus(audit: RequestAuditResponse["data"]): string {
+  const filters = readRequestAuditFilters();
+  const selectedConsumerLabel = filters.consumerId
+    ? formatAuditConsumerLabel(filters.consumerId)
+    : "全部成员";
+  const latest = audit.items[0];
+  const successRate =
+    audit.summary.requestCount > 0
+      ? Math.round((audit.summary.successCount / audit.summary.requestCount) * 100)
+      : 0;
+  const failureRate =
+    audit.summary.requestCount > 0
+      ? Math.round((audit.summary.failureCount / audit.summary.requestCount) * 100)
+      : 0;
+  const latestText = latest
+    ? `${formatDate(latest.timestamp)} · ${latest.modelAlias} · ${latest.success ? "成功" : "失败"}`
+    : "暂无请求";
+  const tone = failureRate >= 20 ? "tone-danger" : failureRate > 0 ? "tone-warning" : "tone-success";
+  return `
+    <div class="ops-audit-member-focus">
+      <div>
+        <small>成员审计</small>
+        <strong>${escapeHtml(selectedConsumerLabel)}</strong>
+        <span>${escapeHtml(filters.consumerId ? "当前按单成员筛选，明细弹窗同步展示筛选后的请求。" : "当前查看全部成员，可优先选择成员定位消耗与异常。")}</span>
+      </div>
+      <div class="ops-audit-member-metrics">
+        <span class="ops-audit-chip tone-neutral">请求 ${escapeHtml(formatCompactCount(audit.summary.requestCount))}</span>
+        <span class="ops-audit-chip ${tone}">成功率 ${escapeHtml(`${successRate}%`)}</span>
+        <span class="ops-audit-chip tone-info">Token ${escapeHtml(formatCompactCount(audit.summary.totalTokens))}</span>
+        <span class="ops-audit-chip tone-neutral">最近 ${escapeHtml(latestText)}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderRequestAudit(): void {
   const summaryNode = document.getElementById("request-audit-summary");
+  const memberFocusNode = document.getElementById("request-audit-member-focus");
   const previewNode = document.getElementById("request-audit-preview");
   const listNode = document.getElementById("request-audit-list");
   const modal = document.getElementById("request-audit-modal");
@@ -6276,6 +6379,9 @@ function renderRequestAudit(): void {
   modal.hidden = !state.requestAuditModalOpen;
   renderRequestAuditFilters();
   if (state.requestAuditLoading) {
+    if (memberFocusNode) {
+      memberFocusNode.innerHTML = "";
+    }
     summaryNode.innerHTML = "";
     previewNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
     listNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
@@ -6283,6 +6389,9 @@ function renderRequestAudit(): void {
   }
   const audit = state.requestAudit;
   if (!audit) {
+    if (memberFocusNode) {
+      memberFocusNode.innerHTML = "";
+    }
     summaryNode.innerHTML = "";
     previewNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
     listNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
@@ -6296,6 +6405,9 @@ function renderRequestAudit(): void {
     audit.summary.requestCount > 0
       ? audit.summary.failureCount / audit.summary.requestCount
       : 0;
+  if (memberFocusNode) {
+    memberFocusNode.innerHTML = renderRequestAuditMemberFocus(audit);
+  }
   summaryNode.innerHTML = `
     <div class="ops-audit-kpi tone-neutral"><small>请求</small><strong>${escapeHtml(formatCompactCount(audit.summary.requestCount))}</strong></div>
     <div class="ops-audit-kpi tone-success"><small>成功</small><strong>${escapeHtml(formatCompactCount(audit.summary.successCount))}</strong></div>
@@ -14303,6 +14415,34 @@ function bindActions(): void {
       closeConfirmModal(true);
     });
 
+  document.addEventListener("change", (event) => {
+    const target = event.target as HTMLSelectElement | null;
+    if (
+      !target ||
+      ![
+        "request-audit-consumer",
+        "request-audit-status",
+        "request-audit-limit",
+        "request-audit-key",
+        "request-audit-model",
+        "request-audit-account",
+      ].includes(target.id)
+    ) {
+      return;
+    }
+    if (target.id === "request-audit-consumer") {
+      const keySelect = document.getElementById("request-audit-key") as HTMLSelectElement | null;
+      const selectedKey = keySelect?.value ? getAccessKeyById(keySelect.value) : undefined;
+      if (keySelect && target.value && selectedKey && selectedKey.consumerId !== target.value) {
+        keySelect.value = "";
+      }
+      renderRequestAuditFilters();
+    }
+    state.requestAuditLoading = true;
+    renderRequestAudit();
+    scheduleRequestAuditRefresh();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       const confirmModal = document.getElementById("confirm-modal");
@@ -14379,6 +14519,7 @@ function bindActions(): void {
     clearAutoRefreshTimer();
     clearSessionActivityTimer();
     clearViewStackScrollIdleTimer();
+    window.clearTimeout(requestAuditFilterTimer);
     cancelVisibleRefreshFrame();
     cancelAccountRenderFrame();
     for (const poolId of poolMemberFieldFrames.keys()) {
@@ -15241,7 +15382,7 @@ async function refresh(): Promise<void> {
       ? api.getOperationsStatus()
       : Promise.resolve(undefined),
     api.getRequestAudit
-      ? api.getRequestAudit({ limit: "100", status: "all" })
+      ? api.getRequestAudit(readRequestAuditFilters())
       : Promise.resolve(undefined),
     api.getAccountHealth
       ? api.getAccountHealth()
