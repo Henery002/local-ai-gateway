@@ -1286,6 +1286,7 @@ type NotificationTypeFilter =
   | "rate-limit"
   | "pool"
   | "public-access"
+  | "member-activity"
   | "session-safety"
   | "request-safety"
   | "model-policy"
@@ -5922,10 +5923,13 @@ function getNotificationTypeFilter(eventType: string): NotificationTypeFilter {
   if (eventType.includes("public_user") || eventType.includes("public_pool")) {
     return "public-access";
   }
+  if (eventType.startsWith("access_member_")) {
+    return "member-activity";
+  }
   if (eventType.startsWith("session_safety")) {
     return "session-safety";
   }
-  if (eventType.startsWith("request_")) {
+  if (eventType.startsWith("request_") || eventType.startsWith("upstream_")) {
     return "request-safety";
   }
   if (eventType.includes("model")) {
@@ -5947,6 +5951,9 @@ function formatNotificationTypeFilterLabel(type: NotificationTypeFilter): string
   if (type === "public-access") {
     return "公网访问";
   }
+  if (type === "member-activity") {
+    return "成员动态";
+  }
   if (type === "session-safety") {
     return "账号保护";
   }
@@ -5965,8 +5972,15 @@ function formatNotificationTypeFilterLabel(type: NotificationTypeFilter): string
 function formatAccessAlertTypeLabel(eventType: string): string {
   const labels: Record<string, string> = {
     usage_quota_warning: "额度使用接近阈值",
+    access_member_first_seen: "成员首次上线",
+    access_member_daily_online: "成员今日首次上线",
+    access_policy_daily_quota_warning: "日额度接近阈值",
     access_policy_daily_quota_exceeded: "日额度已用尽",
+    access_policy_total_quota_warning: "总额度接近阈值",
     access_policy_total_quota_exceeded: "总额度已用尽",
+    access_policy_period_quota_warning: "周期额度接近阈值",
+    access_policy_expiry_warning: "成员策略即将到期",
+    access_policy_period_expiry_warning: "周期包即将到期",
     access_policy_period_expired: "周期包已过期",
     access_policy_period_quota_exceeded: "周期额度已用尽",
     access_policy_rate_limit_exceeded: "请求频率超限",
@@ -5987,6 +6001,10 @@ function formatAccessAlertTypeLabel(eventType: string): string {
     access_policy_input_token_limit_exceeded: "输入 Token 超限",
     session_safety_concurrency_exceeded: "同账号并发保护",
     session_safety_rate_limit_exceeded: "同账号短窗限流",
+    upstream_quota_exhausted: "上游额度不足",
+    upstream_rate_limited: "上游模型限流",
+    upstream_error: "上游接口异常",
+    client_temporarily_blocked: "客户端临时冷却",
   };
   return labels[eventType] ?? eventType.replace(/_/g, " ");
 }
@@ -6041,6 +6059,9 @@ function buildAccessAlertReadableBody(
   const poolId = getAccessAlertDetailString(event, ["poolId", "resolvedPoolId"]);
   const model = getAccessAlertDetailString(event, ["modelAlias", "requestedModelAlias"]);
   const resetAt = getAccessAlertDetailString(event, ["resetAt", "periodEndedAt"]);
+  if (event.type.startsWith("access_member_")) {
+    return `${actor} ${formatAccessAlertTypeLabel(event.type)}。`;
+  }
   const bits = [
     `${actor} 触发「${formatAccessAlertTypeLabel(event.type)}」。`,
     model ? `模型 ${model}` : undefined,
@@ -6129,7 +6150,7 @@ async function showNativeNotification(item: NotificationItem): Promise<void> {
 function maybePushNativeNotifications(): void {
   const candidates = deriveNotificationItems()
     .filter((item) => !item.read)
-    .filter((item) => item.severity === "warning" || item.severity === "critical")
+    .filter(shouldPushNativeNotification)
     .slice(0, 3);
   for (const item of candidates) {
     if (state.nativePushedNotificationIds.has(item.id)) {
@@ -6139,6 +6160,14 @@ function maybePushNativeNotifications(): void {
     void showNativeNotification(item);
   }
   saveNativePushState();
+}
+
+function shouldPushNativeNotification(item: NotificationItem): boolean {
+  return (
+    item.severity === "warning" ||
+    item.severity === "critical" ||
+    item.typeFilter === "member-activity"
+  );
 }
 
 function markNotificationRead(notificationId: string): void {
@@ -6166,6 +6195,7 @@ function normalizeNotificationTypeFilter(value: string | undefined): Notificatio
     "rate-limit",
     "pool",
     "public-access",
+    "member-activity",
     "session-safety",
     "request-safety",
     "model-policy",

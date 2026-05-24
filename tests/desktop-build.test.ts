@@ -974,6 +974,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("deriveNotificationItems");
     expect(rendererSource).toContain("notificationUnreadBadge");
     expect(rendererSource).toContain("showNativeNotification");
+    expect(rendererSource).toContain("shouldPushNativeNotification");
+    expect(rendererSource).toContain("item.typeFilter === \"member-activity\"");
     expect(rendererSource).toContain("markNotificationRead");
     expect(rendererSource).toContain("UsageTrendDimension");
     expect(rendererSource).toContain("usageTrendDimension: \"members\"");

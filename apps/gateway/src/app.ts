@@ -17,6 +17,7 @@ import {
 } from "@local-ai-gateway/openai-compat";
 import {
   GatewayError,
+  GatewayAccessAlertEvent,
   GatewayAccessAlertSeverity,
   GatewayAccessControlSettings,
   GatewayAccessConsumer,
@@ -44,6 +45,7 @@ import {
 import { GatewayRuntime } from "./runtime.js";
 
 const requestAuditSourceEventKeys = new WeakMap<FastifyRequest, string>();
+const requestAccessContexts = new WeakMap<FastifyRequest, AccessCredentialContext>();
 
 function buildErrorBody(error: GatewayError | Error) {
   if (error instanceof GatewayError) {
@@ -255,7 +257,9 @@ function isAccessAlertError(error: GatewayError | Error): error is GatewayError 
       error.code.startsWith("access_key_") ||
       error.code.startsWith("access_consumer_") ||
       error.code.startsWith("request_") ||
-      error.code.startsWith("session_safety_"))
+      error.code.startsWith("session_safety_") ||
+      error.code.startsWith("upstream_") ||
+      error.code === "client_temporarily_blocked")
   );
 }
 
@@ -275,6 +279,14 @@ function recordAccessAlertForError(
     ...(request ? buildRequestAuditContext(request) : {}),
     ...buildErrorLogDetails(error),
   };
+  const accessContext = request ? requestAccessContexts.get(request) : undefined;
+  if (accessContext) {
+    details.consumerId = details.consumerId ?? accessContext.consumerId;
+    details.accessKeyId = details.accessKeyId ?? accessContext.accessKeyId;
+    details.clientTag = details.clientTag ?? accessContext.clientTag;
+    details.consumerType = details.consumerType ?? accessContext.consumerType;
+    details.consumerName = details.consumerName ?? accessContext.consumerName;
+  }
   const consumer =
     typeof details.consumerId === "string"
       ? runtime
@@ -302,6 +314,225 @@ function recordAccessAlertForError(
     message: error.message,
     details,
   });
+}
+
+function getLocalDateKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function recordAccessMemberOnlineAlerts(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+  now = Date.now(),
+): void {
+  if (!accessContext) {
+    return;
+  }
+  const totals = runtime.database.getUsageTotalsForAccessConsumer({
+    consumerId: accessContext.consumerId,
+  });
+  const dayStart = new Date(
+    new Date(now).getFullYear(),
+    new Date(now).getMonth(),
+    new Date(now).getDate(),
+  ).getTime();
+  const dailyTotals = runtime.database.getUsageTotalsForAccessConsumer({
+    consumerId: accessContext.consumerId,
+    sinceTimestamp: dayStart,
+  });
+  const base: Omit<GatewayAccessAlertEvent, "type" | "message" | "dedupeKey"> = {
+    timestamp: now,
+    severity: "info",
+    consumerId: accessContext.consumerId,
+    consumerType: accessContext.consumerType,
+    accessKeyId: accessContext.accessKeyId,
+    details: {
+      consumerName: accessContext.consumerName,
+      clientTag: accessContext.clientTag,
+      onlineAt: new Date(now).toISOString(),
+    },
+  };
+  if (totals.requestCount <= 0) {
+    runtime.recordAccessAlertEvent({
+      ...base,
+      type: "access_member_first_seen",
+      message: "Access member sent the first inference request.",
+      dedupeKey: `access_member_first_seen|${accessContext.consumerId}`,
+    });
+  }
+  if (dailyTotals.requestCount <= 0) {
+    const dateKey = getLocalDateKey(now);
+    runtime.recordAccessAlertEvent({
+      ...base,
+      type: "access_member_daily_online",
+      message: "Access member sent the first inference request today.",
+      dedupeKey: `access_member_daily_online|${accessContext.consumerId}|${dateKey}`,
+      details: {
+        ...base.details,
+        dateKey,
+      },
+    });
+  }
+}
+
+function getConfiguredAccessAlertWarningRatio(
+  runtime: GatewayRuntime,
+): number {
+  return normalizeAccessAlertThresholdRatio(
+    runtime.configStore.getInferenceAuthSettings().accessControl?.alertThresholds
+      ?.dailyQuotaWarningRatio,
+  ) ?? 0.9;
+}
+
+function recordAccessLimitWarning(
+  runtime: GatewayRuntime,
+  input: {
+    accessContext: AccessCredentialContext;
+    type: string;
+    message: string;
+    limit: number;
+    used?: number;
+    resetAt?: number;
+    ratio?: number;
+  },
+): void {
+  runtime.recordAccessAlertEvent({
+    timestamp: Date.now(),
+    severity: "warning",
+    consumerId: input.accessContext.consumerId,
+    consumerType: input.accessContext.consumerType,
+    accessKeyId: input.accessContext.accessKeyId,
+    type: input.type,
+    message: input.message,
+    dedupeKey: `${input.type}|${input.accessContext.consumerId}|${input.accessContext.accessKeyId ?? "-"}`,
+    details: {
+      consumerName: input.accessContext.consumerName,
+      clientTag: input.accessContext.clientTag,
+      limit: input.limit,
+      ...(typeof input.used === "number" ? { usedTokens: input.used } : {}),
+      ...(typeof input.ratio === "number" ? { usageRatio: input.ratio } : {}),
+      ...(typeof input.resetAt === "number"
+        ? { resetAt: new Date(input.resetAt).toISOString() }
+        : {}),
+    },
+  });
+}
+
+function recordAccessThresholdAlerts(
+  runtime: GatewayRuntime,
+  accessContext: AccessCredentialContext | undefined,
+): void {
+  if (!accessContext) {
+    return;
+  }
+  const policy = accessContext.policy;
+  const warningRatio = getConfiguredAccessAlertWarningRatio(runtime);
+  const now = Date.now();
+  const warnIfNearLimit = (input: {
+    type: string;
+    message: string;
+    limit?: number;
+    used: number;
+    resetAt?: number;
+  }) => {
+    if (typeof input.limit !== "number" || input.limit <= 0) {
+      return;
+    }
+    const ratio = input.used / input.limit;
+    if (ratio < warningRatio || input.used >= input.limit) {
+      return;
+    }
+    recordAccessLimitWarning(runtime, {
+      accessContext,
+      type: input.type,
+      message: input.message,
+      limit: input.limit,
+      used: input.used,
+      resetAt: input.resetAt,
+      ratio,
+    });
+  };
+
+  const dailyLimit = normalizePolicyLimit(policy?.quota?.dailyTokenLimit);
+  if (typeof dailyLimit === "number") {
+    const window = getAccessPolicyDailyQuotaWindow(
+      now,
+      policy?.quota?.resetTimezone,
+    );
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: window.start,
+    });
+    warnIfNearLimit({
+      type: "access_policy_daily_quota_warning",
+      message: "Access consumer daily token quota is close to the configured threshold.",
+      limit: dailyLimit,
+      used: usage.totalTokens,
+      resetAt: window.resetAt,
+    });
+  }
+
+  const periodWindow = getAccessPolicyPeriodWindow(accessContext);
+  const periodLimit = normalizePolicyLimit(policy?.quota?.periodTokenLimit);
+  if (periodWindow && typeof periodLimit === "number") {
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+      sinceTimestamp: periodWindow.start,
+    });
+    warnIfNearLimit({
+      type: "access_policy_period_quota_warning",
+      message: "Access consumer token period quota is close to the configured threshold.",
+      limit: periodLimit,
+      used: usage.totalTokens,
+      resetAt: periodWindow.end,
+    });
+  }
+
+  const totalLimit = normalizePolicyLimit(policy?.quota?.totalTokenLimit);
+  if (typeof totalLimit === "number") {
+    const usage = runtime.database.getUsageTotalsForAccessConsumer({
+      consumerId: accessContext.consumerId,
+    });
+    warnIfNearLimit({
+      type: "access_policy_total_quota_warning",
+      message: "Access consumer total token quota is close to the configured threshold.",
+      limit: totalLimit,
+      used: usage.totalTokens,
+    });
+  }
+
+  const warnBeforeMs = 72 * 60 * 60 * 1000;
+  const policyExpiresAt = parsePolicyTimestamp(policy?.expiresAt);
+  if (
+    typeof policyExpiresAt === "number" &&
+    policyExpiresAt > now &&
+    policyExpiresAt - now <= warnBeforeMs
+  ) {
+    recordAccessLimitWarning(runtime, {
+      accessContext,
+      type: "access_policy_expiry_warning",
+      message: "Access consumer policy is close to expiration.",
+      limit: warnBeforeMs,
+      resetAt: policyExpiresAt,
+    });
+  }
+  if (
+    periodWindow &&
+    periodWindow.end > now &&
+    periodWindow.end - now <= warnBeforeMs
+  ) {
+    recordAccessLimitWarning(runtime, {
+      accessContext,
+      type: "access_policy_period_expiry_warning",
+      message: "Access consumer token period is close to expiration.",
+      limit: warnBeforeMs,
+      resetAt: periodWindow.end,
+    });
+  }
 }
 
 function requireAdminAuth(
@@ -2408,6 +2639,9 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
   app.post("/v1/chat/completions", async (request, reply) => {
     requireInferenceNetworkAccess(runtime, request);
     const authContext = resolveAuthAndClientTag(runtime, request);
+    if (authContext.accessContext) {
+      requestAccessContexts.set(request, authContext.accessContext);
+    }
     const startedAt = Date.now();
     const currentSessionId = runtime.getActiveSessionId();
     const clientTag = authContext.clientTag;
@@ -2431,6 +2665,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     );
     const requestAuditSourceEventKey = `live-request:${randomUUID()}`;
     requestAuditSourceEventKeys.set(request, requestAuditSourceEventKey);
+    recordAccessMemberOnlineAlerts(runtime, authContext.accessContext, startedAt);
     maybeRecordRequestContentAudit({
       runtime,
       sourceEventKey: requestAuditSourceEventKey,
@@ -2799,6 +3034,7 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
         sourceEventKey: requestAuditSourceEventKey,
         ...extractUsageCounters(input.usage),
       });
+      recordAccessThresholdAlerts(runtime, authContext.accessContext);
     };
 
     let usedResolvedSession:

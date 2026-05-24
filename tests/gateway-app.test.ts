@@ -4069,6 +4069,182 @@ describe("gateway app", () => {
     }
   });
 
+  it("records member online and quota warning alerts for successful access-key requests", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      resolveClientTagByApiKey: true,
+      accessControl: {
+        alertThresholds: {
+          dailyQuotaWarningRatio: 0.9,
+        },
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+            quota: {
+              dailyTokenLimit: 13,
+            },
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const alerts = database.getRecentAccessAlertEvents(10);
+      expect(alerts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            severity: "info",
+            type: "access_member_first_seen",
+            consumerId: "consumer-alice",
+            accessKeyId: "key-alice",
+          }),
+          expect.objectContaining({
+            severity: "info",
+            type: "access_member_daily_online",
+            consumerId: "consumer-alice",
+            accessKeyId: "key-alice",
+          }),
+          expect.objectContaining({
+            severity: "warning",
+            type: "access_policy_daily_quota_warning",
+            consumerId: "consumer-alice",
+            accessKeyId: "key-alice",
+            details: expect.objectContaining({
+              consumerName: "Alice",
+              limit: 13,
+              usedTokens: 12,
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("records upstream request failures as member-readable access alerts", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      resolveClientTagByApiKey: true,
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice MacBook",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-alice",
+            allowedModelAliases: ["fake-default"],
+          },
+        ],
+      },
+    });
+    adapter.createStream = async () => {
+      throw new Error("upstream rate limited [status:429] [retry-after:30]");
+    };
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        body: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(429);
+      expect(response.json().error.type).toBe("upstream_rate_limited");
+      expect(database.getRecentAccessAlertEvents(10)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            severity: "warning",
+            type: "upstream_rate_limited",
+            consumerId: "consumer-alice",
+            accessKeyId: "key-alice",
+            consumerType: "lan-member",
+            details: expect.objectContaining({
+              consumerName: "Alice",
+              clientTag: "alice",
+              statusCode: 429,
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("reports member token balance for ccswitch-compatible access key queries", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
