@@ -3373,6 +3373,46 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     };
   });
 
+  app.get("/admin/usage/analytics", async (request) => {
+    requireAdminAuth(runtime, request);
+    const query = request.query as
+      | {
+          range?: string;
+          granularity?: string;
+          clientFilter?: string;
+          consumerId?: string;
+          accessKeyId?: string;
+          modelAlias?: string;
+          poolId?: string;
+          outcome?: string;
+        }
+      | undefined;
+    const range =
+      query?.range === "7d" || query?.range === "30d" || query?.range === "all"
+        ? query.range
+        : "24h";
+    const granularity = query?.granularity === "day" ? "day" : "hour";
+    const outcome =
+      query?.outcome === "success" || query?.outcome === "failure"
+        ? query.outcome
+        : undefined;
+    return {
+      ok: true,
+      data: runtime.getUsageAnalytics({
+        range,
+        granularity,
+        filters: {
+          clientFilter: resolveUsageClientFilter(query?.clientFilter),
+          consumerId: query?.consumerId,
+          accessKeyId: query?.accessKeyId,
+          modelAlias: query?.modelAlias,
+          poolId: query?.poolId,
+          outcome,
+        },
+      }),
+    };
+  });
+
   app.get("/admin/routing/account-health", async (request) => {
     requireAdminAuth(runtime, request);
     return {

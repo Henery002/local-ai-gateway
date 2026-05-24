@@ -967,6 +967,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageTokenMixChartOption");
     expect(rendererSource).toContain("buildUsageRankingChartOption");
     expect(rendererSource).toContain("applyUsageConsumerFilter");
+    expect(rendererSource).toContain("renderUsageMemberHealthCard");
+    expect(rendererSource).toContain("getUsageAnalytics");
+    expect(preloadSource).toContain("getUsageAnalytics");
+    expect(staticPreloadSource).toContain("getUsageAnalytics");
+    expect(mainSource).toContain("gateway:get-usage-analytics");
     expect(rendererSource).toContain("renderUsageOperationsDashboard");
     expect(rendererSource).toContain("renderUsageTokenTrendLine");
     expect(rendererSource).toContain("renderUsageRankingBars");

@@ -5,6 +5,8 @@ const api = {
   getProviders: () => ipcRenderer.invoke("gateway:get-providers"),
   getUsageSummary: (clientFilter?: string) =>
     ipcRenderer.invoke("gateway:get-usage-summary", clientFilter),
+  getUsageAnalytics: (filters?: Record<string, unknown>) =>
+    ipcRenderer.invoke("gateway:get-usage-analytics", filters),
   getRequestAudit: (filters?: Record<string, unknown>) =>
     ipcRenderer.invoke("gateway:get-request-audit", filters),
   getRequestAuditContent: (sourceEventKey: string) =>

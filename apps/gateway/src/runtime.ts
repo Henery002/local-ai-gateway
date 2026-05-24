@@ -38,6 +38,7 @@ import {
   GatewayUsageClientFilter,
   GatewayUsageEvent,
   GatewayUsageObservability,
+  GatewayUsageWindowSummary,
   GatewaySessionPoolDefinition,
   GatewaySessionPoolMember,
   GatewaySessionPoolSettings,
@@ -48,6 +49,23 @@ import {
   SessionSummary,
   SessionUsageRefreshSummary,
 } from "@local-ai-gateway/shared";
+
+export type GatewayUsageAnalyticsRange = "24h" | "7d" | "30d" | "all";
+export type GatewayUsageAnalyticsGranularity = "hour" | "day";
+export type GatewayUsageAnalyticsFilters = {
+  clientFilter?: GatewayUsageClientFilter;
+  consumerId?: string;
+  accessKeyId?: string;
+  modelAlias?: string;
+  poolId?: string;
+  outcome?: "success" | "failure";
+};
+export type GatewayUsageAnalyticsResult = {
+  range: GatewayUsageAnalyticsRange;
+  granularity: GatewayUsageAnalyticsGranularity;
+  filters: GatewayUsageAnalyticsFilters;
+  summary: GatewayUsageWindowSummary;
+};
 
 import { bootstrapProvidersFromEnvironment } from "./provider-bootstrap.js";
 import { importGatewayHistoricalUsage } from "./usage-backfill.js";
@@ -1308,6 +1326,52 @@ export class GatewayRuntime {
         sinceTimestamp: now - 30 * 24 * 60 * 60 * 1000,
         timelineBucketMs: 24 * 60 * 60 * 1000,
         timelineLimit: 30 * 24,
+      }),
+    };
+  }
+
+  getUsageAnalytics(input: {
+    range?: GatewayUsageAnalyticsRange;
+    granularity?: GatewayUsageAnalyticsGranularity;
+    filters?: GatewayUsageAnalyticsFilters;
+  } = {}): GatewayUsageAnalyticsResult {
+    const now = Date.now();
+    const range = input.range ?? "24h";
+    const granularity =
+      input.granularity ?? (range === "24h" ? "hour" : "day");
+    const sinceTimestamp =
+      range === "24h"
+        ? now - 24 * 60 * 60 * 1000
+        : range === "7d"
+          ? now - 7 * 24 * 60 * 60 * 1000
+          : range === "30d"
+            ? now - 30 * 24 * 60 * 60 * 1000
+            : undefined;
+    const bucketMs =
+      granularity === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const timelineLimit =
+      range === "24h"
+        ? 24 * 24
+        : range === "7d"
+          ? 7 * 24
+          : range === "30d"
+            ? 30 * 24
+            : 365 * 24;
+    const filters = input.filters ?? {};
+    return {
+      range,
+      granularity,
+      filters,
+      summary: this.database.getUsageSummary({
+        clientFilter: filters.clientFilter ?? "all",
+        sinceTimestamp,
+        timelineBucketMs: bucketMs,
+        timelineLimit,
+        consumerId: filters.consumerId,
+        accessKeyId: filters.accessKeyId,
+        modelAlias: filters.modelAlias,
+        poolId: filters.poolId,
+        outcome: filters.outcome,
       }),
     };
   }

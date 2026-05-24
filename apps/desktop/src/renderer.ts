@@ -60,6 +60,9 @@ declare global {
       getUsageSummary: (
         clientFilter?: UsageClientFilter,
       ) => Promise<UsageSummaryResponse>;
+      getUsageAnalytics?: (
+        filters?: Record<string, unknown>,
+      ) => Promise<UsageAnalyticsResponse>;
       getRequestAudit?: (
         filters?: RequestAuditFilters,
       ) => Promise<RequestAuditResponse>;
@@ -340,6 +343,16 @@ type UsageObservability = {
 type UsageSummaryResponse = {
   ok: boolean;
   data: UsageObservability;
+};
+
+type UsageAnalyticsResponse = {
+  ok: boolean;
+  data: {
+    range: "24h" | "7d" | "30d" | "all";
+    granularity: "hour" | "day";
+    filters: Record<string, unknown>;
+    summary: UsageWindowSummary;
+  };
 };
 
 type RequestAuditStatusFilter = "all" | "success" | "failure";
@@ -5228,10 +5241,97 @@ function renderUsageScopeMatrix(summary: UsageWindowSummary): string {
   `;
 }
 
+function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
+  const consumerId =
+    getSelectedUsageConsumerId() ??
+    [...summary.consumers].sort(
+      (left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+    )[0]?.consumerId;
+  if (!consumerId) {
+    return `
+      <div class="usage-member-health-card tone-neutral">
+        <div>
+          <span class="badge neutral">成员健康度</span>
+          <strong>等待成员请求</strong>
+          <p>公网成员产生请求后，这里会优先展示最近调用成员的访问健康度。</p>
+        </div>
+        <div class="usage-member-health-score">--</div>
+      </div>
+    `;
+  }
+  const consumerRows = summary.consumers.filter(
+    (item) => item.consumerId === consumerId,
+  );
+  const usage = sumUsageCounters(consumerRows);
+  const alerts = (state.accessAlerts ?? []).filter(
+    (event) => event.consumerId === consumerId,
+  );
+  const recentAlerts = alerts.filter(
+    (event) => Date.now() - event.timestamp <= 7 * 24 * 60 * 60 * 1000,
+  );
+  const failureRate =
+    usage.requestCount > 0 ? usage.failureCount / usage.requestCount : 0;
+  const averageLatency =
+    usage.successCount > 0 ? usage.totalLatencyMs / usage.successCount : 0;
+  const criticalPenalty =
+    recentAlerts.filter((event) => event.severity === "critical").length * 18;
+  const warningPenalty =
+    recentAlerts.filter((event) => event.severity === "warning").length * 8;
+  const latencyPenalty =
+    averageLatency > 5_000 ? 16 : averageLatency > 2_000 ? 8 : 0;
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(100 - failureRate * 45 - criticalPenalty - warningPenalty - latencyPenalty),
+    ),
+  );
+  const tone =
+    score >= 85 ? "success" : score >= 70 ? "active" : score >= 50 ? "warning" : "danger";
+  const label =
+    score >= 85 ? "健康" : score >= 70 ? "可关注" : score >= 50 ? "风险" : "严重";
+  const latestAlert = [...recentAlerts].sort(
+    (left, right) => right.timestamp - left.timestamp,
+  )[0];
+  const reasons = [
+    usage.requestCount > 0
+      ? `请求 ${formatCompactCount(usage.requestCount)} 次`
+      : "暂无请求",
+    `成功率 ${formatUsageSuccessRate(usage)}`,
+    usage.failureCount > 0
+      ? `失败 ${formatCompactCount(usage.failureCount)} 次`
+      : "无失败请求",
+    latestAlert
+      ? `最近告警：${formatAccessAlertTypeLabel(latestAlert.type)}`
+      : "近 7 天无成员告警",
+  ];
+  return `
+    <div class="usage-member-health-card tone-${escapeHtml(tone)}">
+      <div class="usage-member-health-main">
+        <span class="badge ${escapeHtml(tone)}">成员健康度</span>
+        <strong>${escapeHtml(getUsageConsumerDisplayLabel(consumerId))}</strong>
+        <p>${escapeHtml(reasons.join(" · "))}</p>
+        <div class="usage-member-health-metrics">
+          <span>Token ${escapeHtml(formatCompactCount(usage.totalTokens))}</span>
+          <span>平均延迟 ${escapeHtml(formatUsageLatency(usage))}</span>
+          <span>告警 ${escapeHtml(formatCompactCount(recentAlerts.length))}</span>
+        </div>
+      </div>
+      <div class="usage-member-health-score">
+        <strong>${escapeHtml(String(score))}</strong>
+        <span>${escapeHtml(label)}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
   const activeConsumer = getUsageConsumerFilterLabel();
   return `
     <div id="usage-operations-dashboard" class="usage-operations-dashboard">
+      <div class="usage-operations-health">
+        ${renderUsageMemberHealthCard(summary)}
+      </div>
       <div class="usage-operations-main">
         <div class="usage-echart-card usage-echart-card-large">
           <div class="usage-chart-section-header">

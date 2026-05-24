@@ -4628,6 +4628,44 @@ describe("gateway app", () => {
           }),
         ]),
       );
+
+      const analyticsResponse = await app.inject({
+        method: "GET",
+        url: "/admin/usage/analytics?range=7d&granularity=day&consumerId=consumer-alice",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(analyticsResponse.statusCode).toBe(200);
+      expect(analyticsResponse.json().data.summary.totals).toMatchObject({
+        requestCount: 2,
+        totalTokens: 18,
+      });
+      expect(analyticsResponse.json().data.summary.consumerTimeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            consumerId: "consumer-alice",
+            usage: expect.objectContaining({
+              requestCount: 2,
+              totalTokens: 18,
+            }),
+          }),
+        ]),
+      );
+
+      const failedKeyResponse = await app.inject({
+        method: "GET",
+        url: "/admin/usage/analytics?range=7d&granularity=day&accessKeyId=key-bob&outcome=failure",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(failedKeyResponse.statusCode).toBe(200);
+      expect(failedKeyResponse.json().data.summary.totals).toMatchObject({
+        requestCount: 1,
+        failureCount: 1,
+        totalTokens: 5,
+      });
     } finally {
       await app.close();
       database.close();

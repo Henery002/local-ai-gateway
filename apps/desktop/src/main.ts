@@ -2958,6 +2958,28 @@ ipcMain.handle("gateway:get-usage-summary", async (_event, clientFilter?: string
   return callAdmin(`/admin/usage/summary${query}`);
 });
 
+ipcMain.handle("gateway:get-usage-analytics", async (_event, filters?: Record<string, unknown>) => {
+  await gatewayManager.ensureRunning();
+  const params = new URLSearchParams();
+  for (const key of [
+    "range",
+    "granularity",
+    "clientFilter",
+    "consumerId",
+    "accessKeyId",
+    "modelAlias",
+    "poolId",
+    "outcome",
+  ]) {
+    const value = filters?.[key];
+    if (typeof value === "string" && value.trim()) {
+      params.set(key, value.trim());
+    }
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  return callAdmin(`/admin/usage/analytics${query}`);
+});
+
 ipcMain.handle("gateway:get-request-audit", async (_event, filters?: Record<string, unknown>) => {
   await gatewayManager.ensureRunning();
   const params = new URLSearchParams();

@@ -4,6 +4,7 @@ const api = {
   getHealth: () => ipcRenderer.invoke("gateway:get-health"),
   getProviders: () => ipcRenderer.invoke("gateway:get-providers"),
   getUsageSummary: (clientFilter) => ipcRenderer.invoke("gateway:get-usage-summary", clientFilter),
+  getUsageAnalytics: (filters) => ipcRenderer.invoke("gateway:get-usage-analytics", filters),
   getRequestAudit: (filters) => ipcRenderer.invoke("gateway:get-request-audit", filters),
   getRequestAuditContent: (sourceEventKey) => ipcRenderer.invoke("gateway:get-request-audit-content", sourceEventKey),
   getAccountHealth: () => ipcRenderer.invoke("gateway:get-account-health"),

@@ -2120,6 +2120,11 @@ export class GatewayDatabase {
       modelLimit?: number;
       timelineBucketMs?: number;
       timelineLimit?: number;
+      consumerId?: string;
+      accessKeyId?: string;
+      modelAlias?: string;
+      poolId?: string;
+      outcome?: "success" | "failure";
     } = {},
   ): GatewayUsageWindowSummary {
     const clientFilter = options.clientFilter ?? "all";
@@ -2133,7 +2138,15 @@ export class GatewayDatabase {
         ? Math.floor(options.timelineBucketMs)
         : undefined;
     const timelineLimit = Math.max(1, options.timelineLimit ?? 240);
-    const filter = this.buildUsageWhereClause(options.sinceTimestamp, clientFilter);
+    const filter = this.buildUsageWhereClause({
+      sinceTimestamp: options.sinceTimestamp,
+      clientFilter,
+      consumerId: options.consumerId,
+      accessKeyId: options.accessKeyId,
+      modelAlias: options.modelAlias,
+      poolId: options.poolId,
+      outcome: options.outcome,
+    });
 
     const metaRow = this.db
       .prepare(
@@ -2882,18 +2895,26 @@ export class GatewayDatabase {
   }
 
   private buildUsageWhereClause(
-    sinceTimestamp?: number,
-    clientFilter: GatewayUsageClientFilter = "all",
+    input: {
+      sinceTimestamp?: number;
+      clientFilter?: GatewayUsageClientFilter;
+      consumerId?: string;
+      accessKeyId?: string;
+      modelAlias?: string;
+      poolId?: string;
+      outcome?: "success" | "failure";
+    } = {},
   ): {
     sql: string;
     params: Array<number | string>;
   } {
     const clauses: string[] = [];
     const params: Array<number | string> = [];
+    const clientFilter = input.clientFilter ?? "all";
 
-    if (typeof sinceTimestamp === "number" && Number.isFinite(sinceTimestamp)) {
+    if (typeof input.sinceTimestamp === "number" && Number.isFinite(input.sinceTimestamp)) {
       clauses.push("timestamp >= ?");
-      params.push(sinceTimestamp);
+      params.push(input.sinceTimestamp);
     }
 
     if (clientFilter === "openclaw" || clientFilter === "hermes") {
@@ -2901,6 +2922,28 @@ export class GatewayDatabase {
       params.push(clientFilter);
     } else if (clientFilter === "other") {
       clauses.push("LOWER(COALESCE(client_tag, '')) NOT IN ('openclaw', 'hermes')");
+    }
+
+    if (typeof input.consumerId === "string" && input.consumerId.trim()) {
+      clauses.push("consumer_id = ?");
+      params.push(input.consumerId.trim());
+    }
+    if (typeof input.accessKeyId === "string" && input.accessKeyId.trim()) {
+      clauses.push("access_key_id = ?");
+      params.push(input.accessKeyId.trim());
+    }
+    if (typeof input.modelAlias === "string" && input.modelAlias.trim()) {
+      clauses.push("model_alias = ?");
+      params.push(input.modelAlias.trim());
+    }
+    if (typeof input.poolId === "string" && input.poolId.trim()) {
+      clauses.push("pool_id = ?");
+      params.push(input.poolId.trim());
+    }
+    if (input.outcome === "success") {
+      clauses.push("ok = 1");
+    } else if (input.outcome === "failure") {
+      clauses.push("ok = 0");
     }
 
     return {

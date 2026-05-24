@@ -16,6 +16,8 @@
 - “用量与告警”可视化增强切片 1：桌面端引入 ECharts，核心 Token 趋势、Token 构成和观测排行优先使用专业图表渲染；图表库加载失败时仍保留原 DOM/SVG 兜底内容。
 - “窗口用量结构”新增成员筛选入口，可基于现有 `usageSummary` 对成员、成员趋势和 Access Key 归因做本地聚焦观察；后续更细模型 / 号池按成员过滤将由 analytics API 承接。
 - 用量趋势扩展到近 7 天和近 30 天：`weekly / monthly` summary 现在输出按天聚合的成员、模型、Access Key 和号池 timeline，供图表时间窗口切换使用。
+- 新增只读用量分析接口 `GET /admin/usage/analytics`，支持 `range / granularity / clientFilter / consumerId / accessKeyId / modelAlias / poolId / outcome` 查询参数，便于后续图表按成员、Key、模型、号池和成功 / 失败状态做精细过滤。
+- 桌面端“用量与告警”第一屏新增成员健康度横向大卡片，默认展示当前筛选成员或最近调用成员，按成功率、失败量、平均延迟和近 7 天告警数量给出健康分与语义状态。
 
 ### 文档
 
@@ -24,7 +26,7 @@
 ### 测试
 
 - 扩展桌面构建回归测试，覆盖 ECharts 入口、成员筛选和核心图表管理 hook。
-- 扩展 gateway 回归测试，覆盖 weekly / monthly 用量摘要输出按天聚合的成员 timeline。
+- 扩展 gateway 回归测试，覆盖 weekly / monthly 用量摘要输出按天聚合的成员 timeline，以及 analytics API 的成员、Key 和失败状态筛选。
 
 ## [2026-05-23 18:20 CST]
 
