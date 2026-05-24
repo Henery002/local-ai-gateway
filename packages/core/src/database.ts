@@ -142,6 +142,7 @@ type RequestContentAuditRow = {
   model_alias: string | null;
   consumer_id: string | null;
   access_key_id: string | null;
+  prompt_text: string | null;
   content_json: string;
   captured_characters: number;
   truncated: number;
@@ -172,6 +173,49 @@ function mapRequestAuditEventRow(row: RequestAuditEventRow): GatewayRequestAudit
     sourceKind: row.source_kind ?? undefined,
     sourceEventKey: row.source_event_key ?? undefined,
   };
+}
+
+function stringifyAuditPromptContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (content === null || content === undefined) {
+    return "";
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+        const record = part as Record<string, unknown>;
+        if (typeof record.text === "string") {
+          return record.text;
+        }
+        return typeof record.type === "string" ? `[${record.type}]` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(content);
+}
+
+function inferPromptTextFromContentJson(contentJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(contentJson) as {
+      messages?: Array<{ role?: unknown; content?: unknown }>;
+    };
+    const latestUser = [...(parsed.messages ?? [])]
+      .reverse()
+      .find((message) => message.role === "user");
+    const promptText = stringifyAuditPromptContent(latestUser?.content).trim();
+    return promptText || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function getAuditDetailString(
@@ -451,11 +495,18 @@ export class GatewayDatabase {
         model_alias TEXT,
         consumer_id TEXT,
         access_key_id TEXT,
+        prompt_text TEXT,
         content_json TEXT NOT NULL,
         captured_characters INTEGER NOT NULL,
         truncated INTEGER NOT NULL
       );
     `);
+    ensureColumnIfMissing(
+      this.db,
+      "request_content_audit_events",
+      "prompt_text",
+      "TEXT",
+    );
     ensureColumnIfMissing(
       this.db,
       "inference_usage_events",
@@ -688,11 +739,12 @@ export class GatewayDatabase {
             model_alias,
             consumer_id,
             access_key_id,
+            prompt_text,
             content_json,
             captured_characters,
             truncated
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -701,6 +753,7 @@ export class GatewayDatabase {
         event.modelAlias ?? null,
         event.consumerId ?? null,
         event.accessKeyId ?? null,
+        event.promptText ?? null,
         event.contentJson,
         Math.max(0, Math.floor(event.capturedCharacters)),
         event.truncated ? 1 : 0,
@@ -723,6 +776,7 @@ export class GatewayDatabase {
             model_alias,
             consumer_id,
             access_key_id,
+            prompt_text,
             content_json,
             captured_characters,
             truncated
@@ -738,6 +792,7 @@ export class GatewayDatabase {
           modelAlias: row.model_alias ?? undefined,
           consumerId: row.consumer_id ?? undefined,
           accessKeyId: row.access_key_id ?? undefined,
+          promptText: row.prompt_text ?? inferPromptTextFromContentJson(row.content_json),
           contentJson: row.content_json,
           capturedCharacters: row.captured_characters,
           truncated: row.truncated === 1,

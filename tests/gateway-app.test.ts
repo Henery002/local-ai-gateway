@@ -2029,9 +2029,118 @@ describe("gateway app", () => {
       expect(content.json().data.contentJson).toContain(
         "please do not store this",
       );
+      expect(content.json().data.promptText).toBe("please do not store this");
       expect(audit.json().data.items[0]).not.toHaveProperty("messages");
       expect(audit.json().data.items[0]).not.toHaveProperty("prompt");
       expect(audit.json().data.items[0]).not.toHaveProperty("apiKey");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("stores the latest user prompt separately from full request content", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.setActiveSessionId("main:fake:default");
+    runtime.configStore.setDesktopSettings({
+      requestContentAudit: {
+        enabled: true,
+        maxCharacters: 4_000,
+        maxEvents: 20,
+      },
+    });
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-prompt-audit",
+            name: "Prompt Audit",
+            type: "lan-member",
+            status: "enabled",
+            clientTag: "codex",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-prompt-audit",
+            consumerId: "consumer-prompt-audit",
+            name: "Prompt Audit Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-prompt-audit",
+            allowedModelAliases: ["fake-default"],
+          },
+        ],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [
+            { role: "system", content: "very noisy system instructions" },
+            { role: "user", content: "old historical question" },
+            { role: "assistant", content: "old answer" },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "please summarize the gateway risk" },
+                { type: "text", text: "focus on public sharing" },
+              ],
+            },
+          ],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.lastContext?.messages.at(-1)).toMatchObject({
+        role: "user",
+      });
+
+      const audit = await app.inject({
+        method: "GET",
+        url: "/admin/requests/audit?consumerId=consumer-prompt-audit&limit=20",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(audit.statusCode).toBe(200);
+      const sourceEventKey = audit.json().data.items[0].sourceEventKey;
+
+      const content = await app.inject({
+        method: "GET",
+        url: `/admin/requests/audit/content?sourceEventKey=${encodeURIComponent(sourceEventKey)}`,
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(content.statusCode).toBe(200);
+      expect(content.json().data.promptText).toBe(
+        "please summarize the gateway risk\nfocus on public sharing",
+      );
+      expect(content.json().data.promptText).not.toContain("system");
+      expect(content.json().data.promptText).not.toContain("old historical question");
+      expect(content.json().data.contentJson).toContain("very noisy system instructions");
     } finally {
       await app.close();
       database.close();

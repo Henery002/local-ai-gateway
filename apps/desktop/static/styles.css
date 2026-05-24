@@ -6348,6 +6348,47 @@ button, input, select {
   white-space: pre-wrap;
 }
 
+.request-content-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 10px 0;
+}
+
+.request-content-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.segmented-control.compact {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+.segment-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 5px 10px;
+}
+
+.segment-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 @media (max-width: 900px) {
   .app-shell { flex-direction: column; padding: 0; gap: 0; }
   .sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 12px; border-bottom: 1px solid var(--border-light); border-right: none; }
@@ -6532,6 +6573,8 @@ button, input, select {
   .ops-account-health-summary,
   .ops-audit-summary,
   .ops-log-toolbar { grid-template-columns: 1fr; }
+  .request-content-toolbar { align-items: stretch; flex-direction: column; }
+  .request-content-actions { justify-content: flex-start; }
   .ops-preview-line { grid-template-columns: 1fr; }
   .ops-account-row { grid-template-columns: 1fr; }
   .ops-account-metrics { align-items: flex-start; text-align: left; }

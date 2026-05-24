@@ -144,6 +144,44 @@ function stringifyRequestMessageContent(content: unknown): unknown {
   return String(content);
 }
 
+function stringifyPromptMessageContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (content === null || content === undefined) {
+    return "";
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (!part || typeof part !== "object") {
+          return "";
+        }
+        const record = part as Record<string, unknown>;
+        if (typeof record.text === "string") {
+          return record.text;
+        }
+        return typeof record.type === "string" ? `[${record.type}]` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(content);
+}
+
+function extractLatestUserPromptText(request: ChatCompletionsRequest): string | undefined {
+  const latestUserMessage = [...request.messages]
+    .reverse()
+    .find((message) => message.role === "user") as
+    | (Record<string, unknown> & { role: string })
+    | undefined;
+  const text = stringifyPromptMessageContent(latestUserMessage?.content).trim();
+  return text || undefined;
+}
+
 function buildRequestContentSnapshot(request: ChatCompletionsRequest) {
   return {
     model: request.model,
@@ -204,6 +242,7 @@ function maybeRecordRequestContentAudit(input: {
     modelAlias: input.request.model,
     consumerId: input.consumerId,
     accessKeyId: input.accessKeyId,
+    promptText: extractLatestUserPromptText(input.request),
     ...content,
   });
   input.runtime.database.pruneRequestContentAuditEvents(settings.maxEvents);

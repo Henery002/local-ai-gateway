@@ -1787,12 +1787,23 @@
         <div class="modal-header">
           <div>
             <h3>请求内容</h3>
-            <p>仅展示已开启内容留痕后捕获的本地请求正文。</p>
+            <p>默认展示最新用户提问；需要排障时可切换完整请求原文。</p>
           </div>
           <button class="btn ghost mini" data-action="close-request-audit-content" type="button">关闭</button>
         </div>
         <div class="modal-body">
           <div id="request-audit-content-meta" class="ops-control-result"></div>
+          <div class="request-content-toolbar">
+            <div class="segmented-control compact" role="tablist" aria-label="请求内容视图">
+              <button class="segment-btn active" data-action="request-audit-content-view" data-view="prompt" type="button">用户提问</button>
+              <button class="segment-btn" data-action="request-audit-content-view" data-view="raw" type="button">完整原文</button>
+            </div>
+            <div class="request-content-actions">
+              <button class="btn secondary mini" data-action="format-request-audit-content" type="button">格式化</button>
+              <button class="btn secondary mini" data-action="compact-request-audit-content" type="button">压缩</button>
+              <button class="btn secondary mini" data-action="copy-request-audit-content" type="button">复制</button>
+            </div>
+          </div>
           <pre id="request-audit-content-output" class="ops-log-output">等待读取请求内容。</pre>
         </div>
       </div>

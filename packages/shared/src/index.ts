@@ -682,6 +682,7 @@ export interface GatewayRequestAuditContent {
   modelAlias?: string;
   consumerId?: string;
   accessKeyId?: string;
+  promptText?: string;
   contentJson: string;
   capturedCharacters: number;
   truncated: boolean;

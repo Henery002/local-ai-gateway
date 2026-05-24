@@ -402,6 +402,7 @@ type RequestAuditContentResponse = {
     modelAlias?: string;
     consumerId?: string;
     accessKeyId?: string;
+    promptText?: string;
     contentJson: string;
     capturedCharacters: number;
     truncated: boolean;
@@ -1310,6 +1311,8 @@ const state: {
   requestAuditContent?: RequestAuditContentResponse["data"];
   requestAuditContentLoading?: boolean;
   requestAuditContentModalOpen?: boolean;
+  requestAuditContentView?: "prompt" | "raw";
+  requestAuditContentPretty?: boolean;
   requestAuditModalOpen?: boolean;
   accountHealth?: AccountHealthObservability;
   accountHealthLoading?: boolean;
@@ -6363,14 +6366,26 @@ function renderRequestAuditContentModal(): void {
     output.textContent = "内容留痕可能未开启，或该请求发生在开启之前。";
     return;
   }
+  const view = state.requestAuditContentView ?? "prompt";
+  const promptAvailable = Boolean(content.promptText?.trim());
+  const activeView = view === "prompt" && promptAvailable ? "prompt" : "raw";
+  const viewButtons = document.querySelectorAll<HTMLButtonElement>(
+    "[data-action='request-audit-content-view']",
+  );
+  viewButtons.forEach((button) => {
+    const selected = button.dataset.view === activeView;
+    button.classList.toggle("active", selected);
+    button.disabled = button.dataset.view === "prompt" && !promptAvailable;
+  });
   meta.textContent = [
     formatDate(content.timestamp),
     content.modelAlias ? `模型 ${content.modelAlias}` : undefined,
     content.consumerId ? `成员 ${formatAuditConsumerLabel(content.consumerId)}` : undefined,
     content.accessKeyId ? `Key ${formatAuditAccessKeyLabel(content.accessKeyId, content.consumerId)}` : undefined,
+    activeView === "prompt" ? "用户提问" : "完整原文",
     content.truncated ? `已截断 ${formatCompactCount(content.capturedCharacters)} 字符` : `${formatCompactCount(content.capturedCharacters)} 字符`,
   ].filter(Boolean).join(" · ");
-  output.textContent = content.contentJson;
+  output.textContent = getRequestAuditContentDisplayText(activeView, Boolean(state.requestAuditContentPretty));
 }
 
 async function openRequestAuditContent(sourceEventKey: string): Promise<void> {
@@ -6382,6 +6397,8 @@ async function openRequestAuditContent(sourceEventKey: string): Promise<void> {
   state.requestAuditContentModalOpen = true;
   state.requestAuditContentLoading = true;
   state.requestAuditContent = undefined;
+  state.requestAuditContentView = "prompt";
+  state.requestAuditContentPretty = true;
   renderRequestAuditContentModal();
   try {
     const response = await api.getRequestAuditContent(sourceEventKey);
@@ -6389,6 +6406,28 @@ async function openRequestAuditContent(sourceEventKey: string): Promise<void> {
   } finally {
     state.requestAuditContentLoading = false;
     renderRequestAuditContentModal();
+  }
+}
+
+function getRequestAuditContentDisplayText(
+  view: "prompt" | "raw" = state.requestAuditContentView ?? "prompt",
+  pretty = Boolean(state.requestAuditContentPretty),
+): string {
+  const content = state.requestAuditContent;
+  if (!content) {
+    return "";
+  }
+  if (view === "prompt" && content.promptText?.trim()) {
+    return formatRequestAuditContentText(content.promptText.trim(), pretty);
+  }
+  return formatRequestAuditContentText(content.contentJson, pretty);
+}
+
+function formatRequestAuditContentText(text: string, pretty: boolean): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, pretty ? 2 : 0);
+  } catch {
+    return text;
   }
 }
 
@@ -14478,6 +14517,35 @@ function bindActions(): void {
     if (action === "close-request-audit-content") {
       state.requestAuditContentModalOpen = false;
       renderRequestAuditContentModal();
+      return;
+    }
+
+    if (action === "request-audit-content-view") {
+      state.requestAuditContentView =
+        button.dataset.view === "raw" ? "raw" : "prompt";
+      renderRequestAuditContentModal();
+      return;
+    }
+
+    if (action === "format-request-audit-content") {
+      state.requestAuditContentPretty = true;
+      renderRequestAuditContentModal();
+      return;
+    }
+
+    if (action === "compact-request-audit-content") {
+      state.requestAuditContentPretty = false;
+      renderRequestAuditContentModal();
+      return;
+    }
+
+    if (action === "copy-request-audit-content") {
+      try {
+        await copyTextWithFallback(getRequestAuditContentDisplayText());
+        setBanner("请求内容已复制。", "success");
+      } catch (error) {
+        setBanner(`复制请求内容失败：${String(error)}`, "error");
+      }
       return;
     }
 
