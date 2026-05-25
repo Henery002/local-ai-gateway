@@ -4939,6 +4939,8 @@ function renderDashboardTokenChart(
     node.innerHTML = `
       <div class="empty-card" style="width: 100%;">当前窗口暂无 Token 趋势数据。</div>
     `;
+    renderDashboardTokenCompositionChart(undefined);
+    renderDashboardTokenSourceChart(undefined);
     return;
   }
 
@@ -4964,6 +4966,8 @@ function renderDashboardTokenChart(
       return `<div class="dashboard-token-bar" data-muted="${index > 3 ? "true" : "false"}" style="height: ${height}px;" title="${escapeHtml(formatCompactCount(value))} Token"></div>`;
     })
     .join("");
+  renderDashboardTokenCompositionChart(summary);
+  renderDashboardTokenSourceChart(summary);
 }
 
 function buildDashboardTokenChartOption(
@@ -5045,7 +5049,179 @@ function renderDashboardTokenEChart(
     return undefined;
   }
   chart.setOption(buildDashboardTokenChartOption(summary), true);
+  renderDashboardTokenCompositionChart(summary);
+  renderDashboardTokenSourceChart(summary);
   return chart;
+}
+
+function buildDashboardTokenCompositionOption(
+  summary: UsageWindowSummary,
+): Record<string, unknown> {
+  const rows = [
+    { name: "输入", value: Math.max(0, summary.totals.inputTokens) },
+    { name: "输出", value: Math.max(0, summary.totals.outputTokens) },
+    { name: "缓存", value: Math.max(0, summary.totals.cachedTokens) },
+    { name: "思考", value: Math.max(0, summary.totals.reasoningTokens) },
+  ].filter((item) => item.value > 0);
+  return {
+    color: getUsageChartPalette(),
+    tooltip: {
+      trigger: "item",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+      valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+    },
+    legend: {
+      bottom: 0,
+      icon: "circle",
+      itemWidth: 8,
+      itemHeight: 8,
+      textStyle: { color: "#64748b", fontSize: 12 },
+    },
+    series: [
+      {
+        name: "Token 构成",
+        type: "pie",
+        radius: ["48%", "72%"],
+        center: ["50%", "42%"],
+        avoidLabelOverlap: true,
+        label: {
+          color: "#334155",
+          formatter: "{b}\\n{d}%",
+          fontSize: 12,
+        },
+        labelLine: { length: 10, length2: 6 },
+        itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
+        data: rows.length > 0 ? rows : [{ name: "暂无", value: 1 }],
+      },
+    ],
+  };
+}
+
+function renderDashboardTokenCompositionChart(
+  summary: UsageWindowSummary | undefined,
+): void {
+  const node = document.getElementById("dashboard-token-composition-chart");
+  if (!node) {
+    return;
+  }
+  if (!summary || summary.totals.totalTokens <= 0) {
+    node.innerHTML = `<div class="empty-card">暂无构成数据。</div>`;
+    return;
+  }
+  const chart = getUsageChartInstance("dashboard-token-composition-chart");
+  if (!chart) {
+    node.innerHTML = `
+      <div class="overview-token-fallback-list">
+        <span>输入 ${escapeHtml(formatCompactCount(summary.totals.inputTokens))}</span>
+        <span>输出 ${escapeHtml(formatCompactCount(summary.totals.outputTokens))}</span>
+        <span>缓存 ${escapeHtml(formatCompactCount(summary.totals.cachedTokens))}</span>
+        <span>思考 ${escapeHtml(formatCompactCount(summary.totals.reasoningTokens))}</span>
+      </div>
+    `;
+    return;
+  }
+  chart.setOption(buildDashboardTokenCompositionOption(summary), true);
+}
+
+function buildDashboardTokenSourceOption(
+  summary: UsageWindowSummary,
+): Record<string, unknown> {
+  const rows = (summary.consumers.length > 0
+    ? summary.consumers.slice(0, 5).map((item) => ({
+        label: getAccessConsumerDisplayName(item.consumerId, item.clientTag),
+        value: Math.max(0, item.usage.totalTokens),
+      }))
+    : summary.clients.slice(0, 5).map((item) => ({
+        label: normalizeUsageClientTagLabel(item.clientTag),
+        value: Math.max(0, item.usage.totalTokens),
+      }))
+  ).filter((item) => item.value > 0);
+  return {
+    color: getUsageChartPalette(),
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+      valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+    },
+    grid: { left: 90, right: 18, top: 12, bottom: 22 },
+    xAxis: {
+      type: "value",
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    yAxis: {
+      type: "category",
+      data: rows.map((row) => row.label),
+      axisLabel: { color: "#64748b", width: 78, overflow: "truncate" },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: "Token",
+        type: "bar",
+        barMaxWidth: 18,
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: "#10b981" },
+              { offset: 1, color: "#60a5fa" },
+            ],
+          },
+        },
+        data: rows.map((row) => row.value),
+      },
+    ],
+  };
+}
+
+function renderDashboardTokenSourceChart(
+  summary: UsageWindowSummary | undefined,
+): void {
+  const node = document.getElementById("dashboard-token-source-chart");
+  if (!node) {
+    return;
+  }
+  const rows = summary
+    ? (summary.consumers.length > 0 ? summary.consumers : summary.clients)
+    : [];
+  if (!summary || summary.totals.totalTokens <= 0 || rows.length === 0) {
+    node.innerHTML = `<div class="empty-card">暂无来源排行。</div>`;
+    return;
+  }
+  const chart = getUsageChartInstance("dashboard-token-source-chart");
+  if (!chart) {
+    const fallbackRows = (summary.consumers.length > 0
+      ? summary.consumers.slice(0, 5).map((item) => ({
+          label: getAccessConsumerDisplayName(item.consumerId, item.clientTag),
+          value: item.usage.totalTokens,
+        }))
+      : summary.clients.slice(0, 5).map((item) => ({
+          label: normalizeUsageClientTagLabel(item.clientTag),
+          value: item.usage.totalTokens,
+        }))
+    ).filter((item) => item.value > 0);
+    node.innerHTML = `
+      <div class="overview-token-fallback-list">
+        ${fallbackRows
+          .map((item) => `<span>${escapeHtml(item.label)} ${escapeHtml(formatCompactCount(item.value))}</span>`)
+          .join("")}
+      </div>
+    `;
+    return;
+  }
+  chart.setOption(buildDashboardTokenSourceOption(summary), true);
 }
 
 function renderDashboardSharedSummary(

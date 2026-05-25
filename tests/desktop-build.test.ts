@@ -133,6 +133,8 @@ describe("desktop build output", () => {
     expect(overview).toContain("id=\"overview-public-members\"");
     expect(overview).toContain("id=\"overview-today-requests\"");
     expect(overview).toContain("id=\"overview-open-alerts\"");
+    expect(overview).toContain("id=\"dashboard-token-composition-chart\"");
+    expect(overview).toContain("id=\"dashboard-token-source-chart\"");
     expect(overview?.match(/class="card overview-status-card stat-card"/g) ?? []).toHaveLength(4);
     expect(rendererSource).toContain("class=\"usage-overview-card\"");
     expect(rendererSource).toContain("class=\"card-header usage-card-header\"");
@@ -142,6 +144,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".overview-hero-grid {");
     expect(styles).toContain(".overview-public-hero {");
     expect(styles).toContain(".overview-main-grid {");
+    expect(styles).toContain(".overview-token-subgrid {");
+    expect(styles).toContain(".overview-mini-chart {");
     expect(styles).toContain(".card-header {");
     expect(styles).toContain(".stat-card-grid {");
     expect(styles).toContain(".usage-overview-card {");
@@ -222,9 +226,13 @@ describe("desktop build output", () => {
     expect(overview).toContain("data-dashboard-mode=\"lan\"");
     expect(overview).toContain("data-dashboard-mode=\"public\"");
     expect(overview).toContain("id=\"dashboard-token-chart\"");
+    expect(overview).toContain("id=\"dashboard-token-composition-chart\"");
+    expect(overview).toContain("id=\"dashboard-token-source-chart\"");
     expect(overview).toContain("id=\"dashboard-shared-summary\"");
     expect(overview).toContain("id=\"dashboard-alert-summary\"");
     expect(rendererSource).toContain("buildDashboardTokenChartOption");
+    expect(rendererSource).toContain("buildDashboardTokenCompositionOption");
+    expect(rendererSource).toContain("buildDashboardTokenSourceOption");
     expect(rendererSource).toContain("renderDashboardTokenEChart");
   });
 

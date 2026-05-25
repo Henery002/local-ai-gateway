@@ -1341,7 +1341,71 @@ button, input, select {
 }
 
 .overview-token-panel .dashboard-token-chart {
-  min-height: 300px;
+  min-height: 265px;
+}
+
+.overview-token-subgrid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.86fr) minmax(0, 1.14fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.overview-token-subchart {
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.035), rgba(16, 185, 129, 0.025)),
+    var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.overview-subchart-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.overview-subchart-head strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.overview-subchart-head span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.overview-mini-chart {
+  min-height: 205px;
+}
+
+.overview-mini-chart .empty-card {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 180px;
+  width: 100%;
+}
+
+.overview-token-fallback-list {
+  align-content: center;
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+}
+
+.overview-token-fallback-list span {
+  background: var(--bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 8px 10px;
 }
 
 .overview-side-stack {
@@ -1549,6 +1613,10 @@ button, input, select {
 
   .overview-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-token-subgrid {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-mode-grid,
