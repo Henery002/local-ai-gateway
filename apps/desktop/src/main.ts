@@ -2401,7 +2401,7 @@ function loadTrayIcon(state: TrayVisualState, frame = 0) {
     return undefined;
   }
   const resized = image.resize({ width: 18, height: 18, quality: "best" });
-  resized.setTemplateImage(true);
+  resized.setTemplateImage(false);
   return resized;
 }
 
@@ -2937,6 +2937,7 @@ function setupApplicationMenu(): void {
         },
         {
           label: "隐藏到菜单栏",
+          accelerator: "Command+Q",
           click: () => {
             hideMainWindowToTray();
           },
@@ -2958,7 +2959,6 @@ function setupApplicationMenu(): void {
         { type: "separator" },
         {
           label: "退出控制台（公网链路继续运行）",
-          accelerator: "Command+Q",
           click: () => {
             quitControlConsole();
           },
