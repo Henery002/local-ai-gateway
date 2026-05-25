@@ -463,6 +463,55 @@ function readProcessCommand(pid: number): string {
   }
 }
 
+function terminateStaleDevDesktopMainProcesses(): void {
+  if (app.isPackaged) {
+    return;
+  }
+
+  let output = "";
+  try {
+    output = execFileSync("ps", ["-axo", "pid=,command="], {
+      encoding: "utf8",
+    });
+  } catch {
+    return;
+  }
+
+  const currentPid = process.pid;
+  const parentPid = process.ppid;
+  for (const line of output.split("\n")) {
+    const match = line.trimStart().match(/^(\d+)\s+(.+)$/);
+    if (!match) {
+      continue;
+    }
+
+    const pid = Number(match[1]);
+    const command = match[2] ?? "";
+    if (
+      !Number.isFinite(pid) ||
+      pid === currentPid ||
+      pid === parentPid ||
+      !command.includes("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron") ||
+      !command.includes("apps/desktop/dist/main.js")
+    ) {
+      continue;
+    }
+
+    try {
+      process.kill(pid, "SIGTERM");
+      appendDesktopMainLog("info", [
+        "terminated_stale_dev_desktop_process",
+        { pid, command },
+      ]);
+    } catch (error) {
+      appendDesktopMainLog("warn", [
+        "failed_to_terminate_stale_dev_desktop_process",
+        { pid, error: toErrorMessage(error) },
+      ]);
+    }
+  }
+}
+
 function looksLikeLocalGatewayCommand(command: string): boolean {
   if (!command) {
     return false;
@@ -3771,6 +3820,7 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
 });
 
 app.whenReady().then(() => {
+  terminateStaleDevDesktopMainProcesses();
   const launchedAtLogin =
     canApplyLoginItemSetting() && app.getLoginItemSettings().wasOpenedAtLogin;
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);

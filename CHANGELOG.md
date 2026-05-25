@@ -9,6 +9,21 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-26 00:12 CST]
+
+### 修复
+
+- 修复开发环境残留旧 Electron 桌面进程可能继续触发旧健康检查逻辑的问题：`yarn dev:desktop` 启动的新桌面端会清理同仓库下更早残留的 dev Electron 主进程，避免旧窗口误判 `/healthz` 并重启当前公网网关。
+
+### 排障结论
+
+- Trae 侧 `The custom model provider has returned empty content. (HTTP Status: 500)` 与 `2026-05-25 23:49:09` 附近“请求内容审计已记录但 usage 未完成”现象吻合，随后旧桌面进程触发 `/healthz` JSON 解析异常和网关 `SIGTERM`，导致公网流式请求被中途打断。
+- 手动清理旧 Electron 主进程后，观察窗口内不再出现 `/healthz` 后紧跟 `gateway_shutting_down` 的重启链路，只剩无 Key `/v1/models` 探测记录。
+
+### 测试
+
+- 回归通过 `npm run build`。
+
 ## [2026-05-25 23:35 CST]
 
 ### 修复
