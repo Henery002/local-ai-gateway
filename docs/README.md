@@ -21,6 +21,7 @@
 - [Provider 扩展配置](./operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [桌面控制台使用说明](./operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
 - [网关常驻服务与运维日志](./operations/%E7%BD%91%E5%85%B3%E5%B8%B8%E9%A9%BB%E6%9C%8D%E5%8A%A1%E4%B8%8E%E8%BF%90%E7%BB%B4%E6%97%A5%E5%BF%97.md)
+- [Cockpit 侧 Codex 账号池长期观测记录](./operations/cockpit-codex-%E8%B4%A6%E5%8F%B7%E6%B1%A0%E9%95%BF%E6%9C%9F%E8%A7%82%E6%B5%8B%E8%AE%B0%E5%BD%95.md)
 - [数据导出与迁移恢复](./operations/%E6%95%B0%E6%8D%AE%E5%AF%BC%E5%87%BA%E4%B8%8E%E8%BF%81%E7%A7%BB%E6%81%A2%E5%A4%8D.md)
 - [安装与升级检查清单](./operations/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%8D%87%E7%BA%A7%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95.md)
 - [桌面端 UI 与交互重构交接说明](./operations/%E6%A1%8C%E9%9D%A2%E7%AB%AF-ui-%E4%BA%A4%E4%BA%92%E9%87%8D%E6%9E%84%E4%BA%A4%E6%8E%A5%E8%AF%B4%E6%98%8E.md)
