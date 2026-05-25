@@ -1254,6 +1254,8 @@ export class GatewayDatabase {
 
     addTextFilter("consumer_id", query.consumerId);
     addTextFilter("access_key_id", query.accessKeyId);
+    filters.push("type NOT LIKE ? ESCAPE '\\'");
+    params.push("%\\_warning");
     if (typeof query.since === "number" && Number.isFinite(query.since)) {
       filters.push("COALESCE(last_seen_at, timestamp) >= ?");
       params.push(Math.floor(query.since));

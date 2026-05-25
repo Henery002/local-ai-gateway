@@ -1200,6 +1200,14 @@ class GatewayProcessManager {
       return { managed: this.managed };
     }
 
+    const existingPid = this.findListeningProcessId(port);
+    if (existingPid && existingPid !== process.pid) {
+      const command = this.readProcessCommand(existingPid);
+      if (this.looksLikeLocalGatewayCommand(command)) {
+        return { managed: false };
+      }
+    }
+
     this.ensuring = (async () => {
       if (shouldAutoManageGatewayService()) {
         await gatewayServiceManager.start();

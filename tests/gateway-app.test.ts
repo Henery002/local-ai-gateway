@@ -8389,6 +8389,85 @@ describe("gateway app", () => {
     }
   });
 
+  it("keeps quota warning alerts out of request audit failures", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const now = Date.now();
+    runtime.recordUsageEvent({
+      timestamp: now,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "codex",
+      consumerId: "consumer-warning",
+      accessKeyId: "key-warning",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: true,
+      latencyMs: 1000,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+      sourceKind: "live-request",
+      sourceEventKey: "live-request:warning-success",
+    });
+    database.insertAccessAlertEvent({
+      timestamp: now,
+      severity: "warning",
+      consumerId: "consumer-warning",
+      accessKeyId: "key-warning",
+      type: "access_policy_total_quota_warning",
+      message: "Access consumer total token quota is close to the configured threshold.",
+      details: {
+        consumerName: "Warning User",
+        clientTag: "codex",
+        limit: 100_000,
+        usedTokens: 90_000,
+        usageRatio: 0.9,
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const allAudit = await app.inject({
+        method: "GET",
+        url: "/admin/requests/audit?consumerId=consumer-warning&limit=20",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(allAudit.statusCode).toBe(200);
+      expect(allAudit.json().data.summary).toMatchObject({
+        requestCount: 1,
+        successCount: 1,
+        failureCount: 0,
+      });
+      expect(allAudit.json().data.items).toHaveLength(1);
+      expect(allAudit.json().data.items[0]).toMatchObject({
+        success: true,
+        sourceKind: "live-request",
+      });
+
+      const failedAudit = await app.inject({
+        method: "GET",
+        url: "/admin/requests/audit?status=failure&consumerId=consumer-warning&limit=20",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+      expect(failedAudit.statusCode).toBe(200);
+      expect(failedAudit.json().data.summary.failureCount).toBe(0);
+      expect(failedAudit.json().data.items).toHaveLength(0);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("rejects unauthorized admin requests and unknown models", async () => {
     const { rootDir, runtime, database } = createTestRuntime();
     cleanupDirs.push(rootDir);
