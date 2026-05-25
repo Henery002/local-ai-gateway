@@ -2731,6 +2731,7 @@ button, input, select {
 
 .usage-operations-main,
 .usage-operations-side,
+.usage-operations-breakdown,
 .usage-operations-wide {
   min-width: 0;
 }
@@ -2750,6 +2751,19 @@ button, input, select {
 
 .usage-operations-main {
   grid-column: 1 / -1;
+}
+
+.usage-operations-breakdown {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.usage-echart-card-ranking,
+.usage-echart-card-mix {
+  min-width: 0;
 }
 
 .usage-member-health-card {
@@ -7458,6 +7472,9 @@ button, input, select {
     width: 100%;
   }
   .usage-operations-dashboard {
+    grid-template-columns: 1fr;
+  }
+  .usage-operations-breakdown {
     grid-template-columns: 1fr;
   }
   .usage-chart-filter-row {

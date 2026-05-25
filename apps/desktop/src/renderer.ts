@@ -6263,22 +6263,8 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
           </div>
         </div>
       </div>
-      <div class="usage-operations-side">
-        <div class="usage-echart-card">
-          <div class="usage-chart-section-header">
-            <div>
-              <strong>Token 构成</strong>
-              <span>输入、输出、缓存和思考 Token 占比</span>
-            </div>
-            <span class="badge neutral">Donut</span>
-          </div>
-          <div id="usage-echart-mix" class="usage-echart usage-echart-mix">
-            ${renderUsageTokenMixDonut(summary)}
-          </div>
-        </div>
-      </div>
-      <div class="usage-operations-wide">
-        <div class="usage-echart-card">
+      <div class="usage-operations-breakdown">
+        <div class="usage-echart-card usage-echart-card-ranking">
           <div class="usage-chart-section-header">
             <div>
               <strong>${escapeHtml(formatUsageTrendDimensionLabel(state.usageTrendDimension))}排行</strong>
@@ -6288,6 +6274,18 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
           </div>
           <div id="usage-echart-ranking" class="usage-echart usage-echart-ranking">
             ${renderUsageRankingBars(summary)}
+          </div>
+        </div>
+        <div class="usage-echart-card usage-echart-card-mix">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>Token 构成</strong>
+              <span>输入、输出、缓存和思考 Token 占比</span>
+            </div>
+            <span class="badge neutral">Donut</span>
+          </div>
+          <div id="usage-echart-mix" class="usage-echart usage-echart-mix">
+            ${renderUsageTokenMixDonut(summary)}
           </div>
         </div>
       </div>
