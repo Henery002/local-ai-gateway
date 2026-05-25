@@ -451,6 +451,9 @@ describe("desktop build output", () => {
     expect(styles).toContain(".access-member-limit-grid .form-field:nth-last-child(2)");
     expect(styles).toContain(".access-key-create-form");
     expect(styles).toContain(".access-key-create-form .btn");
+    expect(styles).toContain(".access-member-limit-grid {\n  border-top: 1px solid var(--border-light);\n  grid-template-columns: repeat(2, minmax(0, 1fr));");
+    expect(styles).toContain("grid-template-columns: minmax(220px, 0.48fr) minmax(0, 1.52fr);");
+    expect(styles).toContain("grid-template-columns: minmax(220px, 0.55fr) minmax(0, 1.45fr);");
   });
 
   it("renders member-first request audit controls and stronger operations cards", () => {
@@ -579,6 +582,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("createAccessKeyForConsumer");
     expect(rendererSource).toContain("saveAccessConsumerBasics");
     expect(rendererSource).toContain("saveAccessKeyExpiry");
+    expect(rendererSource).toContain("refreshAccessKeyManagementOnly");
+    expect(rendererSource).toContain("syncAccessKeyManagementAfterSave");
+    expect(rendererSource).not.toContain(
+      "await saveAccessControlSettings(nextAccessControl);\n  state.editingAccessConsumerId = consumerId;\n  openAccessMemberModal(consumerId",
+    );
     expect(rendererSource).toContain("saveAccessPolicySettings");
     expect(rendererSource).toContain("saveAccessPolicyPools");
     expect(rendererSource).toContain("renderAccessPolicyUsageSnapshot");

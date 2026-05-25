@@ -4908,7 +4908,7 @@ button, input, select {
 .access-member-quota-layout,
 .access-member-quota-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.58fr) minmax(0, 1.42fr);
+  grid-template-columns: minmax(220px, 0.48fr) minmax(0, 1.52fr);
   gap: 16px;
   align-items: start;
 }
@@ -4970,7 +4970,7 @@ button, input, select {
 
 .access-member-limit-grid {
   border-top: 1px solid var(--border-light);
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   margin-top: 2px;
   padding-top: 16px;
@@ -4978,13 +4978,12 @@ button, input, select {
 
 .access-member-limit-grid .form-field {
   align-self: start;
-  grid-column: span 2;
   min-height: 78px;
 }
 
 .access-member-limit-grid .form-field:nth-last-child(2),
 .access-member-limit-grid .form-field:last-child {
-  grid-column: span 3;
+  grid-column: auto;
 }
 
 .access-member-limit-grid .input-field {
@@ -5010,7 +5009,7 @@ button, input, select {
 
 .access-key-manager-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(220px, 0.55fr) minmax(0, 1.45fr);
   gap: 16px;
   align-items: start;
 }

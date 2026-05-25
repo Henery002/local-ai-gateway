@@ -15453,6 +15453,32 @@ async function saveAccessControlSettings(
   return response.data;
 }
 
+async function syncAccessKeyManagementAfterSave(
+  accessControl: SecurityAccessControlInput,
+  consumerId?: string,
+): Promise<SecuritySettings> {
+  const api = getGatewayApi();
+  const current = getSecuritySettingsWithDefaults();
+  const response = await api.saveSecuritySettings({
+    mode: "api-key",
+    resolveClientTagByApiKey: true,
+    clientMappings: getSecurityClientMappingInputs(current),
+    lanAccess: current.lanAccess,
+    accessControl,
+  });
+  state.securitySettings = response.data;
+  state.selectedAccessConsumerId = consumerId ?? state.selectedAccessConsumerId;
+  state.editingAccessConsumerId = consumerId ?? state.editingAccessConsumerId;
+  refreshAccessKeyManagementOnly(consumerId ?? state.editingAccessConsumerId);
+  renderAccessConsumerList(
+    response.data.clientMappings,
+    response.data.accessControl,
+  );
+  renderAccessPolicyPreview();
+  renderDashboardSharedSummary(getOverviewUsageWindowSummary());
+  return response.data;
+}
+
 async function saveUsageAlertThresholds(): Promise<void> {
   const current = getSecuritySettingsWithDefaults();
   const nextAccessControl = cloneAccessControlForSave(current.accessControl);
@@ -15712,6 +15738,22 @@ function renderAccessMemberModalKeys(consumerId?: string): void {
     keys,
     "当前成员暂无 Key。可在上方新增一把独立 Key。",
   );
+}
+
+function refreshAccessKeyManagementOnly(consumerId?: string): void {
+  renderAccessMemberModalKeys(consumerId);
+  const keyName = document.getElementById(
+    "access-member-new-key-name",
+  ) as HTMLInputElement | null;
+  const keyExpiresAt = document.getElementById(
+    "access-member-new-key-expires-at",
+  ) as HTMLInputElement | null;
+  if (keyName) {
+    keyName.value = "";
+  }
+  if (keyExpiresAt) {
+    keyExpiresAt.value = "";
+  }
 }
 
 function renderAccessMemberModal(): void {
@@ -16191,14 +16233,7 @@ async function createAccessKeyForConsumer(consumerId: string): Promise<void> {
     apiKey,
   });
 
-  await saveAccessControlSettings(nextAccessControl);
-  state.editingAccessConsumerId = consumerId;
-  openAccessMemberModal(consumerId, {
-    preserveKeyResult: true,
-    preserveScroll: true,
-    focusName: false,
-  });
-  clearAccessDraftProtection();
+  await syncAccessKeyManagementAfterSave(nextAccessControl, consumerId);
   showOneTimeAccessKey(apiKey, "本次生成的 Key 明文");
   setBanner("访问 Key 已创建。请立即复制一次性 API Key。", "success");
 }
@@ -16212,7 +16247,7 @@ async function toggleAccessKeyStatus(keyId: string): Promise<void> {
     return;
   }
   key.status = key.status === "paused" ? "enabled" : "paused";
-  await saveAccessControlSettings(nextAccessControl);
+  await syncAccessKeyManagementAfterSave(nextAccessControl, key.consumerId);
   setBanner(
     key.status === "enabled" ? "访问 Key 已启用。" : "访问 Key 已暂停。",
     "success",
@@ -16237,8 +16272,7 @@ async function saveAccessKeyExpiry(keyId: string): Promise<void> {
   if (expiresAt && Date.parse(expiresAt) > Date.now() && key.status === "expired") {
     key.status = "enabled";
   }
-  await saveAccessControlSettings(nextAccessControl);
-  clearAccessDraftProtection();
+  await syncAccessKeyManagementAfterSave(nextAccessControl, key.consumerId);
   setBanner(expiresAt ? "访问 Key 到期时间已保存。" : "访问 Key 到期时间已清空。", "success");
 }
 
@@ -16486,7 +16520,7 @@ async function rotateAccessKey(keyId: string): Promise<void> {
   key.status = "enabled";
   key.rotatedAt = new Date().toISOString();
 
-  await saveAccessControlSettings(nextAccessControl);
+  await syncAccessKeyManagementAfterSave(nextAccessControl, key.consumerId);
   showOneTimeAccessKey(apiKey, "本次生成的 Key 明文");
   setBanner("访问 Key 已轮换。请立即复制一次性 API Key。", "success");
 }
@@ -16514,8 +16548,7 @@ async function deleteAccessKey(keyId: string): Promise<void> {
   nextAccessControl.keys = nextAccessControl.keys.filter(
     (key) => key.id !== keyId,
   );
-  await saveAccessControlSettings(nextAccessControl);
-  renderAccessMemberModalKeys(state.editingAccessConsumerId);
+  await syncAccessKeyManagementAfterSave(nextAccessControl, target.consumerId);
   setBanner("访问 Key 已删除，旧 Key 后续调用会被拒绝。", "success");
 }
 
