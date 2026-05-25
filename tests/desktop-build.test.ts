@@ -531,6 +531,12 @@ describe("desktop build output", () => {
     expect(styles).toContain(".gateway-grid-shell");
     expect(styles).toContain(".gateway-grid-table");
     expect(styles).toContain(".gateway-grid-page-size");
+    const gridPageSizeStyles = styles.match(
+      /\.gateway-grid-page-size \{[\s\S]*?\}/,
+    )?.[0];
+    expect(gridPageSizeStyles).toContain("flex: 0 0 auto;");
+    expect(gridPageSizeStyles).toContain("white-space: nowrap;");
+    expect(styles).toContain(".gateway-grid-page-size span");
     expect(styles).toContain(".gateway-grid-pagination .gridjs-pages");
     expect(styles).toContain("min-height: 58px;");
     expect(rendererSource).toContain("footer.insertBefore(pageSizeControl");

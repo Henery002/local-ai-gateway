@@ -6763,9 +6763,17 @@ button, input, select {
   align-items: center;
   color: var(--text-secondary);
   display: inline-flex;
+  flex: 0 0 auto;
   font-size: 13px;
   gap: 6px;
   margin-right: auto;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.gateway-grid-page-size span {
+  display: inline-block;
+  white-space: nowrap;
 }
 
 .gateway-grid-page-size .input-field {
@@ -6854,9 +6862,11 @@ button, input, select {
   color: var(--text-secondary);
   display: flex !important;
   font-size: 13px;
+  flex-wrap: nowrap;
   gap: 12px;
   justify-content: flex-end !important;
   min-height: 58px;
+  overflow-x: auto;
   padding: 10px 14px !important;
 }
 
