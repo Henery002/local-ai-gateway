@@ -2496,6 +2496,18 @@ function setModeCardStatus(
   badge.textContent = badgeText;
 }
 
+function setOverviewSurfaceStatus(
+  mode: "local" | "lan" | "public",
+  status: "active" | "disabled" | "warning",
+): void {
+  const row = document.querySelector<HTMLElement>(
+    `.overview-surface-row[data-dashboard-mode="${mode}"]`,
+  );
+  if (row) {
+    row.dataset.status = status;
+  }
+}
+
 function hasEnabledAccessMemberKey(security?: SecuritySettingsLike): boolean {
   const enabledConsumerIds = new Set(
     (security?.accessControl?.consumers ?? [])
@@ -3550,12 +3562,48 @@ function renderDashboardPhaseTwoOverview(): void {
         : "运行中，鉴权缺少密钥"
       : "运行中，无鉴权"
     : "等待服务状态";
+  const accountHealthSummary = state.accountHealth?.summary;
+  const publicStatus = publicEnabled
+    ? publicReady
+      ? "公网入口已就绪"
+      : "公网配置待补齐"
+    : "未启用";
+  const unacknowledgedAlerts = (state.accessAlerts ?? []).filter(
+    (event) => !event.acknowledgedAt,
+  ).length;
+  const overviewPublicDetail = publicReady
+    ? "公网域名、成员 Key、public-ready 号池和本机服务均已形成可运营链路。"
+    : publicEnabled
+      ? "公网开关已打开，但仍需补齐 HTTPS Base URL、成员 Key 或 public-ready 号池。"
+      : "公网共享尚未启用，当前只作为本机或受控网络入口运行。";
 
   setText("dashboard-local-status", localStatus);
   setText("dashboard-local-url", baseUrl);
+  setOverviewSurfaceStatus("local", health?.ok ? "active" : "warning");
   setText(
     "dashboard-local-tokens",
     usage ? `${formatCompactCount(usage.totalTokens)} Token` : "暂无统计",
+  );
+  setText("overview-service-mode", health?.managed ? "桌面托管" : "外部服务");
+  setText(
+    "overview-today-requests",
+    usage ? formatCompactCount(usage.requestCount) : "0",
+  );
+  setText(
+    "overview-today-failures",
+    usage ? formatCompactCount(usage.failureCount) : "0",
+  );
+  setText("overview-open-alerts", formatCompactCount(unacknowledgedAlerts));
+  setText("overview-public-title", publicStatus);
+  setText("overview-public-detail", overviewPublicDetail);
+  setText("overview-public-members", formatCompactCount(enabledPublicConsumerIds.size));
+  setText("overview-public-keys", formatCompactCount(enabledPublicKeyCount));
+  setText("overview-public-pools", formatCompactCount(publicReadyPoolCount));
+  setText(
+    "overview-account-health",
+    accountHealthSummary
+      ? `${formatCompactCount(accountHealthSummary.availableCount)} 可用 / ${formatCompactCount(accountHealthSummary.unhealthyCount)} 异常`
+      : "等待健康快照",
   );
   setText(
     "dashboard-lan-status",
@@ -3575,17 +3623,21 @@ function renderDashboardPhaseTwoOverview(): void {
     lanEnabled ? (hasCredential ? "已就绪" : "缺少 Key") : "默认关闭",
     lanEnabled ? (hasCredential ? "active" : "warning") : "neutral",
   );
+  setOverviewSurfaceStatus(
+    "lan",
+    lanEnabled ? (hasCredential ? "active" : "warning") : "disabled",
+  );
   setText("dashboard-lan-tokens", "0 Token");
   setText(
     "dashboard-public-status",
-    publicEnabled
-      ? publicReady
-        ? "公网入口已就绪"
-        : "公网配置待补齐"
-      : "未启用",
+    publicStatus,
   );
   setText(
     "dashboard-public-url",
+    publicEnabled ? publicBaseUrl || "待填写" : "未启用",
+  );
+  setText(
+    "overview-public-url-inline",
     publicEnabled ? publicBaseUrl || "待填写" : "未启用",
   );
   setText(
@@ -3599,6 +3651,10 @@ function renderDashboardPhaseTwoOverview(): void {
     publicEnabled ? (publicReady ? "active" : "warning") : "disabled",
     publicEnabled ? (publicReady ? "已就绪" : "待补齐") : "禁用",
     publicEnabled ? (publicReady ? "active" : "warning") : "neutral",
+  );
+  setOverviewSurfaceStatus(
+    "public",
+    publicEnabled ? (publicReady ? "active" : "warning") : "disabled",
   );
   setText(
     "dashboard-token-window",
@@ -5001,35 +5057,45 @@ function renderDashboardSharedSummary(
   }
 
   const totalTokens = summary?.totals.totalTokens ?? 0;
+  const consumers = state.securitySettings?.accessControl?.consumers ?? [];
+  const keys = state.securitySettings?.accessControl?.keys ?? [];
+  const enabledConsumers = consumers.filter((consumer) => consumer.status === "enabled");
+  const enabledKeys = keys.filter(
+    (key) => key.status === "enabled" && key.hasKey && !isPastIsoDate(key.expiresAt),
+  );
+  const topConsumer = summary?.consumers[0];
   const topClient = summary?.clients[0];
-  const mappingCount =
-    state.securitySettings?.enabledMappingCount ??
-    state.health?.inferenceAuth?.enabledMappingCount ??
-    0;
+  const publicPools = (state.poolSettings?.pools ?? []).filter(
+    (pool) => pool.enabled !== false && normalizePoolVisibility(pool.visibility) === "public-ready",
+  );
 
   node.innerHTML = [
     {
-      title: "本机自用消耗",
-      detail: "当前仍以本机自用路径归因",
+      title: "当前窗口总消耗",
+      detail: "来自本地持久化用量事件",
       value: `${formatCompactCount(totalTokens)} Token`,
     },
     {
-      title: "共享成员消耗",
-      detail: "LAN 成员模型尚未落地",
-      value: "0 Token",
+      title: "启用成员 / Key",
+      detail: "可被分发使用的成员与访问密钥",
+      value: `${formatCompactCount(enabledConsumers.length)} / ${formatCompactCount(enabledKeys.length)}`,
     },
     {
-      title: "已启用客户端 key",
-      detail: "兼容现有 clientMappings",
-      value: `${formatCompactCount(mappingCount)} 个`,
+      title: "公网号池",
+      detail: "public-ready 且未禁用的动态号池",
+      value: `${formatCompactCount(publicPools.length)} 个`,
     },
     {
-      title: "主要来源",
-      detail: topClient
-        ? normalizeUsageClientTagLabel(topClient.clientTag)
-        : "暂无真实请求",
-      value: topClient
-        ? `${formatCompactCount(topClient.usage.totalTokens)} Token`
+      title: "主要成员 / 来源",
+      detail: topConsumer
+        ? getAccessConsumerDisplayName(topConsumer.consumerId, topConsumer.clientTag)
+        : topClient
+          ? normalizeUsageClientTagLabel(topClient.clientTag)
+          : "暂无真实请求",
+      value: topConsumer
+        ? `${formatCompactCount(topConsumer.usage.totalTokens)} Token`
+        : topClient
+          ? `${formatCompactCount(topClient.usage.totalTokens)} Token`
         : "暂无",
     },
   ]
@@ -5058,7 +5124,22 @@ function renderDashboardAlertSummary(): void {
   const authNeedsKey =
     (state.securitySettings?.enabled ?? state.health?.inferenceAuth?.enabled) &&
     !(state.securitySettings?.hasApiKey ?? state.health?.inferenceAuth?.hasApiKey);
+  const unacknowledgedAlerts = (state.accessAlerts ?? []).filter(
+    (event) => !event.acknowledgedAt,
+  );
+  const latestAccessAlert = unacknowledgedAlerts[0] ?? state.accessAlerts?.[0];
   const alerts = [
+    ...(latestAccessAlert
+      ? [
+          {
+            title: latestAccessAlert.acknowledgedAt ? "最近告警已确认" : "存在未确认告警",
+            detail: `${formatAccessAlertTypeLabel(latestAccessAlert.type)} · ${latestAccessAlert.message}`,
+            value: latestAccessAlert.acknowledgedAt
+              ? "已确认"
+              : `${formatCompactCount(unacknowledgedAlerts.length)} 条`,
+          },
+        ]
+      : []),
     ...(primaryDiagnostic
       ? [
           {
@@ -5089,7 +5170,7 @@ function renderDashboardAlertSummary(): void {
       <div class="dashboard-summary-item">
         <div>
           <strong>暂无活动告警</strong>
-          <span>共享能力仍默认关闭，公网共享尚未启用。</span>
+          <span>服务、成员策略和公网治理当前没有需要立即处理的事项。</span>
         </div>
         <small>normal</small>
       </div>
@@ -5118,7 +5199,7 @@ function renderUsageOverview(): void {
     return;
   }
 
-  const shouldShowUsageOverview = state.activeView === "overview";
+  const shouldShowUsageOverview = false;
   container.hidden = !shouldShowUsageOverview;
   if (!shouldShowUsageOverview) {
     return;

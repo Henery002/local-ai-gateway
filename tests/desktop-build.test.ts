@@ -129,12 +129,19 @@ describe("desktop build output", () => {
     )?.[1];
 
     expect(overview).toBeTruthy();
-    expect(overview?.match(/class="card mini-stat stat-card"/g) ?? []).toHaveLength(11);
+    expect(overview).toContain("class=\"card overview-public-hero\"");
+    expect(overview).toContain("id=\"overview-public-members\"");
+    expect(overview).toContain("id=\"overview-today-requests\"");
+    expect(overview).toContain("id=\"overview-open-alerts\"");
+    expect(overview?.match(/class="card overview-status-card stat-card"/g) ?? []).toHaveLength(4);
     expect(rendererSource).toContain("class=\"usage-overview-card\"");
     expect(rendererSource).toContain("class=\"card-header usage-card-header\"");
     expect(rendererSource).toContain("class=\"usage-observe-grid stat-card-grid\"");
     expect(rendererSource).toContain("class=\"usage-kpi-card stat-card");
     expect(styles).toContain(".stat-card {");
+    expect(styles).toContain(".overview-hero-grid {");
+    expect(styles).toContain(".overview-public-hero {");
+    expect(styles).toContain(".overview-main-grid {");
     expect(styles).toContain(".card-header {");
     expect(styles).toContain(".stat-card-grid {");
     expect(styles).toContain(".usage-overview-card {");

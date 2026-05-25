@@ -147,227 +147,153 @@
           <!-- View: Overview -->
           <div class="view" data-view="overview">
             <section>
-              <div class="section-head">
-                <h2>运行总览</h2>
-                <p>当前网关的核心运行指标与默认路由策略。</p>
-              </div>
-              <div class="grid-layout grid-4">
-                <div class="card mini-stat stat-card"><small>服务状态</small><strong id="service-state">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>控制模式</small><strong id="service-mode">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>默认 Provider</small><strong id="default-provider">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>当前路由模型</small><strong id="default-model">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>活动授权</small><strong id="runtime-active-session">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>接入鉴权</small><strong id="runtime-inference-auth">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>主接入 Base URL</small><strong id="openclaw-base-url">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>路由命中概览</small><strong id="runtime-routing-hit">加载中</strong></div>
-                <div class="card mini-stat stat-card"><small>桌面端 Codex 账号数</small><strong id="local-account-count">0</strong></div>
-                <div class="card mini-stat stat-card"><small>本地授权源数</small><strong id="openclaw-source-count">0</strong></div>
-                <div class="card mini-stat stat-card" style="grid-column: 1 / -1;">
-                  <small>默认模型选择依据</small>
-                  <strong id="default-selection">加载中</strong>
+              <div class="section-head overview-section-head">
+                <div>
+                  <h2>公网网关总览</h2>
+                  <p>围绕公网成员接入、Token 消耗、账号承载和告警治理观察当前网关是否可运营。</p>
+                </div>
+                <div class="section-actions">
+                  <button class="btn primary" data-nav-target="usage" type="button">查看用量</button>
+                  <button class="btn secondary" data-nav-target="operations" type="button">运维日志</button>
                 </div>
               </div>
 
-              <div class="dashboard-mode-grid mt-4">
-                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="local" data-status="active">
-                  <div class="mode-card-head">
+              <div class="overview-hero-grid">
+                <div class="card overview-public-hero" data-dashboard-mode="public" data-status="disabled">
+                  <div class="overview-hero-main">
                     <div>
-                      <strong>本机自用</strong>
-                      <span id="dashboard-local-status">加载中</span>
+                      <span class="overview-eyebrow">Public Gateway</span>
+                      <h3 id="overview-public-title">公网入口加载中</h3>
+                      <p id="overview-public-detail">正在读取公网共享配置、成员 Key 与 public-ready 号池。</p>
                     </div>
-                    <span class="badge active">默认入口</span>
+                    <span id="dashboard-public-badge" class="badge neutral">加载中</span>
                   </div>
-                  <div class="dashboard-mode-facts">
-                    <span>Base URL</span>
-                    <strong id="dashboard-local-url">加载中</strong>
-                    <span>当前窗口 Token</span>
-                    <strong id="dashboard-local-tokens">0</strong>
+                  <div class="overview-public-url">
+                    <span>Public Base URL</span>
+                    <strong id="dashboard-public-url">加载中</strong>
+                  </div>
+                  <div class="overview-hero-facts">
+                    <div><span>公网成员</span><strong id="overview-public-members">0</strong></div>
+                    <div><span>可用 Key</span><strong id="overview-public-keys">0</strong></div>
+                    <div><span>公网号池</span><strong id="overview-public-pools">0</strong></div>
+                    <div><span>治理状态</span><strong id="dashboard-public-governance">待配置</strong></div>
                   </div>
                 </div>
-                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="lan" data-status="disabled">
-                  <div class="mode-card-head">
-                    <div>
-                      <strong>局域网共享</strong>
-                      <span id="dashboard-lan-status">默认关闭</span>
-                    </div>
-                    <span class="badge neutral">默认关闭</span>
-                  </div>
-                  <div class="dashboard-mode-facts">
-                    <span>LAN Base URL</span>
-                    <strong id="dashboard-lan-url">未开启</strong>
-                    <span>共享成员 Token</span>
-                    <strong id="dashboard-lan-tokens">0</strong>
-                  </div>
-                </div>
-                <div class="card mode-card dashboard-mode-card" data-dashboard-mode="public" data-status="disabled">
-                  <div class="mode-card-head">
-                    <div>
-                      <strong>外网共享</strong>
-                      <span id="dashboard-public-status">未启用</span>
-                    </div>
-                    <span id="dashboard-public-badge" class="badge neutral">禁用</span>
-                  </div>
-                  <div class="dashboard-mode-facts">
-                    <span>公网入口</span>
-                    <strong id="dashboard-public-url">未启用</strong>
-                    <span>治理状态</span>
-                    <strong id="dashboard-public-governance">待配置</strong>
-                  </div>
-                </div>
-              </div>
 
-              <div class="dashboard-grid mt-4">
-                <div class="card routing-observe-panel dashboard-chart-panel">
+                <div class="card overview-today-card">
                   <div class="dashboard-panel-head">
                     <div>
-                      <strong>Token 消耗趋势</strong>
-                      <span>按当前窗口展示 Token 消耗走势。</span>
+                      <strong>今日运营快照</strong>
+                      <span id="dashboard-token-window">当前窗口</span>
                     </div>
-                    <span class="badge neutral" id="dashboard-token-window">当前窗口</span>
+                    <span class="badge neutral" id="overview-service-mode">加载中</span>
                   </div>
-                  <div id="dashboard-token-chart" class="dashboard-token-chart" aria-label="Token 消耗趋势"></div>
+                  <div class="overview-kpi-grid">
+                    <div class="overview-kpi-card tone-info"><small>Token</small><strong id="dashboard-local-tokens">0</strong></div>
+                    <div class="overview-kpi-card tone-success"><small>请求</small><strong id="overview-today-requests">0</strong></div>
+                    <div class="overview-kpi-card tone-warning"><small>失败</small><strong id="overview-today-failures">0</strong></div>
+                    <div class="overview-kpi-card tone-danger"><small>未确认告警</small><strong id="overview-open-alerts">0</strong></div>
+                  </div>
                 </div>
+              </div>
+
+              <div class="overview-status-grid">
+                <div class="card overview-status-card stat-card"><small>服务状态</small><strong id="service-state">加载中</strong><span id="runtime-inference-auth">加载中</span></div>
+                <div class="card overview-status-card stat-card"><small>当前 Provider</small><strong id="default-provider">加载中</strong><span id="default-model">加载中</span></div>
+                <div class="card overview-status-card stat-card"><small>账号承载</small><strong id="local-account-count">0</strong><span id="overview-account-health">加载中</span></div>
+                <div class="card overview-status-card stat-card"><small>路由命中</small><strong id="runtime-routing-hit">暂无命中</strong><span id="default-selection">加载中</span></div>
+              </div>
+
+              <div class="overview-main-grid">
+                <div class="card routing-observe-panel dashboard-chart-panel overview-token-panel">
+                  <div class="dashboard-panel-head">
+                    <div>
+                      <strong>Token 消耗结构</strong>
+                      <span>按输入、输出、缓存、思考和主要成员来源观察当前窗口。</span>
+                    </div>
+                    <button class="btn secondary mini" data-action="open-usage-details" type="button">查看明细</button>
+                  </div>
+                  <div id="dashboard-token-chart" class="dashboard-token-chart" aria-label="Token 消耗结构"></div>
+                </div>
+
+                <div class="overview-side-stack">
+                  <div class="card routing-observe-panel">
+                    <div class="dashboard-panel-head">
+                      <div>
+                        <strong>成员与共享摘要</strong>
+                        <span>优先观察公网成员、Key 和主要消耗来源。</span>
+                      </div>
+                    </div>
+                    <div id="dashboard-shared-summary" class="dashboard-summary-list"></div>
+                  </div>
+                  <div class="card routing-observe-panel">
+                    <div class="dashboard-panel-head">
+                      <div>
+                        <strong>告警与治理摘要</strong>
+                        <span>把最需要处理的服务、账号和访问风险放到前面。</span>
+                      </div>
+                      <button class="btn secondary mini" data-nav-target="notifications" type="button">通知中心</button>
+                    </div>
+                    <div id="dashboard-alert-summary" class="dashboard-summary-list"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="overview-ops-grid">
                 <div class="card routing-observe-panel">
                   <div class="dashboard-panel-head">
                     <div>
-                      <strong>共享摘要</strong>
-                      <span>按成员、Key、号池区分共享消耗。</span>
+                      <strong>接入面状态</strong>
+                      <span>公网优先，本机和 LAN 作为辅助入口。</span>
                     </div>
                   </div>
-                  <div id="dashboard-shared-summary" class="dashboard-summary-list"></div>
+                  <div class="overview-surface-list">
+                    <div class="overview-surface-row" data-dashboard-mode="local" data-status="active">
+                      <span>本机</span>
+                      <strong id="dashboard-local-status">加载中</strong>
+                      <small id="dashboard-local-url">加载中</small>
+                    </div>
+                    <div class="overview-surface-row" data-dashboard-mode="lan" data-status="disabled">
+                      <span>LAN</span>
+                      <strong id="dashboard-lan-status">默认关闭</strong>
+                      <small id="dashboard-lan-url">未开启</small>
+                    </div>
+                    <div class="overview-surface-row" data-dashboard-mode="public" data-status="disabled">
+                      <span>公网</span>
+                      <strong id="dashboard-public-status">未启用</strong>
+                      <small id="overview-public-url-inline">未启用</small>
+                    </div>
+                  </div>
                 </div>
+
                 <div class="card routing-observe-panel">
-                  <div class="dashboard-panel-head">
+                  <div class="routing-observe-panel-head">
                     <div>
-                      <strong>告警摘要</strong>
-                      <span>展示当前最需要关注的服务、账号和共享风险。</span>
+                      <strong>路由命中观测</strong>
+                      <div>查看公网请求是否真实命中策略路由与号池调度。</div>
                     </div>
+                    <button class="btn secondary mini" data-action="open-routing-observe-modal" type="button">命中明细</button>
                   </div>
-                  <div id="dashboard-alert-summary" class="dashboard-summary-list"></div>
+                  <div class="overview-routing-grid">
+                    <div><small id="routing-observe-window-label">5 分钟命中</small><strong id="routing-observe-window-count">0</strong></div>
+                    <div><small>累计命中</small><strong id="routing-observe-total">0</strong></div>
+                    <div><small>Top 客户端</small><strong id="routing-observe-top-client">暂无</strong></div>
+                  </div>
+                  <div class="routing-observe-toolbar">
+                    <label for="routing-observe-client-filter">客户端</label>
+                    <select id="routing-observe-client-filter" class="input-field">
+                      <option value="all">全部客户端</option>
+                    </select>
+                    <label for="routing-observe-window">窗口</label>
+                    <select id="routing-observe-window" class="input-field">
+                      <option value="5m">5 分钟</option>
+                      <option value="1h">1 小时</option>
+                      <option value="24h">24 小时</option>
+                    </select>
+                  </div>
+                  <div class="routing-observe-recent mt-4" id="routing-observe-recent"></div>
                 </div>
               </div>
-
-              <div class="card routing-observe-panel mt-4">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
-                  <div>
-                    <strong style="font-size: 16px;">账号活动观测</strong>
-                    <div style="font-size: 14px; color: var(--text-secondary);">基于当前本地账号活动快照汇总近 1 小时 / 24 小时请求量、活跃账号数和主要来源。</div>
-                  </div>
-                  <span class="badge neutral">消耗视角</span>
-                </div>
-                <div class="routing-observe-grid">
-                  <div class="routing-observe-kpi">
-                    <small>近 5 分钟请求</small>
-                    <strong class="hot" id="account-activity-summary-5m">0</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 1 小时请求</small>
-                    <strong class="hot" id="account-activity-summary-1h">0</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 24 小时请求</small>
-                    <strong id="account-activity-summary-24h">0</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 5 分钟活跃账号</small>
-                    <strong id="account-activity-summary-active-5m">0 个</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 1 小时活跃账号</small>
-                    <strong id="account-activity-summary-active-1h">0 个</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 24 小时活跃账号</small>
-                    <strong id="account-activity-summary-active-24h">0 个</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 5 分钟主要来源</small>
-                    <strong id="account-activity-summary-top-client">暂无</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 1 小时主要来源</small>
-                    <strong id="account-activity-summary-top-client-1h">暂无</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 24 小时主要来源</small>
-                    <strong id="account-activity-summary-top-client-24h">暂无</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>近 1 小时最忙账号</small>
-                    <strong id="account-activity-summary-top-account">暂无</strong>
-                  </div>
-                </div>
-                <div class="source-window-grid mt-4">
-                  <div class="source-window-item">
-                    <strong>近 5 分钟来源窗口</strong>
-                    <div id="account-activity-source-5m" class="client-tag-list"></div>
-                  </div>
-                  <div class="source-window-item">
-                    <strong>近 1 小时来源窗口</strong>
-                    <div id="account-activity-source-1h" class="client-tag-list"></div>
-                  </div>
-                  <div class="source-window-item">
-                    <strong>近 24 小时来源窗口</strong>
-                    <div id="account-activity-source-24h" class="client-tag-list"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="card routing-observe-panel mt-4">
-                <div class="routing-observe-panel-head">
-                  <div>
-                    <strong style="font-size: 16px;">路由命中观测</strong>
-                    <div style="font-size: 14px; color: var(--text-secondary);">用于观察策略路由是否被真实第三方请求命中。</div>
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span class="badge active">实时观测</span>
-                    <button class="btn secondary mini" data-action="open-routing-observe-modal" type="button">查看命中明细</button>
-                  </div>
-                </div>
-                <div class="routing-observe-grid">
-                  <div class="routing-observe-kpi">
-                    <small id="routing-observe-window-label">5 分钟命中</small>
-                    <strong class="hot" id="routing-observe-window-count">0</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>累计命中</small>
-                    <strong id="routing-observe-total">0</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>最近命中</small>
-                    <strong id="routing-observe-last-hit">暂无</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>Top 规则</small>
-                    <strong id="routing-observe-top-rule">暂无</strong>
-                  </div>
-                  <div class="routing-observe-kpi">
-                    <small>Top 客户端</small>
-                    <strong id="routing-observe-top-client">暂无</strong>
-                  </div>
-                </div>
-                <div class="routing-observe-toolbar">
-                  <label for="routing-observe-client-filter">筛选客户端</label>
-                  <select id="routing-observe-client-filter" class="input-field" style="width: auto; min-width: 180px;">
-                    <option value="all">全部客户端</option>
-                  </select>
-                  <label for="routing-observe-window">统计窗口</label>
-                  <select id="routing-observe-window" class="input-field" style="width: auto; min-width: 130px;">
-                    <option value="5m">5 分钟</option>
-                    <option value="1h">1 小时</option>
-                    <option value="24h">24 小时</option>
-                  </select>
-                </div>
-                <div class="routing-observe-recent mt-4" id="routing-observe-recent"></div>
-              </div>
-            </section>
-
-            <section>
-              <div class="section-head">
-                <h2>快速指引</h2>
-                <p>接入说明与提供商状态摘要。</p>
-              </div>
-              <div id="guide-cards" class="grid-layout grid-2"></div>
             </section>
           </div>
 
