@@ -471,9 +471,11 @@ describe("desktop build output", () => {
     expect(styles).toContain("--card-shadow-hover:");
     expect(styles).toContain(".gateway-grid-shell");
     expect(styles).toContain(".gateway-grid-table");
-    expect(styles).toContain(".gateway-grid-toolbar");
     expect(styles).toContain(".gateway-grid-page-size");
-    expect(styles).toContain("justify-content: flex-end;");
+    expect(rendererSource).toContain("footer.insertBefore(pageSizeControl");
+    expect(styles).toContain(".gateway-grid-shell .gridjs-th");
+    expect(styles).toContain(".gateway-grid-shell .gridjs-th-content");
+    expect(styles).toContain("font-weight: 800 !important;");
     expect(styles).toContain("text-align: center !important;");
     expect(styles).toContain("tr:nth-child(even)");
     expect(styles).toContain("overflow-x: auto;");

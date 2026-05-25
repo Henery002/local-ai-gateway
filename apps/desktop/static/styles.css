@@ -4346,36 +4346,40 @@ button, input, select {
 }
 
 .modal-content.access-create-member-modal {
-  max-width: min(1120px, calc(100vw - 40px));
+  max-width: min(1180px, calc(100vw - 40px));
 }
 
 .access-member-modal-grid {
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .access-member-modal-section {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-elevated);
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: var(--shadow-sm);
 }
 
 .access-member-identity-section {
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 14px;
+  padding: 16px;
 }
 
 .access-member-modal-section-head {
+  align-items: start;
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  grid-template-columns: 160px minmax(0, 1fr);
 }
 
 .access-member-modal-section-head strong {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.35;
 }
 
 .access-member-modal-section-head span {
@@ -4387,8 +4391,8 @@ button, input, select {
 .access-member-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  align-items: start;
+  gap: 16px;
+  align-items: end;
 }
 
 .access-member-form-grid.one {
@@ -4413,24 +4417,24 @@ button, input, select {
 
 .access-member-identity-grid {
   display: grid;
-  grid-template-columns:
-    minmax(180px, 1fr)
-    minmax(160px, 0.86fr)
-    minmax(130px, 0.72fr)
-    minmax(260px, 1.42fr);
-  gap: 10px 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
   align-items: end;
 }
 
 .access-member-identity-grid .form-field {
-  gap: 6px;
+  gap: 7px;
+}
+
+.access-member-identity-grid .form-field:last-child {
+  grid-column: span 2;
 }
 
 .access-member-quota-layout,
 .access-member-quota-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.78fr);
-  gap: 12px 16px;
+  grid-template-columns: minmax(220px, 0.58fr) minmax(0, 1.42fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -4449,13 +4453,13 @@ button, input, select {
 
 .quota-inline-fields {
   display: grid;
-  grid-template-columns: minmax(120px, 0.55fr) minmax(220px, 0.9fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(120px, 0.55fr) minmax(220px, 0.9fr) minmax(280px, 1fr);
   gap: 12px;
   align-items: end;
 }
 
 .quota-inline-fields.total {
-  grid-template-columns: minmax(240px, 0.62fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(240px, 0.62fr) minmax(360px, 1fr);
 }
 
 .quota-inline-fields.none {
@@ -4490,7 +4494,9 @@ button, input, select {
 }
 
 .access-member-limit-grid {
-  padding-top: 2px;
+  border-top: 1px solid var(--border-light);
+  margin-top: 2px;
+  padding-top: 16px;
 }
 
 .unit-input {
@@ -4508,8 +4514,8 @@ button, input, select {
 
 .access-key-manager-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -4522,16 +4528,16 @@ button, input, select {
 
 .access-key-create-panel {
   padding: 14px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
   background: var(--bg-surface);
 }
 
 .access-key-create-form {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(120px, auto);
+  grid-template-columns: 1fr;
   gap: 12px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .access-key-create-form .btn {
@@ -6148,20 +6154,13 @@ button, input, select {
   width: 100%;
 }
 
-.gateway-grid-toolbar {
-  align-items: center;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
 .gateway-grid-page-size {
   align-items: center;
   color: var(--text-secondary);
   display: inline-flex;
   font-size: 13px;
   gap: 6px;
+  margin-right: auto;
 }
 
 .gateway-grid-page-size .input-field {
@@ -6212,13 +6211,21 @@ button, input, select {
   vertical-align: middle;
 }
 
+.gateway-grid-shell .gridjs-th,
 .gateway-grid-th {
   background: color-mix(in oklab, var(--bg-surface) 78%, var(--color-accent-soft)) !important;
-  color: var(--text-secondary) !important;
+  color: var(--text-primary) !important;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800 !important;
   letter-spacing: 0;
   text-align: center !important;
+}
+
+.gateway-grid-shell .gridjs-th-content {
+  color: var(--text-primary) !important;
+  font-weight: 800 !important;
+  justify-content: center;
+  text-align: center;
 }
 
 .gateway-grid-td {
@@ -6235,12 +6242,23 @@ button, input, select {
 }
 
 .gateway-grid-footer {
+  align-items: center !important;
   background: var(--bg-surface) !important;
   border-color: var(--color-border-default) !important;
   box-shadow: none !important;
   color: var(--text-secondary);
+  display: flex !important;
   font-size: 13px;
+  justify-content: flex-end !important;
   padding: 10px 12px !important;
+}
+
+.gateway-grid-footer .gridjs-summary {
+  margin: 0 12px 0 auto;
+}
+
+.gateway-grid-footer .gridjs-pagination {
+  margin-left: 0;
 }
 
 .gateway-grid-pagination .gridjs-pages button {

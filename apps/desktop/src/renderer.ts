@@ -1527,16 +1527,6 @@ function renderGridTable(options: GridTableOptions): void {
   gridTablePageSizes.set(options.id, pageSize);
   const gridTargetId = `${options.id}-gridjs-target`;
   container.innerHTML = `
-    <div class="gateway-grid-toolbar">
-      <label class="gateway-grid-page-size">
-        <span>每页</span>
-        <select class="input-field" data-grid-page-size="${escapeHtml(options.id)}">
-          ${GRID_TABLE_PAGE_SIZE_OPTIONS.map(
-            (size) => `<option value="${size}"${size === pageSize ? " selected" : ""}>${size}</option>`,
-          ).join("")}
-        </select>
-      </label>
-    </div>
     <div id="${gridTargetId}" class="gateway-grid-target"></div>
   `;
   const gridTarget = document.getElementById(gridTargetId);
@@ -1585,6 +1575,20 @@ function renderGridTable(options: GridTableOptions): void {
     },
   });
   grid.render(gridTarget);
+  const footer = container.querySelector(".gridjs-footer");
+  if (footer && !footer.querySelector("[data-grid-page-size]")) {
+    const pageSizeControl = document.createElement("label");
+    pageSizeControl.className = "gateway-grid-page-size";
+    pageSizeControl.innerHTML = `
+      <span>每页</span>
+      <select class="input-field" data-grid-page-size="${escapeHtml(options.id)}">
+        ${GRID_TABLE_PAGE_SIZE_OPTIONS.map(
+          (size) => `<option value="${size}"${size === pageSize ? " selected" : ""}>${size}</option>`,
+        ).join("")}
+      </select>
+    `;
+    footer.insertBefore(pageSizeControl, footer.firstChild);
+  }
   gridTableInstances.set(options.id, grid);
 }
 
