@@ -136,7 +136,7 @@ export function classifyLoadFailure(
       title: "缺少可用授权",
       message,
       severity: "warning",
-      suggestion: "请先导入 Codex 账号或确认本机存在可复用的 OpenClaw 授权。",
+      suggestion: "请先导入 Codex 账号，或确认本机存在可复用的 Codex 授权来源。",
     };
   }
 
@@ -416,9 +416,9 @@ export function buildRuntimeDiagnostics(
     diagnostics.push({
       id: "session-none",
       title: "暂无本地授权来源",
-      message: "当前未检测到任何桌面端 Codex 账号或 OpenClaw 可复用授权。",
+      message: "当前未检测到任何桌面端 Codex 账号或可复用 Codex 授权来源。",
       severity: "warning",
-      suggestion: "请导入 Codex 账号，或在本机已有 OpenClaw 登录状态时重新扫描本地授权。",
+      suggestion: "请导入 Codex 账号，或在本机已有可复用授权时重新扫描本地授权。",
     });
   } else if (context.activeSessionId) {
     const activeSession = context.sessions.find((session) => session.id === context.activeSessionId);

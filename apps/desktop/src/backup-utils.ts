@@ -84,7 +84,7 @@ export function parseAppDataBackupBundle(input: string): AppDataBackupBundle {
     parsed.version !== APP_DATA_BACKUP_VERSION ||
     !Array.isArray(parsed.files)
   ) {
-    throw new Error("所选文件不是当前版本可识别的 Local AI Gateway 备份文件。");
+    throw new Error("所选文件不是当前版本可识别的 RelayGate 备份文件。");
   }
 
   const files = parsed.files.map((entry) => {

@@ -43,7 +43,7 @@ function normalizeSourceKind(session: CodexAccountSessionLike): CodexAccountSour
 }
 
 function defaultSourceLabel(sourceKind: CodexAccountSourceKind): string {
-  return sourceKind === "local-import" ? "桌面端 Codex 账号" : "OpenClaw 可复用授权";
+  return sourceKind === "local-import" ? "桌面端 Codex 账号" : "外部可复用授权";
 }
 
 function getLogicalAccountKey(session: CodexAccountSessionLike, sourceKind: CodexAccountSourceKind): string {

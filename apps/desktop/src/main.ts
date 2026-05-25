@@ -3330,7 +3330,7 @@ ipcMain.handle("gateway:restart", async () => {
   return result;
 });
 
-ipcMain.handle("gateway:copy-openclaw-snippet", async () => {
+ipcMain.handle("gateway:copy-provider-snippet", async () => {
   await gatewayManager.ensureRunning();
   clipboard.writeText(await buildRelayGateProviderSnippet());
   return { ok: true };

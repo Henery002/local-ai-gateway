@@ -161,7 +161,7 @@ declare global {
         };
       }>;
       restartGateway: () => Promise<any>;
-      copyOpenClawSnippet: () => Promise<any>;
+      copyProviderSnippet: () => Promise<any>;
       copyText?: (text: string) => Promise<{ ok: boolean }>;
       openLogs: () => Promise<any>;
       getOperationsStatus?: () => Promise<OperationsStatusResponse>;
@@ -5567,8 +5567,6 @@ function renderUsageOverview(): void {
           <label for="usage-client-filter">统计对象</label>
           <select id="usage-client-filter" class="input-field usage-select">
             <option value="all"${state.usageClientFilter === "all" ? " selected" : ""}>全部客户端</option>
-            <option value="openclaw"${state.usageClientFilter === "openclaw" ? " selected" : ""}>OpenClaw</option>
-            <option value="hermes"${state.usageClientFilter === "hermes" ? " selected" : ""}>Hermes</option>
             <option value="other"${state.usageClientFilter === "other" ? " selected" : ""}>其他客户端</option>
           </select>
         </div>
@@ -10166,7 +10164,7 @@ function renderCodexAccounts(): void {
     const sourceBadge =
       account.representative.sourceKind === "local-import"
         ? account.representative.sourceLabel ?? "本地账号副本"
-        : account.representative.sourceLabel ?? "OpenClaw 授权源";
+        : account.representative.sourceLabel ?? "外部可复用授权";
     const ownershipBadge =
       refreshMode === "managed"
         ? "本项目可刷新"
@@ -10483,7 +10481,7 @@ function renderAccountAssetsGrid(
       const sourceBadge =
         account.representative.sourceKind === "local-import"
           ? account.representative.sourceLabel ?? "本地账号副本"
-          : account.representative.sourceLabel ?? "OpenClaw 授权源";
+          : account.representative.sourceLabel ?? "外部可复用授权";
       const ownershipBadge =
         refreshMode === "managed"
           ? "本项目可刷新"
@@ -11960,7 +11958,7 @@ function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
             </div>
             <div class="form-field span-8">
               <label>说明</label>
-              <input class="input-field" data-field="pool-description" placeholder="例如：给公网成员或 OpenClaw 长任务使用的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
+              <input class="input-field" data-field="pool-description" placeholder="例如：给公网成员或长任务 Agent 使用的自动切号池" value="${escapeHtml(pool.description ?? "")}" />
             </div>
           </div>
         </section>
@@ -13816,7 +13814,7 @@ function renderSecurityClientMappings(
   }
   if (mappings.length === 0) {
     listNode.innerHTML = `
-      <div class="form-hint">当前暂无客户端映射。可新增独立 API Key，将来源稳定标记为 hermes / openclaw 等。</div>
+      <div class="form-hint">当前暂无客户端映射。可新增独立 API Key，将来源稳定标记为 codex / trae / cursor 等。</div>
     `;
     return;
   }
@@ -13832,11 +13830,11 @@ function renderSecurityClientMappings(
         <div class="form-row">
           <div class="form-field">
             <label>名称</label>
-            <input class="input-field" data-security-mapping-name="${index}" value="${escapeHtml(mapping.name)}" placeholder="例如 Hermes" />
+            <input class="input-field" data-security-mapping-name="${index}" value="${escapeHtml(mapping.name)}" placeholder="例如 Trae" />
           </div>
           <div class="form-field">
             <label>客户端标签</label>
-            <input class="input-field" data-security-mapping-client-tag="${index}" value="${escapeHtml(mapping.clientTag)}" placeholder="例如 hermes" />
+            <input class="input-field" data-security-mapping-client-tag="${index}" value="${escapeHtml(mapping.clientTag)}" placeholder="例如 trae" />
           </div>
           <div class="form-field full">
             <label>客户端 API Key</label>
@@ -15002,7 +15000,7 @@ async function copySnippetWithFeedback(): Promise<void> {
   if (state.health) {
     await copyTextWithFallback(buildPublicIntegrationSnippet());
   } else {
-    await getGatewayApi().copyOpenClawSnippet();
+    await getGatewayApi().copyProviderSnippet();
   }
   setBanner("RelayGate Provider 公网接入模板已复制。", "success");
 }
@@ -16373,7 +16371,7 @@ async function deleteAccessConsumer(consumerId: string): Promise<void> {
   ).length;
   const confirmed = await requestConfirmation({
     title: "确认删除访问成员",
-    message: `即将删除访问成员“${target.name || target.clientTag || consumerId}”，并同时删除其 ${keyCount} 把 API Key 和访问策略。删除后这些 API Key 将无法继续通过本地网关鉴权；不会修改 Cockpit / OpenClaw 原始账号配置。是否继续？`,
+    message: `即将删除访问成员“${target.name || target.clientTag || consumerId}”，并同时删除其 ${keyCount} 把 API Key 和访问策略。删除后这些 API Key 将无法继续通过本网关鉴权；不会修改任何外部账号原始配置。是否继续？`,
     confirmLabel: "删除成员",
     tone: "danger",
   });
@@ -16415,7 +16413,7 @@ async function toggleAccessConsumerStatus(consumerId: string): Promise<void> {
   if (nextStatus === "paused") {
     const confirmed = await requestConfirmation({
       title: "确认禁用访问成员",
-      message: `禁用后，访问成员“${target.name || target.clientTag || consumerId}”名下所有 API Key 会保留但无法继续通过本地网关鉴权；不会删除账号资产，也不会修改 Cockpit / OpenClaw 原始配置。是否继续？`,
+      message: `禁用后，访问成员“${target.name || target.clientTag || consumerId}”名下所有 API Key 会保留但无法继续通过本网关鉴权；不会删除账号资产，也不会修改任何外部账号原始配置。是否继续？`,
       confirmLabel: "禁用成员",
       tone: "danger",
     });
@@ -16488,7 +16486,7 @@ async function deleteAccessKey(keyId: string): Promise<void> {
   );
   const confirmed = await requestConfirmation({
     title: "确认删除 API Key",
-    message: `即将删除“${target.name || keyId}”。删除后该 API Key 会立即失去本地网关调用能力；只影响访问控制配置，不会删除账号资产，也不会修改 Cockpit / OpenClaw 原始配置。${consumer ? `所属成员：${consumer.name || consumer.clientTag}` : ""} 是否继续？`,
+    message: `即将删除“${target.name || keyId}”。删除后该 API Key 会立即失去本网关调用能力；只影响访问控制配置，不会删除账号资产，也不会修改任何外部账号原始配置。${consumer ? `所属成员：${consumer.name || consumer.clientTag}` : ""} 是否继续？`,
     confirmLabel: "删除 Key",
     tone: "danger",
   });

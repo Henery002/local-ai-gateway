@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
 
-export const APP_NAME = "Local AI Gateway";
+export const APP_NAME = "RelayGate";
 export const APP_ID = "local-ai-gateway";
 export const APP_VERSION = "0.1.0";
 export const DEFAULT_HOST = "127.0.0.1";

@@ -18,6 +18,7 @@
 - 顶部固定摘要保留服务状态标签，标题说明改为公网 Provider、成员密钥、号池调度与用量治理，右侧操作按钮文案收敛为刷新、重启、复制 Provider 和运维日志。
 - 面向成员的接入模板和第三方客户端接入文档统一采用 `RelayGate Provider` 命名；保留底层 repo、服务 label、数据目录、脚本路径和 Cloudflare 入口不变，避免影响已打通公网链路。
 - 所有复制接入模板入口继续收束：顶部和账号资产“复制 Provider”默认复制公网 `RelayGate Provider` 模板；旧 OpenClaw / Hermes 偏置模板改为通用 Provider、Codex / CC Switch、Claude Code、Trae、Cursor、OpenClaw 和 cURL 分组。
+- 继续清理旧品牌与 OpenClaw / Hermes 偏置口径：根 README、复制兜底 IPC、preload API、客户端映射占位文案、运行诊断、账号来源默认展示、访问成员确认文案和运行服务名均改为 RelayGate / 通用 Agent 口径；保留 `openclaw-session` 等底层兼容路径不动。
 - 用量与告警页补强长期运营周期观测：在保留近 24h 近期窗口的基础上，新增近 7 天、近 30 天、总计四周期汇总卡，周期切换统一驱动当前用量看板。
 - 总览页 Token 图表区重构为“Token 运营观测”：主图改为近 24h / 7 天 / 30 天 / 总计的 Token 堆叠与请求 / 失败折线对比，下方继续展示成员优先的主要消耗来源和 Token 构成占比。
 - 总览页新增“上游总额度”状态卡：仅统计状态正常的本地导入账号，将已同步额度百分比相加展示，并标注正常账号数、已同步账号数和未知额度账号数。

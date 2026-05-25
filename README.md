@@ -1,11 +1,11 @@
 <div align="center">
 
-<h1 align="center"><img src="apps/desktop/assets/icons/source/brand-icon.svg" alt="Local AI Gateway icon" width="68" />&nbsp;Local AI Gateway</h1>
+<h1 align="center"><img src="apps/desktop/assets/icons/source/brand-icon.svg" alt="RelayGate icon" width="68" />&nbsp;RelayGate</h1>
 
-### 本地单机 AI 网关与账号调度控制台
+### 公网中转网关与账号调度控制台
 
-把本机可用的 AI 账号能力整理成稳定的本地 Provider，  
-让 OpenClaw、Hermes 等第三方客户端通过统一 `baseUrl` 接入。
+把本机可用的 AI 账号能力整理成稳定的 RelayGate Provider，<br>
+让 Codex、Claude Code、Trae、Cursor、OpenClaw 等 Agent 客户端通过统一 `baseUrl` 接入。
 
 ![平台](https://img.shields.io/badge/macOS-本地优先-111827?style=flat-square)
 ![桌面端](https://img.shields.io/badge/Electron-桌面控制台-2563eb?style=flat-square)
@@ -41,7 +41,7 @@
 当前桌面端已经把服务总览、Token 用量观测、账号资产、Provider 配置、策略路由与号池调度整合进一个本地控制台，便于持续观测和快速排障。
 
 <p align="center">
-  <img src="docs/assets/readme/local-ai-gateway-preview.png" alt="Local AI Gateway desktop console preview" />
+  <img src="docs/assets/readme/local-ai-gateway-preview.png" alt="RelayGate desktop console preview" />
 </p>
 
 ## 目录
@@ -60,7 +60,7 @@
 
 ## 项目定位
 
-`Local AI Gateway` 默认不是公网 SaaS 平台。
+`RelayGate` 默认不是公开注册式 SaaS 平台。
 它首先是一个：
 
 - 本地单用户
@@ -74,7 +74,7 @@
 
 当前最成熟、最完整的链路是：
 
-`桌面端导入 Codex 账号 -> 本地网关暴露 OpenAI-compatible 接口 -> OpenClaw / Hermes 接入 -> Token 用量 / 账号活动 / 路由 / 号池调度观测`
+`桌面端导入 Codex 账号 -> 网关暴露 OpenAI-compatible / Responses 接口 -> Agent 客户端接入 RelayGate Provider -> Token 用量 / 账号活动 / 路由 / 号池调度观测`
 
 ## 当前已实现能力
 
@@ -141,14 +141,14 @@
 - `Ollama`
 
 这两类能力当前保留，但在产品主路径中被有意弱化。  
-本项目目前的主要价值仍然是 **Codex 本地网关化**。
+本项目目前的主要价值已经收口为 **RelayGate Provider 公网中转与账号调度观测**。
 
 ## 适用场景
 
 当前最适合的场景：
 
-- 想把本机 Codex 账号能力接到 OpenClaw
-- 想把本机 Codex 账号能力接到 Hermes
+- 想把本机 Codex 账号能力整理成可分发的 RelayGate Provider
+- 想让 Codex、Claude Code、Trae、Cursor、OpenClaw 等支持自定义 Provider 的 Agent 客户端接入统一公网入口
 - 想统一多个桌面端 Codex 账号，并在本地完成手动切号或动态号池调度
 - 想通过一个稳定的本地 `baseUrl`，减少第三方客户端中重复改模型配置的成本
 
@@ -170,7 +170,7 @@
 
 ```mermaid
 flowchart LR
-  A["第三方客户端\n(OpenClaw / Hermes / 其他)"] --> B["Local AI Gateway\nOpenAI-compatible API"]
+  A["Agent 客户端\n(Codex / Claude Code / Trae / Cursor / OpenClaw / cURL)"] --> B["RelayGate Provider\nOpenAI-compatible API"]
   B --> C["策略路由"]
   C --> D["活动账号"]
   C --> E["固定账号"]
@@ -205,43 +205,53 @@ npm run dev:desktop
 1. 导入一个或多个 Codex 账号
 2. 选中当前活动账号
 3. 保持默认模型 `codex-default`
-4. 复制 OpenClaw / Hermes / 通用 cURL 接入模板
+4. 复制 RelayGate Provider 接入模板
 5. 在第三方客户端填入 `baseUrl + model`
 
 ## 第三方接入
 
-本地服务启动后，第三方客户端通常填写：
+公网成员优先填写：
+
+```txt
+Provider Name: RelayGate Provider
+Base URL: https://gateway.henery.top/v1
+Model: codex-default
+API Key: <公网成员 API Key>
+```
+
+本机自测可使用：
 
 ```txt
 Base URL: http://127.0.0.1:8787/v1
 Model: codex-default
 ```
 
-如果开启了网关 API Key 鉴权，还需填写：
-
-```txt
-API Key: 你在桌面端“诊断”页保存的网关访问密钥
-```
-
 从 `2026-05-01` 起，网关支持“客户端密钥映射”：
 
 - 可为不同客户端配置独立 API Key，并按 key 自动识别来源标签（`clientTag`）
-- 适合 `Hermes` 这类不方便显式传 `x-client-tag` 的接入场景
+- 适合不方便显式传 `x-client-tag` 的接入场景
 - 可按映射项控制是否允许 header 覆盖标签（`allowHeaderOverride`）
 
 推荐长期配置：
 
 - 保留一个兜底 `Gateway API Key`（兼容未迁移客户端）
-- 为 `OpenClaw`、`Hermes` 分配各自独立 key
+- 为不同成员、终端或客户端分配各自独立 key
 - 启用“按 API Key 识别客户端标签”
+  - `Codex / CC Switch -> codex`
+  - `Claude Code -> claude-code`
+  - `Trae -> trae`
+  - `Cursor -> cursor`
   - `OpenClaw -> openclaw`
-  - `Hermes -> hermes`
 
-当前桌面端已内置三套可复制模板：
+当前桌面端已内置多套可复制模板：
 
+- 通用 Provider
+- Codex / CC Switch
+- Claude Code
+- Trae
+- Cursor
 - OpenClaw
-- Hermes
-- 通用 cURL
+- cURL
 
 `localRagHub` 仍可继续接入，但当前已降级为次要兼容对象，不再占据桌面端模板主位。
 
@@ -283,7 +293,7 @@ apps/
   desktop/                 Electron 桌面控制台
 packages/
   core/                    配置、日志、SQLite、本地路径
-  openclaw-session/        本地可复用授权发现与桌面端 Codex 账号存储
+  openclaw-session/        历史兼容的可复用授权发现与桌面端 Codex 账号存储
   provider-codex/          Codex Provider 适配层
   openai-compat/           OpenAI-compatible 协议转换
   shared/                  共享类型、常量、错误模型
@@ -340,8 +350,8 @@ docs/
 
 - [桌面控制台使用说明](./docs/operations/%E6%A1%8C%E9%9D%A2%E6%8E%A7%E5%88%B6%E5%8F%B0%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E.md)
 - [第三方客户端接入模板与错误排查](./docs/operations/%E7%AC%AC%E4%B8%89%E6%96%B9%E5%AE%A2%E6%88%B7%E7%AB%AF%E6%8E%A5%E5%85%A5%E6%A8%A1%E6%9D%BF%E4%B8%8E%E9%94%99%E8%AF%AF%E6%8E%92%E6%9F%A5.md)
-- [OpenClaw 接入与运行说明](./docs/operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
-- [OpenClaw 联调验收清单](./docs/operations/openclaw-%E8%81%94%E8%B0%83%E9%AA%8C%E6%94%B6%E6%B8%85%E5%8D%95.md)
+- [OpenClaw 兼容接入说明](./docs/operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
+- [OpenClaw 兼容联调清单](./docs/operations/openclaw-%E8%81%94%E8%B0%83%E9%AA%8C%E6%94%B6%E6%B8%85%E5%8D%95.md)
 - [Provider 扩展配置](./docs/operations/provider-%E6%89%A9%E5%B1%95%E9%85%8D%E7%BD%AE.md)
 - [安装与升级检查清单](./docs/operations/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%8D%87%E7%BA%A7%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95.md)
 - [Codex 接入风险与限流说明](./docs/operations/codex-%E6%8E%A5%E5%85%A5%E9%A3%8E%E9%99%A9%E4%B8%8E%E9%99%90%E6%B5%81%E8%AF%B4%E6%98%8E.md)

@@ -53,7 +53,7 @@ const api = {
   deleteCodexAccount: (sessionId: string) =>
     ipcRenderer.invoke("gateway:delete-codex-account", sessionId),
   restartGateway: () => ipcRenderer.invoke("gateway:restart"),
-  copyOpenClawSnippet: () => ipcRenderer.invoke("gateway:copy-openclaw-snippet"),
+  copyProviderSnippet: () => ipcRenderer.invoke("gateway:copy-provider-snippet"),
   copyText: (text: string) => ipcRenderer.invoke("gateway:copy-text", text),
   openLogs: () => ipcRenderer.invoke("gateway:open-logs"),
   getOperationsStatus: () => ipcRenderer.invoke("gateway:get-operations-status"),
