@@ -464,6 +464,17 @@ function readProcessCommand(pid: number): string {
 }
 
 function looksLikeRelayGateDesktopMainCommand(command: string): boolean {
+  if (
+    command.includes("gateway-service-runner.mjs") ||
+    command.includes("gateway-launcher.mjs") ||
+    command.includes("apps/gateway/dist/cli.js") ||
+    command.includes("apps/gateway/dist/server.js") ||
+    command.includes("app.asar/apps/gateway/dist/cli.js") ||
+    command.includes("app.asar/apps/gateway/dist/server.js")
+  ) {
+    return false;
+  }
+
   return (
     (
       command.includes("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron") &&

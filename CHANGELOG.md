@@ -15,6 +15,7 @@
 
 - 修复开发环境残留旧 Electron 桌面进程可能继续触发旧健康检查逻辑的问题：`yarn dev:desktop` 启动的新桌面端会清理同仓库下更早残留的 dev Electron 主进程，避免旧窗口误判 `/healthz` 并重启当前公网网关。
 - 将同一清理机制扩展到安装版：新启动的桌面端会清理旧 `Local AI Gateway.app` / `RelayGate.app` 主进程，降低覆盖安装、重打包安装后旧桌面进程残留对公网网关的干扰；不会清理 `cloudflared`、网关服务进程或持久化数据。
+- 修正安装版清理规则：后台网关 LaunchAgent 同样使用桌面 app executable 启动，因此清理旧桌面进程时必须排除 `gateway-service-runner.mjs`、`gateway-launcher.mjs` 和 gateway server / cli 入口，避免打开桌面端时误杀常驻网关服务。
 
 ### 排障结论
 
