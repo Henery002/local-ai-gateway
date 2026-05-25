@@ -46,6 +46,7 @@ import { GatewayRuntime } from "./runtime.js";
 
 const requestAuditSourceEventKeys = new WeakMap<FastifyRequest, string>();
 const requestAccessContexts = new WeakMap<FastifyRequest, AccessCredentialContext>();
+const SERVICE_RESTART_ACTIVE_RETRY_AFTER_SECONDS = 15;
 
 function buildErrorBody(error: GatewayError | Error) {
   if (error instanceof GatewayError) {
@@ -98,12 +99,18 @@ function buildRequestAuditContext(request: FastifyRequest): Record<string, unkno
       : Array.isArray(headerClientTag)
         ? headerClientTag[0]
         : undefined;
+  const contentLength = getFirstHeaderValue(request, "content-length");
+  const userAgent = getFirstHeaderValue(request, "user-agent");
+  const sourceApp = getFirstHeaderValue(request, "x-source-app");
   return {
     requestPath: request.url.split("?")[0],
     requestMethod: request.method,
     ...(typeof body?.model === "string" ? { modelAlias: body.model } : {}),
     ...(typeof body?.stream === "boolean" ? { stream: body.stream } : {}),
     ...(clientTag ? { clientTag } : {}),
+    ...(contentLength ? { contentLength } : {}),
+    ...(userAgent ? { userAgent } : {}),
+    ...(sourceApp ? { sourceApp } : {}),
     ...(requestAuditSourceEventKeys.get(request)
       ? { requestAuditSourceEventKey: requestAuditSourceEventKeys.get(request) }
       : {}),
@@ -2519,10 +2526,22 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
       normalized.code === "client_temporarily_blocked"
     ) {
       runtime.logger.warn("request_client_circuit_blocked", {
+        ...buildRequestAuditContext(request),
+        ...buildErrorLogDetails(normalized),
+      });
+    } else if (
+      normalized instanceof GatewayError &&
+      normalized.code === "service_restart_inference_active"
+    ) {
+      runtime.logger.warn("service_restart_deferred", {
+        ...buildRequestAuditContext(request),
         ...buildErrorLogDetails(normalized),
       });
     } else {
-      runtime.logger.error("request_failed", buildErrorLogDetails(normalized));
+      runtime.logger.error("request_failed", {
+        ...buildRequestAuditContext(request),
+        ...buildErrorLogDetails(normalized),
+      });
     }
     if (
       normalized instanceof GatewayError &&
@@ -3857,9 +3876,35 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
 
   app.post("/admin/service/restart", async (request, reply) => {
     requireAdminAuth(runtime, request);
+    const body = (request.body ?? {}) as { force?: unknown };
+    const query = (request.query ?? {}) as { force?: unknown };
+    const force =
+      body.force === true ||
+      body.force === "true" ||
+      query.force === true ||
+      query.force === "true";
+    const inference = runtime.getHealth().inferenceObservability;
+    const inFlightCount = inference?.inFlightCount ?? 0;
+    if (!force && inFlightCount > 0) {
+      throw new GatewayError(
+        409,
+        "service_restart_inference_active",
+        "Gateway restart was deferred because inference requests are still active.",
+        {
+          inFlightCount,
+          currentClientTag: inference?.currentClientTag,
+          currentModelAlias: inference?.currentModelAlias,
+          currentSessionId: inference?.currentSessionId,
+          currentPoolId: inference?.currentPoolId,
+          lastStartedAt: inference?.lastStartedAt,
+          retryAfterSeconds: SERVICE_RESTART_ACTIVE_RETRY_AFTER_SECONDS,
+        },
+      );
+    }
     reply.send({
       ok: true,
       restarting: true,
+      forced: force || undefined,
     });
     setTimeout(() => {
       process.exit(75);

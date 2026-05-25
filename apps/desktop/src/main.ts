@@ -1680,6 +1680,36 @@ function isTransientAdminRequestError(error: unknown): boolean {
   );
 }
 
+function readInFlightInferenceCountFromHealth(payload: unknown): number {
+  const observability = (payload as {
+    inferenceObservability?: { inFlightCount?: unknown };
+  })?.inferenceObservability;
+  const count = observability?.inFlightCount;
+  return typeof count === "number" && Number.isFinite(count)
+    ? Math.max(0, Math.floor(count))
+    : 0;
+}
+
+async function assertNoActiveInferenceBeforeGatewayInterruption(
+  actionLabel: string,
+): Promise<void> {
+  let health: unknown;
+  try {
+    health = await callAdmin("/admin/health");
+  } catch {
+    return;
+  }
+
+  const inFlightCount = readInFlightInferenceCountFromHealth(health);
+  if (inFlightCount <= 0) {
+    return;
+  }
+
+  throw new Error(
+    `当前仍有 ${inFlightCount} 个推理请求进行中，已阻止${actionLabel}以避免打断 Trae/Codex 等客户端请求。请稍后重试。`,
+  );
+}
+
 function isPoolEndpointMissing(error: unknown): boolean {
   const message = toErrorMessage(error);
   return message.includes("/admin/config/pools") && message.includes("404");
@@ -1960,6 +1990,7 @@ async function buildOperationsStatus() {
 
 async function controlGatewayService(action: GatewayServiceAction) {
   if (action === "install" || action === "start" || action === "restart" || action === "repair") {
+    await assertNoActiveInferenceBeforeGatewayInterruption("网关服务操作");
     await gatewayManager.stopManaged();
   }
   if (action === "install") {
@@ -2705,8 +2736,8 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       {
         label: "重启本地网关",
         click: () => {
-          void gatewayManager
-            .restartManaged()
+          void assertNoActiveInferenceBeforeGatewayInterruption("重启网关")
+            .then(() => gatewayManager.restartManaged())
             .catch(() => undefined)
             .finally(() => {
               void refreshTrayStatus();
@@ -3299,6 +3330,7 @@ ipcMain.handle("gateway:delete-codex-account", async (_event, sessionId: string)
 });
 
 ipcMain.handle("gateway:restart", async () => {
+  await assertNoActiveInferenceBeforeGatewayInterruption("重启网关");
   if (shouldAutoManageGatewayService()) {
     await gatewayManager.stopManaged();
     const status = await gatewayServiceManager.restart();

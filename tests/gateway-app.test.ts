@@ -33,6 +33,7 @@ class FakeProviderStream implements ProviderStream {
   constructor(
     private readonly events: AssistantMessageEvent[],
     private readonly finalMessage: AssistantMessage,
+    private readonly beforeResult?: () => Promise<void>,
   ) {}
 
   async *[Symbol.asyncIterator](): AsyncIterator<AssistantMessageEvent> {
@@ -42,6 +43,7 @@ class FakeProviderStream implements ProviderStream {
   }
 
   async result(): Promise<AssistantMessage> {
+    await this.beforeResult?.();
     return this.finalMessage;
   }
 }
@@ -97,6 +99,8 @@ class FakeProviderAdapter implements ProviderAdapter {
   readonly label = "Fake Provider";
   lastContext?: GatewayConversationContext;
   lastOptions?: GatewayChatOptions;
+
+  constructor(private readonly beforeResult?: () => Promise<void>) {}
 
   supportsModel(model: GatewayModelDefinition): boolean {
     return model.provider === this.id;
@@ -182,7 +186,7 @@ class FakeProviderAdapter implements ProviderAdapter {
         expiresAt: 4_102_444_800_000,
         apiKey: "fake-api-key",
       },
-      stream: new FakeProviderStream(events, finalMessage),
+      stream: new FakeProviderStream(events, finalMessage, this.beforeResult),
     };
   }
 }
@@ -497,6 +501,7 @@ function createTestRuntime(options?: {
   serverPort?: number;
   rootDir?: string;
   models?: GatewayModelDefinition[];
+  beforeProviderResult?: () => Promise<void>;
 }) {
   const rootDir =
     options?.rootDir ?? mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
@@ -505,7 +510,7 @@ function createTestRuntime(options?: {
   const logger = new AppLogger(paths, database);
   const configStore = new ConfigStore(paths);
   const sessionSource = new FakeSessionSource();
-  const adapter = new FakeProviderAdapter();
+  const adapter = new FakeProviderAdapter(options?.beforeProviderResult);
   const modelRegistry = new ModelRegistry(options?.models ?? [
     {
       alias: "fake-default",
@@ -559,6 +564,27 @@ afterEach(() => {
     }
   }
 });
+
+async function waitForInFlightInference(
+  app: ReturnType<typeof createGatewayApp>,
+  adminToken: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const health = await app.inject({
+      method: "GET",
+      url: "/admin/health",
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+      },
+    });
+    expect(health.statusCode).toBe(200);
+    if ((health.json().inferenceObservability?.inFlightCount ?? 0) > 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for in-flight inference request.");
+}
 
 describe("gateway app", () => {
   it("serves health, models, providers, and admin session switching", async () => {
@@ -8268,6 +8294,95 @@ describe("gateway app", () => {
       expect(adminHealth.json().inferenceObservability?.blockedClients ?? []).toEqual(
         [],
       );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("rejects service restart while an inference request is still active", async () => {
+    let releaseProviderResult: (() => void) | undefined;
+    const providerResultGate = new Promise<void>((resolve) => {
+      releaseProviderResult = resolve;
+    });
+    const { rootDir, runtime, database } = createTestRuntime({
+      beforeProviderResult: () => providerResultGate,
+    });
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+    const adminToken = runtime.configStore.getAdminToken();
+
+    try {
+      const pendingInference = app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "trae",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "keep running" }],
+        },
+      });
+      pendingInference.catch(() => undefined);
+
+      await waitForInFlightInference(app, adminToken);
+
+      const restart = await app.inject({
+        method: "POST",
+        url: "/admin/service/restart",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+
+      expect(restart.statusCode).toBe(409);
+      expect(restart.json().error.type).toBe("service_restart_inference_active");
+      expect(restart.json().error.details.inFlightCount).toBe(1);
+      expect(Number(restart.headers["retry-after"])).toBeGreaterThan(0);
+
+      releaseProviderResult?.();
+      const completed = await pendingInference;
+      expect(completed.statusCode).toBe(200);
+    } finally {
+      releaseProviderResult?.();
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("records request context for malformed inference JSON failures", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "content-length": "42",
+          "x-client-tag": "trae",
+          "user-agent": "Trae/1.0",
+        },
+        payload: "{\"model\":\"fake-default\",\"messages\":[",
+      });
+
+      expect(response.statusCode).toBe(500);
+      const [error] = database.getRecentErrors(1);
+      expect(error).toMatchObject({
+        level: "error",
+        message: "request_failed",
+      });
+      expect(error?.details).toMatchObject({
+        requestPath: "/v1/chat/completions",
+        requestMethod: "POST",
+        clientTag: "trae",
+        userAgent: "Trae/1.0",
+        contentLength: "42",
+      });
     } finally {
       await app.close();
       database.close();
