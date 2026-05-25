@@ -1504,8 +1504,8 @@
                 <div class="form-field">
                   <label>成员类型</label>
                   <select id="access-member-type" class="input-field">
+                    <option value="public-user" selected>公网成员</option>
                     <option value="lan-member">LAN 成员</option>
-                    <option value="public-user">公网成员</option>
                   </select>
                 </div>
                 <div class="form-field">
@@ -1522,17 +1522,17 @@
             <section class="access-member-modal-section">
               <div class="access-member-modal-section-head">
                 <strong>额度与限制</strong>
-                <span>额度配置保存后立即影响后续请求；请求数、并发和策略到期作为独立硬限制保留。</span>
+                <span class="inline-help" tabindex="0" aria-label="额度与限制说明" data-tooltip="额度配置保存后立即影响后续请求；请求数、并发和策略到期作为独立硬限制保留。">?</span>
               </div>
               <div class="access-member-quota-grid">
                 <div class="form-field access-member-quota-mode-field quota-mode-field">
-                  <label>使用方式</label>
+                  <label>使用方式 <span class="inline-help" tabindex="0" aria-label="使用方式说明" data-tooltip="周期包按固定天数共享一组 Token；总量包只看累计 Token；不限制则只保留请求数、并发和策略到期。">?</span></label>
                   <select id="access-member-quota-mode" class="input-field">
                     <option value="period">周期包</option>
                     <option value="total">总量包</option>
                     <option value="none">不限制</option>
                   </select>
-                  <div id="access-member-quota-mode-hint" class="form-hint">按固定天数配置一组 Token 总量。</div>
+                  <div id="access-member-quota-mode-hint" class="form-hint" hidden></div>
                 </div>
                 <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="period">
                   <div class="quota-inline-fields period">
@@ -1549,7 +1549,6 @@
                         </select>
                       </div>
                     </div>
-                    <div class="quota-description">在指定天数内共享一组 Token 总量；周期到期或额度耗尽都会拒绝后续请求。</div>
                   </div>
                 </div>
                 <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="total" hidden>
@@ -1563,12 +1562,11 @@
                         </select>
                       </div>
                     </div>
-                    <div class="quota-description">不限制自然天数，直到累计 Token 消耗达到上限。</div>
                   </div>
                 </div>
                 <div class="quota-config-panel quota-fields-panel" data-quota-mode-panel="none" hidden>
                   <div class="quota-inline-fields none">
-                    <div class="quota-description">不设置 Token 额度，只保留请求数、并发和策略到期等硬限制。</div>
+                    <div class="quota-description" hidden></div>
                   </div>
                 </div>
               </div>
@@ -1590,9 +1588,8 @@
                   <input id="access-member-max-output-tokens" class="input-field" type="number" min="1" step="1" placeholder="留空不限" />
                 </div>
                 <div class="form-field">
-                  <label>策略到期时间</label>
+                  <label>策略到期时间 <span class="inline-help" tabindex="0" aria-label="策略到期说明" data-tooltip="独立硬截止时间；可与周期包或总量包叠加使用。">?</span></label>
                   <input id="access-member-policy-expires-at" class="input-field" type="datetime-local" />
-                  <div class="form-hint">独立硬截止时间；可与周期包 / 总量包叠加使用。</div>
                 </div>
               </div>
             </section>
@@ -1600,17 +1597,16 @@
             <section class="access-member-modal-section">
               <div class="access-member-modal-section-head">
                 <strong>模型与号池</strong>
-                <span>留空或不勾选表示不限制；LAN 成员仍只能访问 shared-lan 号池。</span>
+                <span class="inline-help" tabindex="0" aria-label="模型与号池说明" data-tooltip="留空或不勾选表示不限制；公网成员建议授权 public-ready 号池，LAN 成员通常授权 shared-lan 号池。">?</span>
               </div>
               <div class="access-member-form-grid">
                 <div class="form-field full">
-                  <label>自选已暴露模型</label>
+                  <label>自选已暴露模型 <span class="inline-help" tabindex="0" aria-label="模型别名说明" data-tooltip="勾选当前网关已暴露的模型别名；不勾选且不填写自定义值表示该成员不限制模型。">?</span></label>
                   <div
                     id="access-member-model-alias-options"
                     class="model-alias-option-list"
                     data-access-member-model-alias-options
                   ></div>
-                  <div class="form-hint">勾选当前网关已暴露的模型别名；不勾选且不填写自定义值表示该成员不限制模型。</div>
                 </div>
                 <div class="form-field full">
                   <label>自定义模型别名</label>

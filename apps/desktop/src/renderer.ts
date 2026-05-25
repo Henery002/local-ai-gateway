@@ -1159,7 +1159,7 @@ type SecurityAccessKeyInput = SecurityAccessKey & {
 function normalizeEditableAccessConsumerType(
   value?: string,
 ): Extract<SecurityAccessConsumer["type"], "lan-member" | "public-user"> {
-  return value === "public-user" ? "public-user" : "lan-member";
+  return value === "lan-member" ? "lan-member" : "public-user";
 }
 
 type SecurityAccessPolicy = {
@@ -2558,6 +2558,24 @@ function formatQuotaAggregateValue(aggregate: QuotaAggregate): string {
     : "待同步";
 }
 
+function getQuotaSemanticTone(
+  percentage: number | undefined,
+): "success" | "active" | "warning" | "danger" | "neutral" {
+  if (typeof percentage !== "number") {
+    return "neutral";
+  }
+  if (percentage >= 90) {
+    return "danger";
+  }
+  if (percentage >= 70) {
+    return "warning";
+  }
+  if (percentage > 0) {
+    return "active";
+  }
+  return "success";
+}
+
 function summarizeAccountQuotaAggregate(): QuotaAggregate {
   const groups = getAccountGroups().groups.filter(
     (group) => group.sourceKind === "local-import",
@@ -2573,6 +2591,64 @@ function summarizeAccountQuotaAggregate(): QuotaAggregate {
     countedCount: percentages.length,
     availableCount: availableGroups.length,
     unknownCount: Math.max(0, availableGroups.length - percentages.length),
+  };
+}
+
+function getAccessConsumerQuotaUsageView(
+  consumerId: string,
+  policy?: SecurityAccessPolicy,
+): { label: string; detail: string; percentage?: number; tone: "success" | "active" | "warning" | "danger" | "neutral" } {
+  const getUsedTokens = (summary?: UsageWindowSummary): number =>
+    (summary?.consumers ?? [])
+      .filter((item) => item.consumerId === consumerId)
+      .reduce((sum, item) => sum + Math.max(0, item.usage.totalTokens), 0);
+  const quota = policy?.quota;
+  const candidates: Array<{ label: string; used: number; limit?: number }> = [];
+  if (typeof quota?.totalTokenLimit === "number") {
+    candidates.push({
+      label: "总量",
+      used: getUsedTokens(state.usageSummary?.history),
+      limit: quota.totalTokenLimit,
+    });
+  }
+  if (typeof quota?.periodTokenLimit === "number") {
+    candidates.push({
+      label: "周期",
+      used: getUsedTokens(state.usageSummary?.history),
+      limit: quota.periodTokenLimit,
+    });
+  }
+  if (typeof quota?.monthlyTokenLimit === "number") {
+    candidates.push({
+      label: "月度",
+      used: getUsedTokens(state.usageSummary?.monthly),
+      limit: quota.monthlyTokenLimit,
+    });
+  }
+  if (typeof quota?.dailyTokenLimit === "number") {
+    candidates.push({
+      label: "日",
+      used: getUsedTokens(state.usageSummary?.daily),
+      limit: quota.dailyTokenLimit,
+    });
+  }
+  const selected = candidates.find(
+    (item) => typeof item.limit === "number" && item.limit > 0,
+  );
+  if (!selected || !selected.limit) {
+    const used = getUsedTokens(state.usageSummary?.history);
+    return {
+      label: "不限",
+      detail: used > 0 ? `已用 ${formatCompactCount(used)} Token` : "暂无用量",
+      tone: "neutral",
+    };
+  }
+  const percentage = Math.min(100, Math.round((selected.used / selected.limit) * 100));
+  return {
+    label: `${percentage}%`,
+    detail: `${selected.label} ${formatCompactCount(selected.used)} / ${formatCompactCount(selected.limit)}`,
+    percentage,
+    tone: getQuotaSemanticTone(percentage),
   };
 }
 
@@ -3893,6 +3969,7 @@ function renderAccessConsumerList(
           (item) => item.consumerId === consumer.id,
         );
         const quotaSummary = getAccessPolicyQuotaSummary(policy);
+        const quotaUsage = getAccessConsumerQuotaUsageView(consumer.id, policy);
         const poolCount = policy?.allowedPoolIds?.length ?? 0;
         const modelCount = policy?.allowedModelAliases?.length ?? 0;
         const selected = consumer.id === state.selectedAccessConsumerId;
@@ -3918,7 +3995,12 @@ function renderAccessConsumerList(
               <span>${escapeHtml(keyPreview)} · ${expiredKeys > 0 ? `${formatCompactCount(expiredKeys)} 个已过期` : "无过期 Key"}</span>
             </div>
             <div class="figma-table-cell">
-              <small>额度</small>
+              <small>已用额度</small>
+              <strong><span class="quota-usage-chip tone-${escapeHtml(quotaUsage.tone)}">${escapeHtml(quotaUsage.label)}</span></strong>
+              <span>${escapeHtml(quotaUsage.detail)}</span>
+            </div>
+            <div class="figma-table-cell">
+              <small>额度策略</small>
               <strong>${escapeHtml(quotaSummary)}</strong>
               <span>${policy?.quota?.periodStartedAt ? `起始 ${escapeHtml(formatAccessIsoDate(policy.quota.periodStartedAt))}` : "保存后热生效"}</span>
             </div>
@@ -3957,7 +4039,8 @@ function renderAccessConsumerList(
         <div class="figma-table-head access-consumer-table-head" role="row">
           <span>成员</span>
           <span>Key 状态</span>
-          <span>额度</span>
+          <span>已用额度</span>
+          <span>额度策略</span>
           <span>限制</span>
           <span>模型 / 号池</span>
           <span>创建时间</span>
@@ -4050,9 +4133,10 @@ function renderAccessConsumerGrid(
   renderGridTable({
     id: "access-consumer-list",
     columns: [
-      { name: "成员", width: "230px" },
+      { name: "成员", width: "190px" },
       { name: "Key 状态", width: "170px" },
-      { name: "额度", width: "180px" },
+      { name: "已用额度", width: "120px" },
+      { name: "额度策略", width: "170px" },
       { name: "限制", width: "160px" },
       { name: "模型 / 号池", width: "150px" },
       { name: "更新时间", width: "150px" },
@@ -4075,6 +4159,7 @@ function renderAccessConsumerGrid(
         (item) => item.consumerId === consumer.id,
       );
       const quotaSummary = getAccessPolicyQuotaSummary(policy);
+      const quotaUsage = getAccessConsumerQuotaUsageView(consumer.id, policy);
       const poolCount = policy?.allowedPoolIds?.length ?? 0;
       const modelCount = policy?.allowedModelAliases?.length ?? 0;
       const consumerEnabled = consumer.status === "enabled";
@@ -4092,6 +4177,12 @@ function renderAccessConsumerGrid(
             <strong>${escapeHtml(formatCompactCount(enabledKeys))} / ${escapeHtml(formatCompactCount(keys.length))} 可用</strong>
             <span>${escapeHtml(keyPreview)}</span>
             <span>${expiredKeys > 0 ? `${escapeHtml(formatCompactCount(expiredKeys))} 个已过期` : "无过期 Key"}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
+            <span class="quota-usage-chip tone-${escapeHtml(quotaUsage.tone)}">${escapeHtml(quotaUsage.label)}</span>
+            <span>${escapeHtml(quotaUsage.detail)}</span>
           </div>
         `),
         gridHtml(`
@@ -4132,7 +4223,7 @@ function renderAccessConsumerGrid(
     fallbackMarkup,
     pageSize: 20,
     search: true,
-    minWidth: "1250px",
+    minWidth: "1280px",
   });
 }
 
@@ -10142,6 +10233,7 @@ function renderCodexAccounts(): void {
     const percentage = getDisplayQuotaPercentage(account);
     return typeof percentage === "number" && percentage <= 20;
   }).length;
+  const quotaAggregate = summarizeAccountQuotaAggregate();
 
   cancelAccountRenderFrame();
 
@@ -10351,7 +10443,12 @@ function renderCodexAccounts(): void {
           </div>
           <span class="badge neutral">资产视角</span>
         </div>
-        <div class="routing-observe-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <div class="routing-observe-grid account-asset-summary-grid">
+          <div class="routing-observe-kpi quota-aggregate-kpi" data-quota-tone="${escapeHtml(getQuotaAggregateTone(quotaAggregate.totalPercentage))}">
+            <small>上游总额度</small>
+            <strong>${escapeHtml(formatQuotaAggregateValue(quotaAggregate))}</strong>
+            <span>${escapeHtml(formatCompactCount(quotaAggregate.countedCount))} 个已同步 / ${escapeHtml(formatCompactCount(quotaAggregate.availableCount))} 个正常</span>
+          </div>
           <div class="routing-observe-kpi">
             <small>额度充足</small>
             <strong>${healthyQuotaCount} 个</strong>
@@ -10399,10 +10496,6 @@ function renderCodexAccounts(): void {
             )}</div>
           </div>
         </div>
-      </div>
-      <div class="settings-note compact" style="margin-bottom: 16px;">
-        <strong>账号卡片说明</strong>
-        <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；来源分布现已支持累计、近 5 分钟、近 1 小时与近 24 小时的窗口观察。</p>
       </div>
       `;
     renderAccountUsageRankingEChart();

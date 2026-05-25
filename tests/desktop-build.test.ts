@@ -342,6 +342,9 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("quota-fields-panel");
     expect(indexHtml).toContain("quota-inline-fields");
     expect(indexHtml).toContain("quota-description");
+    expect(indexHtml).toContain("<option value=\"public-user\" selected>公网成员</option>");
+    expect(indexHtml).toContain("data-tooltip=\"额度配置保存后立即影响后续请求；请求数、并发和策略到期作为独立硬限制保留。\"");
+    expect(indexHtml).toContain("data-tooltip=\"周期包按固定天数共享一组 Token；总量包只看累计 Token；不限制则只保留请求数、并发和策略到期。\"");
     expect(indexHtml).toContain("<option value=\"period\">周期包</option>");
     expect(indexHtml).toContain("<option value=\"total\">总量包</option>");
     expect(indexHtml).toContain("<option value=\"none\">不限制</option>");
@@ -454,6 +457,9 @@ describe("desktop build output", () => {
     expect(styles).toContain(".access-member-limit-grid {\n  border-top: 1px solid var(--border-light);\n  grid-template-columns: repeat(2, minmax(0, 1fr));");
     expect(styles).toContain("grid-template-columns: minmax(220px, 0.48fr) minmax(0, 1.52fr);");
     expect(styles).toContain("grid-template-columns: minmax(220px, 0.55fr) minmax(0, 1.45fr);");
+    expect(styles).toContain("grid-template-columns: minmax(132px, 0.48fr) minmax(0, 1.52fr);");
+    expect(styles).toContain(".quota-usage-chip");
+    expect(styles).toContain(".quota-aggregate-kpi");
   });
 
   it("renders member-first request audit controls and stronger operations cards", () => {
@@ -504,6 +510,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderAccountUsageRankingGrid");
     expect(rendererSource).toContain("renderRecentErrorsGrid");
     expect(rendererSource).toContain("renderAccessConsumerGrid");
+    expect(rendererSource).toContain("getAccessConsumerQuotaUsageView");
+    expect(rendererSource).toContain("已用额度");
     expect(rendererSource).toContain("renderPoolGrid");
     expect(rendererSource).toContain("renderNotificationGrid");
     expect(rendererSource).toContain('id: "usage-alert-event-list"');
@@ -523,6 +531,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".gateway-grid-shell");
     expect(styles).toContain(".gateway-grid-table");
     expect(styles).toContain(".gateway-grid-page-size");
+    expect(styles).toContain(".gateway-grid-pagination .gridjs-pages");
+    expect(styles).toContain("min-height: 58px;");
     expect(rendererSource).toContain("footer.insertBefore(pageSizeControl");
     expect(styles).toContain(".gateway-grid-shell .gridjs-th");
     expect(styles).toContain(".gateway-grid-shell .gridjs-th-content");

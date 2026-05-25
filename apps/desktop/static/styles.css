@@ -2110,7 +2110,7 @@ button, input, select {
 
 .access-key-row {
   display: grid;
-  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(132px, 0.48fr) minmax(0, 1.52fr);
   align-items: start;
   gap: 12px 16px;
   padding: 12px 14px;
@@ -2165,7 +2165,7 @@ button, input, select {
   border-top: 1px solid var(--border-light);
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(4, auto);
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -2174,7 +2174,51 @@ button, input, select {
 }
 
 .access-key-actions .input-field {
-  min-width: 168px;
+  min-width: 210px;
+}
+
+.quota-usage-chip {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  justify-content: center;
+  line-height: 1;
+  min-width: 58px;
+  padding: 6px 9px;
+  width: fit-content;
+}
+
+.quota-usage-chip.tone-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.quota-usage-chip.tone-active {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  color: var(--info);
+}
+
+.quota-usage-chip.tone-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+
+.quota-usage-chip.tone-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.quota-usage-chip.tone-neutral {
+  background: #f8fafc;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
 }
 
 .account-ownership-alert {
@@ -4845,7 +4889,7 @@ button, input, select {
 }
 
 .access-member-modal-section-head {
-  align-items: start;
+  align-items: center;
   display: grid;
   gap: 8px;
   grid-template-columns: 160px minmax(0, 1fr);
@@ -4953,6 +4997,11 @@ button, input, select {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.quota-description[hidden],
+.form-hint[hidden] {
+  display: none !important;
 }
 
 .quota-mode-note {
@@ -6805,28 +6854,70 @@ button, input, select {
   color: var(--text-secondary);
   display: flex !important;
   font-size: 13px;
+  gap: 12px;
   justify-content: flex-end !important;
-  padding: 10px 12px !important;
+  min-height: 58px;
+  padding: 10px 14px !important;
 }
 
 .gateway-grid-footer .gridjs-summary {
-  margin: 0 12px 0 auto;
+  color: var(--text-secondary);
+  margin: 0 8px 0 auto;
+  white-space: nowrap;
 }
 
 .gateway-grid-footer .gridjs-pagination {
   margin-left: 0;
 }
 
+.gateway-grid-pagination .gridjs-pages {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
 .gateway-grid-pagination .gridjs-pages button {
-  border-color: var(--color-border-default);
+  background: var(--bg-main);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 13px;
+  font-weight: 700;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 10px;
 }
 
 .gateway-grid-pagination .gridjs-pages button:hover,
 .gateway-grid-pagination .gridjs-pages button[aria-current="true"] {
   background: var(--color-accent-soft);
   color: var(--color-accent-strong);
+}
+
+.gateway-grid-pagination .gridjs-pages button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.account-asset-summary-grid {
+  grid-template-columns: minmax(170px, 1.2fr) repeat(4, minmax(0, 1fr));
+}
+
+.quota-aggregate-kpi strong {
+  font-size: 22px;
+}
+
+.quota-aggregate-kpi[data-quota-tone="success"] strong,
+.quota-aggregate-kpi[data-quota-tone="active"] strong {
+  color: var(--success);
+}
+
+.quota-aggregate-kpi[data-quota-tone="warning"] strong {
+  color: var(--warning);
+}
+
+.quota-aggregate-kpi[data-quota-tone="danger"] strong {
+  color: var(--danger);
 }
 
 .gateway-grid-stack {
