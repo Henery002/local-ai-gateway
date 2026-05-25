@@ -4490,7 +4490,7 @@ function renderAccessMemberDrawer(
             `;
           })
           .join("")
-      : `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
+      : `<div class="empty-card">当前还没有可授权号池。请先在“号池调度”页创建号池。</div>`;
   const keyRows = renderAccessKeyRows(
     keys,
     "当前成员暂无 Key。可在成员弹窗里新增独立 Key。",
@@ -8057,7 +8057,7 @@ function renderNotificationCenter(): void {
   });
   if (items.length === 0) {
     disposeGridTable("notification-list");
-    listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无消息通知。</div>";
+    listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无通知消息。</div>";
     if (paginationNode) {
       paginationNode.innerHTML = "";
     }
@@ -8137,7 +8137,7 @@ function renderNotificationGrid(items: NotificationItem[]): void {
         </div>
       `),
     ]),
-    emptyMessage: "当前筛选下暂无消息通知。",
+    emptyMessage: "当前筛选下暂无通知消息。",
     fallbackMarkup: buildNotificationListFallbackMarkup(items),
     pageSize: 20,
     search: true,
@@ -10377,7 +10377,7 @@ function renderLanAccessTemplate(): void {
       : "缺少可用 Key"
     : "未启用";
   const detail = lanEnabled
-    ? "将下面模板发给可信成员；真实 API Key 请从“访问与密钥”的成员 Key 创建或轮换结果中单独分发。"
+    ? "将下面模板发给可信成员；真实 API Key 请从“成员与密钥”的成员 Key 创建或轮换结果中单独分发。"
     : "启用 LAN 共享并配置成员 Key、Gateway API Key 或客户端密钥映射后，这里会生成可分发给成员的接入模板。";
 
   container.innerHTML = `
@@ -10424,7 +10424,7 @@ function renderPublicAccessTemplate(): void {
       : "缺少公网前置条件"
     : "未启用";
   const detail = publicEnabled
-    ? "将下面模板发给公网试用成员；真实 API Key 请从“访问与密钥”的 public-user 成员 Key 创建或轮换结果中单独分发。"
+    ? "将下面模板发给公网试用成员；真实 API Key 请从“成员与密钥”的 public-user 成员 Key 创建或轮换结果中单独分发。"
     : "启用公网共享配置并填写 HTTPS Public Base URL 后，这里会生成公网成员接入模板。";
 
   container.innerHTML = `
@@ -10533,14 +10533,14 @@ function renderRuntimeTroubleshootingGuide(): void {
       status: "鉴权",
       detail:
         "通常是成员 API Key 未复制完整、Key 已暂停 / 过期 / 轮换，或请求没有携带 `Authorization: Bearer` 头。",
-      suggestion: "在“访问与密钥”确认成员和 Key 均为启用状态；轮换后的明文只展示一次，需要重新分发。",
+      suggestion: "在“成员与密钥”确认成员和 Key 均为启用状态；轮换后的明文只展示一次，需要重新分发。",
     },
     {
       title: "403 号池或模型被拒绝",
       status: "策略",
       detail:
         "LAN 成员只能访问授权模型和 `shared-lan` 号池；命中 private 或未授权号池时会在进入上游前拒绝。",
-      suggestion: "使用“号池与路由”的路由预演选择访问成员，查看 `accessDecision` 的拒绝原因。",
+      suggestion: "使用“号池调度”的路由预演选择访问成员，查看 `accessDecision` 的拒绝原因。",
     },
     {
       title: "429 额度 / QPS / 并发限制",
@@ -15028,7 +15028,7 @@ function buildAccessMemberPoolOptions(policy?: SecurityAccessPolicy): string {
   const pools = state.poolSettings?.pools ?? [];
   const allowedPoolIds = new Set(policy?.allowedPoolIds ?? []);
   if (pools.length === 0) {
-    return `<div class="empty-card">当前还没有可授权号池。请先在“号池与路由”页创建号池。</div>`;
+    return `<div class="empty-card">当前还没有可授权号池。请先在“号池调度”页创建号池。</div>`;
   }
   return pools
     .map((pool) => {

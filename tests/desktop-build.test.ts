@@ -38,14 +38,14 @@ describe("desktop build output", () => {
 
     const expectedNavItems = [
       ["overview", "总览"],
-      ["access", "访问与密钥"],
-      ["accounts", "账号资产"],
-      ["pools", "号池与路由"],
-      ["models", "模型与 Provider"],
+      ["access", "成员与密钥"],
       ["usage", "用量与告警"],
-      ["notifications", "消息通知"],
-      ["operations", "运维与日志"],
-      ["system", "系统与诊断"],
+      ["notifications", "通知中心"],
+      ["accounts", "账号资产"],
+      ["pools", "号池调度"],
+      ["models", "模型配置"],
+      ["operations", "运维日志"],
+      ["system", "系统诊断"],
     ];
 
     const navGroup = indexHtml.match(
@@ -55,7 +55,11 @@ describe("desktop build output", () => {
     expect(navGroup).toBeTruthy();
     expect(navGroup?.match(/data-nav-target="/g) ?? []).toHaveLength(9);
 
+    let lastNavIndex = -1;
     for (const [target, label] of expectedNavItems) {
+      const itemIndex = navGroup?.indexOf(`data-nav-target="${target}"`) ?? -1;
+      expect(itemIndex).toBeGreaterThan(lastNavIndex);
+      lastNavIndex = itemIndex;
       expect(navGroup).toContain(`data-nav-target="${target}"`);
       expect(navGroup).toContain(`<span class="nav-label">${label}</span>`);
       expect(indexHtml).toContain(`data-view="${target}"`);
