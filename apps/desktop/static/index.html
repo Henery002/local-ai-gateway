@@ -201,6 +201,7 @@
                 <div class="card overview-status-card stat-card"><small>服务状态</small><strong id="service-state">加载中</strong><span id="runtime-inference-auth">加载中</span></div>
                 <div class="card overview-status-card stat-card"><small>当前 Provider</small><strong id="default-provider">加载中</strong><span id="default-model">加载中</span></div>
                 <div class="card overview-status-card stat-card"><small>账号承载</small><strong id="local-account-count">0</strong><span id="overview-account-health">加载中</span></div>
+                <div class="card overview-status-card stat-card" data-quota-tone="neutral"><small>上游总额度</small><strong id="overview-total-quota" class="quota-aggregate-value">待同步</strong><span id="overview-total-quota-detail">状态正常账号</span></div>
                 <div class="card overview-status-card stat-card"><small>路由命中</small><strong id="runtime-routing-hit">暂无命中</strong><span id="default-selection">加载中</span></div>
               </div>
 
@@ -208,26 +209,26 @@
                 <div class="card routing-observe-panel dashboard-chart-panel overview-token-panel">
                   <div class="dashboard-panel-head">
                     <div>
-                      <strong>Token 消耗结构</strong>
-                      <span>按输入、输出、缓存、思考和主要成员来源观察当前窗口。</span>
+                      <strong>Token 运营观测</strong>
+                      <span>优先观察近 24h、7 天、30 天和历史总量，再定位成员来源与 Token 构成。</span>
                     </div>
                     <button class="btn secondary mini" data-action="open-usage-details" type="button">查看明细</button>
                   </div>
-                  <div id="dashboard-token-chart" class="dashboard-token-chart" aria-label="Token 消耗结构"></div>
+                  <div id="dashboard-token-chart" class="dashboard-token-chart" aria-label="Token 周期消耗对比"></div>
                   <div class="overview-token-subgrid">
-                    <div class="overview-token-subchart">
-                      <div class="overview-subchart-head">
-                        <strong>Token 构成占比</strong>
-                        <span>输入 / 输出 / 缓存 / 思考</span>
-                      </div>
-                      <div id="dashboard-token-composition-chart" class="overview-mini-chart" aria-label="Token 构成占比"></div>
-                    </div>
                     <div class="overview-token-subchart">
                       <div class="overview-subchart-head">
                         <strong>主要消耗来源</strong>
                         <span>成员优先，缺省回退客户端来源</span>
                       </div>
                       <div id="dashboard-token-source-chart" class="overview-mini-chart" aria-label="主要 Token 消耗来源"></div>
+                    </div>
+                    <div class="overview-token-subchart">
+                      <div class="overview-subchart-head">
+                        <strong>Token 构成占比</strong>
+                        <span>输入 / 输出 / 缓存 / 思考</span>
+                      </div>
+                      <div id="dashboard-token-composition-chart" class="overview-mini-chart" aria-label="Token 构成占比"></div>
                     </div>
                   </div>
                 </div>
@@ -626,6 +627,15 @@
                             <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="false">总览</button>
                           </div>
                         </div>
+                        <div class="usage-observe-mode">
+                          <span>统计周期</span>
+                          <div id="usage-observe-window" class="usage-window-group usage-observe-window-group" role="tablist" aria-label="Token 用量统计周期">
+                            <button class="usage-window-chip" data-action="usage-window" data-usage-window="daily" data-active="true">近 24h</button>
+                            <button class="usage-window-chip" data-action="usage-window" data-usage-window="weekly" data-active="false">近 7 天</button>
+                            <button class="usage-window-chip" data-action="usage-window" data-usage-window="monthly" data-active="false">近 30 天</button>
+                            <button class="usage-window-chip" data-action="usage-window" data-usage-window="history" data-active="false">总计</button>
+                          </div>
+                        </div>
                       </div>
                       <div class="usage-chart-filter-row">
                         <label class="usage-analysis-filter">
@@ -679,6 +689,7 @@
                       <div class="empty-card">正在等待用量统计。</div>
                     </div>
                   </div>
+                  <div id="usage-period-summary" class="usage-period-summary" aria-label="用量周期总览"></div>
                 </div>
 
                 <div id="usage-dimension-insights" class="usage-dimension-grid">

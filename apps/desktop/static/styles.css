@@ -1310,7 +1310,7 @@ button, input, select {
 
 .overview-status-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-4);
   margin-top: var(--space-4);
 }
@@ -1331,6 +1331,26 @@ button, input, select {
   color: var(--text-primary);
   font-size: 17px;
   overflow-wrap: anywhere;
+}
+
+.overview-status-card[data-quota-tone="success"] .quota-aggregate-value,
+.quota-aggregate-text.success {
+  color: var(--success);
+}
+
+.overview-status-card[data-quota-tone="active"] .quota-aggregate-value,
+.quota-aggregate-text.active {
+  color: var(--info);
+}
+
+.overview-status-card[data-quota-tone="warning"] .quota-aggregate-value,
+.quota-aggregate-text.warning {
+  color: var(--warning);
+}
+
+.overview-status-card[data-quota-tone="danger"] .quota-aggregate-value,
+.quota-aggregate-text.danger {
+  color: var(--danger);
 }
 
 .overview-main-grid {
@@ -1619,6 +1639,10 @@ button, input, select {
     grid-template-columns: 1fr;
   }
 
+  .usage-period-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-mode-grid,
   .dashboard-grid {
     grid-template-columns: 1fr;
@@ -1636,7 +1660,8 @@ button, input, select {
   .overview-hero-facts,
   .overview-kpi-grid,
   .overview-status-grid,
-  .overview-routing-grid {
+  .overview-routing-grid,
+  .usage-period-summary {
     grid-template-columns: 1fr;
   }
 
@@ -6352,6 +6377,67 @@ button, input, select {
   min-width: 0;
 }
 
+.usage-observe-window-group .usage-window-chip {
+  min-width: 72px;
+  padding: 0 12px;
+}
+
+.usage-period-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.usage-period-card {
+  appearance: none;
+  text-align: left;
+  border: 1px solid color-mix(in oklab, var(--accent-color) 16%, var(--color-border-subtle));
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.045), rgba(16, 185, 129, 0.025)),
+    var(--color-bg-card);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px 14px;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+}
+
+.usage-period-card[data-active="true"] {
+  border-color: var(--color-brand-600);
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.12);
+}
+
+.usage-period-card:hover {
+  border-color: var(--card-border-hover);
+  transform: translateY(-1px);
+}
+
+.usage-period-card span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.usage-period-card strong {
+  color: var(--text-primary);
+  font-size: 19px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.usage-period-card small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .usage-filter-group {
   display: flex;
   align-items: center;
@@ -6870,6 +6956,7 @@ button, input, select {
     minmax(260px, 1.3fr)
     minmax(150px, 0.7fr)
     minmax(170px, 0.75fr)
+    minmax(150px, 0.7fr)
     minmax(150px, 0.7fr)
     minmax(260px, 1.25fr)
     minmax(210px, 0.85fr);

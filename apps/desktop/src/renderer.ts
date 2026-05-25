@@ -2508,6 +2508,50 @@ function setOverviewSurfaceStatus(
   }
 }
 
+type QuotaAggregate = {
+  totalPercentage: number;
+  countedCount: number;
+  availableCount: number;
+  unknownCount: number;
+};
+
+function getQuotaAggregateTone(totalPercentage: number): "success" | "active" | "warning" | "danger" | "neutral" {
+  if (totalPercentage >= 200) {
+    return "success";
+  }
+  if (totalPercentage >= 100) {
+    return "active";
+  }
+  if (totalPercentage > 0) {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function formatQuotaAggregateValue(aggregate: QuotaAggregate): string {
+  return aggregate.countedCount > 0
+    ? `${formatCompactCount(Math.round(aggregate.totalPercentage))}%`
+    : "待同步";
+}
+
+function summarizeAccountQuotaAggregate(): QuotaAggregate {
+  const groups = getAccountGroups().groups.filter(
+    (group) => group.sourceKind === "local-import",
+  );
+  const availableGroups = groups.filter(
+    (group) => group.representative.status === "available",
+  );
+  const percentages = availableGroups
+    .map((group) => getQuotaPercentage(group.representative))
+    .filter((value): value is number => typeof value === "number");
+  return {
+    totalPercentage: percentages.reduce((sum, value) => sum + value, 0),
+    countedCount: percentages.length,
+    availableCount: availableGroups.length,
+    unknownCount: Math.max(0, availableGroups.length - percentages.length),
+  };
+}
+
 function hasEnabledAccessMemberKey(security?: SecuritySettingsLike): boolean {
   const enabledConsumerIds = new Set(
     (security?.accessControl?.consumers ?? [])
@@ -3571,6 +3615,7 @@ function renderDashboardPhaseTwoOverview(): void {
   const unacknowledgedAlerts = (state.accessAlerts ?? []).filter(
     (event) => !event.acknowledgedAt,
   ).length;
+  const accountQuotaAggregate = summarizeAccountQuotaAggregate();
   const overviewPublicDetail = publicReady
     ? "公网域名、成员 Key、public-ready 号池和本机服务均已形成可运营链路。"
     : publicEnabled
@@ -3604,6 +3649,18 @@ function renderDashboardPhaseTwoOverview(): void {
     accountHealthSummary
       ? `${formatCompactCount(accountHealthSummary.availableCount)} 可用 / ${formatCompactCount(accountHealthSummary.unhealthyCount)} 异常`
       : "等待健康快照",
+  );
+  setText("overview-total-quota", formatQuotaAggregateValue(accountQuotaAggregate));
+  document
+    .getElementById("overview-total-quota")
+    ?.closest<HTMLElement>("[data-quota-tone]")
+    ?.setAttribute(
+      "data-quota-tone",
+      getQuotaAggregateTone(accountQuotaAggregate.totalPercentage),
+    );
+  setText(
+    "overview-total-quota-detail",
+    `${formatCompactCount(accountQuotaAggregate.availableCount)} 个正常账号 · ${formatCompactCount(accountQuotaAggregate.countedCount)} 个已同步${accountQuotaAggregate.unknownCount > 0 ? ` · ${formatCompactCount(accountQuotaAggregate.unknownCount)} 个未知` : ""}`,
   );
   setText(
     "dashboard-lan-status",
@@ -4935,9 +4992,11 @@ function renderDashboardTokenChart(
     return;
   }
 
-  if (!summary || summary.totals.totalTokens <= 0) {
+  const periodRows = getDashboardUsagePeriodRows();
+  const hasAnyPeriodUsage = periodRows.some((row) => row.totalTokens > 0);
+  if (!hasAnyPeriodUsage) {
     node.innerHTML = `
-      <div class="empty-card" style="width: 100%;">当前窗口暂无 Token 趋势数据。</div>
+      <div class="empty-card" style="width: 100%;">暂无长期 Token 运营数据。</div>
     `;
     renderDashboardTokenCompositionChart(undefined);
     renderDashboardTokenSourceChart(undefined);
@@ -4949,18 +5008,12 @@ function renderDashboardTokenChart(
     return;
   }
 
-  const values = [
-    summary.totals.inputTokens,
-    summary.totals.outputTokens,
-    summary.totals.cachedTokens,
-    summary.totals.reasoningTokens,
-    ...summary.clients.slice(0, 4).map((client) => client.usage.totalTokens),
-  ].filter((value) => value > 0);
-  const normalizedValues = values.length > 0 ? values : [summary.totals.totalTokens];
+  const values = periodRows.map((row) => row.totalTokens).filter((value) => value > 0);
+  const normalizedValues = values.length > 0 ? values : [1];
   const maxValue = Math.max(...normalizedValues, 1);
 
   node.innerHTML = normalizedValues
-    .slice(0, 8)
+    .slice(0, 4)
     .map((value, index) => {
       const height = Math.max(12, Math.round((value / maxValue) * 140));
       return `<div class="dashboard-token-bar" data-muted="${index > 3 ? "true" : "false"}" style="height: ${height}px;" title="${escapeHtml(formatCompactCount(value))} Token"></div>`;
@@ -4970,73 +5023,164 @@ function renderDashboardTokenChart(
   renderDashboardTokenSourceChart(summary);
 }
 
-function buildDashboardTokenChartOption(
-  summary: UsageWindowSummary,
-): Record<string, unknown> {
-  const rows = [
-    { label: "输入", value: Math.max(0, summary.totals.inputTokens) },
-    { label: "输出", value: Math.max(0, summary.totals.outputTokens) },
-    { label: "缓存", value: Math.max(0, summary.totals.cachedTokens) },
-    { label: "思考", value: Math.max(0, summary.totals.reasoningTokens) },
-    ...summary.clients.slice(0, 4).map((client) => ({
-      label: normalizeUsageClientTagLabel(client.clientTag),
-      value: Math.max(0, client.usage.totalTokens),
-    })),
-  ].filter((item) => item.value > 0);
+function getDashboardUsagePeriodRows(): Array<{
+  label: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  requestCount: number;
+  failureCount: number;
+}> {
+  const summary = state.usageSummary;
+  if (!summary) {
+    return [];
+  }
+  return [
+    { label: "近 24h", summary: summary.daily },
+    { label: "近 7 天", summary: summary.weekly },
+    { label: "近 30 天", summary: summary.monthly },
+    { label: "总计", summary: summary.history },
+  ].map((item) => ({
+    label: item.label,
+    totalTokens: Math.max(0, item.summary.totals.totalTokens),
+    inputTokens: Math.max(0, item.summary.totals.inputTokens),
+    outputTokens: Math.max(0, item.summary.totals.outputTokens),
+    cachedTokens: Math.max(0, item.summary.totals.cachedTokens),
+    reasoningTokens: Math.max(0, item.summary.totals.reasoningTokens),
+    requestCount: Math.max(0, item.summary.totals.requestCount),
+    failureCount: Math.max(0, item.summary.totals.failureCount),
+  }));
+}
+
+function buildDashboardTokenChartOption(): Record<string, unknown> {
+  const rows = getDashboardUsagePeriodRows();
   const labels = rows.map((row) => row.label);
-  const values = rows.map((row) => row.value);
   return {
     color: getUsageChartPalette(),
+    legend: {
+      top: 0,
+      right: 8,
+      icon: "roundRect",
+      itemWidth: 10,
+      itemHeight: 8,
+      textStyle: { color: "#64748b", fontSize: 12 },
+    },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: "shadow" },
+      axisPointer: { type: "cross" },
       backgroundColor: "rgba(15, 23, 42, 0.92)",
       borderWidth: 0,
       textStyle: { color: "#f8fafc" },
-      valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
     },
-    grid: { left: 44, right: 16, top: 18, bottom: 38 },
+    grid: { left: 52, right: 56, top: 42, bottom: 38 },
     xAxis: {
       type: "category",
       data: labels,
-      axisLabel: { color: "#64748b", interval: 0, width: 72, overflow: "truncate" },
+      axisLabel: { color: "#64748b", interval: 0 },
       axisLine: { lineStyle: { color: "#cbd5e1" } },
       axisTick: { show: false },
     },
-    yAxis: {
-      type: "value",
-      name: "Token",
-      nameTextStyle: { color: "#64748b" },
-      axisLabel: { color: "#64748b" },
-      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
-    },
+    yAxis: [
+      {
+        type: "value",
+        name: "Token",
+        nameTextStyle: { color: "#64748b" },
+        axisLabel: {
+          color: "#64748b",
+          formatter: (value: number) => formatCompactCount(value),
+        },
+        splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+      },
+      {
+        type: "value",
+        name: "请求",
+        nameTextStyle: { color: "#64748b" },
+        axisLabel: {
+          color: "#64748b",
+          formatter: (value: number) => formatCompactCount(value),
+        },
+        splitLine: { show: false },
+      },
+    ],
     series: [
       {
-        name: "Token",
+        name: "输入",
         type: "bar",
-        barMaxWidth: 24,
+        stack: "token",
+        barMaxWidth: 28,
         itemStyle: {
-          borderRadius: [8, 8, 2, 2],
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: "#2563eb" },
-              { offset: 1, color: "#93c5fd" },
-            ],
-          },
+          borderRadius: [3, 3, 1, 1],
         },
-        data: values,
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+        },
+        data: rows.map((row) => row.inputTokens),
+      },
+      {
+        name: "输出",
+        type: "bar",
+        stack: "token",
+        barMaxWidth: 28,
+        itemStyle: { borderRadius: [3, 3, 1, 1] },
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+        },
+        data: rows.map((row) => row.outputTokens),
+      },
+      {
+        name: "缓存",
+        type: "bar",
+        stack: "token",
+        barMaxWidth: 28,
+        itemStyle: { borderRadius: [3, 3, 1, 1] },
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+        },
+        data: rows.map((row) => row.cachedTokens),
+      },
+      {
+        name: "思考",
+        type: "bar",
+        stack: "token",
+        barMaxWidth: 28,
+        itemStyle: { borderRadius: [8, 8, 1, 1] },
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+        },
+        data: rows.map((row) => row.reasoningTokens),
+      },
+      {
+        name: "请求数",
+        type: "line",
+        yAxisIndex: 1,
+        smooth: true,
+        symbolSize: 8,
+        lineStyle: { width: 3 },
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} 次`,
+        },
+        data: rows.map((row) => row.requestCount),
+      },
+      {
+        name: "失败数",
+        type: "line",
+        yAxisIndex: 1,
+        smooth: true,
+        symbolSize: 7,
+        lineStyle: { width: 2, type: "dashed" },
+        tooltip: {
+          valueFormatter: (value: number) => `${formatCompactCount(value)} 次`,
+        },
+        data: rows.map((row) => row.failureCount),
       },
     ],
   };
 }
 
 function renderDashboardTokenEChart(
-  summary: UsageWindowSummary,
+  summary: UsageWindowSummary | undefined,
 ): EChartsInstance | undefined {
   if (!usageChartInstances.has("dashboard-token-chart")) {
     const node = document.getElementById("dashboard-token-chart");
@@ -5048,7 +5192,7 @@ function renderDashboardTokenEChart(
   if (!chart) {
     return undefined;
   }
-  chart.setOption(buildDashboardTokenChartOption(summary), true);
+  chart.setOption(buildDashboardTokenChartOption(), true);
   renderDashboardTokenCompositionChart(summary);
   renderDashboardTokenSourceChart(summary);
   return chart;
@@ -5430,7 +5574,7 @@ function renderUsageOverview(): void {
                   data-action="usage-window"
                   data-usage-window="${window}"
                   data-active="${state.usageObserveWindow === window ? "true" : "false"}"
-                >${escapeHtml(window === "daily" ? "日" : window === "weekly" ? "周" : window === "monthly" ? "月" : "总")}</button>
+                >${escapeHtml(window === "daily" ? "近24h" : window === "weekly" ? "近7天" : window === "monthly" ? "近30天" : "总计")}</button>
               `,
             )
             .join("")}
@@ -5474,14 +5618,61 @@ function renderUsageOverview(): void {
 
 function renderUsageWorkbench(): void {
   const summary = getActiveUsageWindowSummary();
+  syncUsageWindowControls();
   syncUsageTrendDimensionControls();
   syncUsageAnalysisFilterControls();
+  renderUsagePeriodSummary();
   renderUsageTrendChart(summary);
   renderUsageDimensionInsights(summary);
   renderUsageAlertRules(summary);
   renderUsageAlertEvents();
   renderUsageAlertSummaryPreview();
   renderUsageAlertEventsPreview();
+}
+
+function syncUsageWindowControls(): void {
+  for (const button of Array.from(
+    document.querySelectorAll<HTMLElement>("[data-usage-window]"),
+  )) {
+    button.dataset.active =
+      button.dataset.usageWindow === state.usageObserveWindow ? "true" : "false";
+  }
+}
+
+function renderUsagePeriodSummary(): void {
+  const node = document.getElementById("usage-period-summary");
+  const summary = state.usageSummary;
+  if (!node) {
+    return;
+  }
+  if (!summary) {
+    node.innerHTML = `<div class="empty-card">正在等待长期用量统计。</div>`;
+    return;
+  }
+  const windows: Array<{
+    id: UsageObserveWindow;
+    title: string;
+    detail: string;
+    summary: UsageWindowSummary;
+  }> = [
+    { id: "daily", title: "近 24h", detail: "近期运行", summary: summary.daily },
+    { id: "weekly", title: "近 7 天", detail: "短期运营", summary: summary.weekly },
+    { id: "monthly", title: "近 30 天", detail: "月度观察", summary: summary.monthly },
+    { id: "history", title: "总计", detail: "长期沉淀", summary: summary.history },
+  ];
+  node.innerHTML = windows
+    .map((item) => {
+      const usage = item.summary.totals;
+      const active = state.usageObserveWindow === item.id;
+      return `
+        <button class="usage-period-card" data-action="usage-window" data-usage-window="${item.id}" data-active="${active ? "true" : "false"}" type="button">
+          <span>${escapeHtml(item.title)}</span>
+          <strong>${escapeHtml(formatCompactCount(usage.totalTokens))} Token</strong>
+          <small>${escapeHtml(item.detail)} · 请求 ${escapeHtml(formatCompactCount(usage.requestCount))} · 失败 ${escapeHtml(formatCompactCount(usage.failureCount))}</small>
+        </button>
+      `;
+    })
+    .join("");
 }
 
 function syncSelectOptions(
@@ -9379,7 +9570,7 @@ function buildAccountUsageRankingMarkup(): string {
                     data-action="usage-window"
                     data-usage-window="${window}"
                     data-active="${state.usageObserveWindow === window ? "true" : "false"}"
-                  >${escapeHtml(window === "daily" ? "日" : window === "weekly" ? "周" : window === "monthly" ? "月" : "总")}</button>
+                  >${escapeHtml(window === "daily" ? "近24h" : window === "weekly" ? "近7天" : window === "monthly" ? "近30天" : "总计")}</button>
                 `,
               )
               .join("")}
@@ -9582,6 +9773,7 @@ function renderAccountUsageRankingPanel(): void {
 }
 
 function renderUsagePanelsForWindowChange(): void {
+  syncUsageWindowControls();
   renderUsageOverview();
   if (state.activeView === "usage") {
     renderUsageWorkbench();
@@ -11875,6 +12067,44 @@ function buildPoolMemberCandidates(): PoolMemberCandidateView[] {
   });
 }
 
+function summarizePoolQuotaAggregate(
+  pool: PoolDefinition,
+  candidates: PoolMemberCandidateView[] = buildPoolMemberCandidates(),
+): QuotaAggregate {
+  const poolRuntime = getPoolRuntime(pool.id);
+  const runtimeBySelector = new Map(
+    (poolRuntime?.members ?? []).map((member) => [member.selector, member]),
+  );
+  const selectedCandidates = candidates.filter((candidate) =>
+    isPoolCandidateSelected(pool, candidate),
+  );
+  const availableCandidates = selectedCandidates.filter((candidate) => {
+    const runtimeMember = runtimeBySelector.get(candidate.selector);
+    if (runtimeMember) {
+      return runtimeMember.eligible && runtimeMember.status === "available";
+    }
+    return candidate.statusToneClass === "success";
+  });
+  const percentages = availableCandidates
+    .map((candidate) => candidate.quotaPercentage)
+    .filter((value): value is number => typeof value === "number");
+  return {
+    totalPercentage: percentages.reduce((sum, value) => sum + value, 0),
+    countedCount: percentages.length,
+    availableCount: availableCandidates.length,
+    unknownCount: Math.max(0, availableCandidates.length - percentages.length),
+  };
+}
+
+function renderQuotaAggregateBadge(aggregate: QuotaAggregate): string {
+  const tone = getQuotaAggregateTone(aggregate.totalPercentage);
+  return `
+    <span class="badge quota-aggregate-badge ${escapeHtml(tone)}">
+      ${escapeHtml(formatQuotaAggregateValue(aggregate))}
+    </span>
+  `;
+}
+
 function getPoolPanelState(poolId: string): PoolMemberPanelState {
   const existing = poolMemberPanelState.get(poolId);
   if (existing) {
@@ -12449,6 +12679,7 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         : "按剩余额度";
   const directionLabel = panelState.sortDirection === "asc" ? "升序" : "降序";
   const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates);
+  const quotaAggregate = summarizePoolQuotaAggregate(pool, candidates);
   const runtimeSummary = poolRuntime
     ? (() => {
         const selectedDisplay = getPoolSelectedMemberDisplay(poolRuntime);
@@ -12476,6 +12707,10 @@ function buildPoolMemberSelectorMarkup(pool: PoolDefinition): string {
         <div class="pool-runtime-kpi">
           <span>冷却中</span>
           <strong class="${poolRuntime.coolingMemberCount > 0 ? "warning" : ""}">${escapeHtml(String(poolRuntime.coolingMemberCount))}</strong>
+        </div>
+        <div class="pool-runtime-kpi">
+          <span>可用总额度</span>
+          <strong class="quota-aggregate-text ${escapeHtml(getQuotaAggregateTone(quotaAggregate.totalPercentage))}">${escapeHtml(formatQuotaAggregateValue(quotaAggregate))}</strong>
         </div>
         <div class="pool-runtime-kpi">
           <span>当前首选</span>
@@ -12846,11 +13081,13 @@ function renderPoolCards(): void {
 }
 
 function buildPoolListFallbackMarkup(pools: PoolDefinition[]): string {
+  const candidates = buildPoolMemberCandidates();
   return `
     <div class="pool-list-table figma-table">
       ${pools
-        .map(
-          (pool) => `
+        .map((pool) => {
+          const quotaAggregate = summarizePoolQuotaAggregate(pool, candidates);
+          return `
             <div class="figma-table-row pool-list-row">
               <div class="figma-table-cell">
                 <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
@@ -12860,19 +13097,24 @@ function buildPoolListFallbackMarkup(pools: PoolDefinition[]): string {
                 <span class="badge neutral">${escapeHtml(formatPoolVisibilityLabel(pool.visibility))}</span>
                 <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${escapeHtml(formatPoolEnabledLabel(pool))}</span>
               </div>
+              <div class="figma-table-cell">
+                ${renderQuotaAggregateBadge(quotaAggregate)}
+                <span>${escapeHtml(formatCompactCount(quotaAggregate.countedCount))} 个已同步 / ${escapeHtml(formatCompactCount(quotaAggregate.availableCount))} 个可用</span>
+              </div>
               <div class="figma-table-cell pool-card-actions">
                 <button class="btn primary mini" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}" type="button">编辑</button>
                 <button class="btn ghost danger-ghost mini" data-action="pool-remove" data-pool-id="${escapeHtml(pool.id)}" type="button">删除</button>
               </div>
             </div>
-          `,
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
 }
 
 function renderPoolGrid(pools: PoolDefinition[]): void {
+  const candidates = buildPoolMemberCandidates();
   renderGridTable({
     id: "pool-list-grid",
     columns: [
@@ -12881,6 +13123,7 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
       { name: "可见性", width: "130px" },
       { name: "策略", width: "150px" },
       { name: "成员", width: "140px" },
+      { name: "可用额度", width: "150px" },
       { name: "运行态" },
       { name: "操作", width: "132px", sort: false },
     ],
@@ -12891,6 +13134,7 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
       const eligibleCount =
         poolRuntime?.eligibleMemberCount ?? Math.max(memberCount, 0);
       const coolingCount = poolRuntime?.coolingMemberCount ?? 0;
+      const quotaAggregate = summarizePoolQuotaAggregate(pool, candidates);
       return [
         gridHtml(`
           <label class="pool-card-select" data-pool-select-control="true" title="选择此号池用于批量操作">
@@ -12929,6 +13173,12 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
         `),
         gridHtml(`
           <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
+            <strong>${renderQuotaAggregateBadge(quotaAggregate)}</strong>
+            <span>${escapeHtml(formatCompactCount(quotaAggregate.countedCount))} 个已同步 / ${escapeHtml(formatCompactCount(quotaAggregate.availableCount))} 个可用</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <strong>${escapeHtml(poolRuntime?.selectionReason ?? "等待运行观测")}</strong>
             <span>最近选中 ${escapeHtml(formatRecentCall(poolRuntime?.lastSelectedAt))}</span>
           </div>
@@ -12945,7 +13195,7 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
     fallbackMarkup: buildPoolListFallbackMarkup(pools),
     pageSize: 20,
     search: true,
-    minWidth: "1000px",
+    minWidth: "1160px",
   });
 }
 
