@@ -23,10 +23,23 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("class=\"console-header page-header\"");
     expect(indexHtml).toContain("class=\"view-stack page-body\"");
     expect(indexHtml).toContain("class=\"sidebar compact-sidebar\"");
+    expect(indexHtml).toContain("<title>RelayGate</title>");
+    expect(indexHtml).toContain("<strong>RelayGate</strong>");
+    expect(indexHtml).toContain("<span>公网运营控制台</span>");
+    expect(indexHtml).toContain("<h1>公网中转网关</h1>");
+    expect(indexHtml).toContain("id=\"header-last-updated\"");
+    expect(indexHtml).toContain("id=\"sidebar-last-updated\"");
+    expect(indexHtml).toContain("最近更新 2026-05-25 14:44");
+    expect(indexHtml).toContain("更新 2026-05-25 14:44");
+    expect(indexHtml).toContain("复制 Provider");
     expect(styles).toContain("color-scheme: light");
     expect(styles).toContain("--color-bg-app: #f6f7fb");
     expect(styles).toContain("--color-bg-sidebar: #ffffff");
     expect(styles).toContain("--color-bg-card: #ffffff");
+    expect(styles).toContain(".brand-control-card p");
+    expect(styles).toContain(".header-brand-meta");
+    expect(styles).toContain(".brand-mark img");
+    expect(styles).toContain("width: 46px;");
     expect(styles).not.toContain("color-scheme: dark");
   });
 
@@ -912,6 +925,8 @@ describe("desktop build output", () => {
     expect(systemView).not.toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-public-template-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("RelayGate Provider LAN 模板");
+    expect(indexHtml).toContain("RelayGate Provider 公网模板");
     expect(indexHtml).toContain("id=\"system-public-validation-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-troubleshooting-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"recent-errors-modal\" class=\"modal-overlay\"");
@@ -946,6 +961,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("公网 stream: true 验收");
     expect(rendererSource).toContain("cc_switch");
     expect(rendererSource).toContain("自定义 Provider");
+    expect(rendererSource).toContain("RelayGate Provider 公网接入模板");
+    expect(rendererSource).toContain("Provider 名称建议：RelayGate Provider");
     expect(rendererSource).toContain("recent-error-card");
     expect(runtimeDiagnosticsSource).toContain("lan-sharing-ready");
     expect(runtimeDiagnosticsSource).toContain("lan-bind-loopback");

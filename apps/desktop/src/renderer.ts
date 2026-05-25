@@ -10710,13 +10710,14 @@ function buildLanAccessTemplateText(): string {
     ? modelAliases.join(", ")
     : recommendedModel;
   return [
-    "Local AI Gateway LAN 接入模板",
+    "RelayGate Provider LAN 接入模板",
     "",
     `base_url: ${baseUrl}`,
     "api_key: <分发给该成员的一次性 API Key 明文>",
     `model: ${recommendedModel}`,
     "",
     "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "- Provider 名称建议：RelayGate Provider (LAN)",
     "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
     `- Base URL：${baseUrl}`,
     "- API Key：粘贴该成员的专属 API Key",
@@ -10745,13 +10746,14 @@ function buildPublicAccessTemplateText(): string {
     ? modelAliases.join(", ")
     : recommendedModel;
   return [
-    "Local AI Gateway 公网接入模板",
+    "RelayGate Provider 公网接入模板",
     "",
     `base_url: ${baseUrl}`,
     "api_key: <分发给该公网成员的一次性 API Key 明文>",
     `model: ${recommendedModel}`,
     "",
     "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "- Provider 名称建议：RelayGate Provider",
     "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
     `- Base URL：${baseUrl}`,
     "- API Key：粘贴该公网成员的专属 API Key",
@@ -10816,13 +10818,13 @@ function renderLanAccessTemplate(): void {
     : "未启用";
   const detail = lanEnabled
     ? "将下面模板发给可信成员；真实 API Key 请从“成员与密钥”的成员 Key 创建或轮换结果中单独分发。"
-    : "启用 LAN 共享并配置成员 Key、Gateway API Key 或客户端密钥映射后，这里会生成可分发给成员的接入模板。";
+    : "启用 LAN 共享并配置成员 Key、Gateway API Key 或客户端密钥映射后，这里会生成可分发给成员的 RelayGate Provider 模板。";
 
   container.innerHTML = `
     <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
       <div class="diagnostic-card-header">
         <div>
-          <strong>LAN 成员接入模板</strong>
+          <strong>RelayGate Provider LAN 模板</strong>
           <span>${escapeHtml(detail)}</span>
         </div>
         <span class="badge ${lanEnabled && hasCredential ? "active" : "neutral"}">${escapeHtml(status)}</span>
@@ -10835,7 +10837,7 @@ function renderLanAccessTemplate(): void {
       </div>
       <pre class="template-preview">${escapeHtml(buildLanAccessTemplateText())}</pre>
       <div class="usage-alert-actions">
-        <button class="btn secondary mini" data-action="copy-lan-access-template">复制 LAN 模板</button>
+        <button class="btn secondary mini" data-action="copy-lan-access-template">复制 LAN Provider</button>
       </div>
     </div>
   `;
@@ -10863,13 +10865,13 @@ function renderPublicAccessTemplate(): void {
     : "未启用";
   const detail = publicEnabled
     ? "将下面模板发给公网试用成员；真实 API Key 请从“成员与密钥”的 public-user 成员 Key 创建或轮换结果中单独分发。"
-    : "启用公网共享配置并填写 HTTPS Public Base URL 后，这里会生成公网成员接入模板。";
+    : "启用公网共享配置并填写 HTTPS Public Base URL 后，这里会生成公网成员 RelayGate Provider 模板。";
 
   container.innerHTML = `
     <div class="diagnostic-card detail-drawer-panel lan-access-template-card">
       <div class="diagnostic-card-header">
         <div>
-          <strong>公网成员接入模板</strong>
+          <strong>RelayGate Provider 公网模板</strong>
           <span>${escapeHtml(detail)}</span>
         </div>
         <span class="badge ${ready ? "active" : "neutral"}">${escapeHtml(status)}</span>
@@ -10882,7 +10884,7 @@ function renderPublicAccessTemplate(): void {
       </div>
       <pre class="template-preview">${escapeHtml(buildPublicAccessTemplateText())}</pre>
       <div class="usage-alert-actions">
-        <button class="btn secondary mini" data-action="copy-public-access-template">复制公网模板</button>
+        <button class="btn secondary mini" data-action="copy-public-access-template">复制公网 Provider</button>
       </div>
     </div>
   `;
@@ -18306,7 +18308,7 @@ function bindActions(): void {
     if (action === "copy-lan-access-template") {
       try {
         await copyTextWithFallback(buildLanAccessTemplateText());
-        setBanner("LAN 成员接入模板已复制。", "success");
+        setBanner("RelayGate Provider LAN 模板已复制。", "success");
       } catch (error) {
         setBanner(`复制 LAN 模板失败：${String(error)}`, "error");
       }
@@ -18315,7 +18317,7 @@ function bindActions(): void {
     if (action === "copy-public-access-template") {
       try {
         await copyTextWithFallback(buildPublicAccessTemplateText());
-        setBanner("公网成员接入模板已复制。", "success");
+        setBanner("RelayGate Provider 公网模板已复制。", "success");
       } catch (error) {
         setBanner(`复制公网模板失败：${String(error)}`, "error");
       }
@@ -19203,7 +19205,7 @@ void (async () => {
       "info",
     );
     setOAuthBusyState(false);
-    setBanner("正在加载 Local AI Gateway 控制台...", "info");
+    setBanner("正在加载 RelayGate 控制台...", "info");
     await refresh();
     const primaryDiagnostic = getPrimaryRuntimeDiagnostic();
     if (primaryDiagnostic?.severity === "error") {

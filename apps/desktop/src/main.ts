@@ -325,7 +325,7 @@ function handleCapturedMainProcessError(error: unknown): void {
   if (!hasShownMainProcessFatalDialog) {
     hasShownMainProcessFatalDialog = true;
     dialog.showErrorBox(
-      "Local AI Gateway 主进程异常",
+      "RelayGate 主进程异常",
       `桌面主进程出现未捕获异常。\n\n原因：${message}\n\n如果问题持续出现，请重新安装最新构建或把该报错反馈给开发记录。`,
     );
   }
@@ -2581,7 +2581,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   }
   applyTrayImage(snapshot.state);
 
-  statusTray.setToolTip(`Local AI Gateway · ${snapshot.label}`);
+  statusTray.setToolTip(`RelayGate · ${snapshot.label}`);
   if (trayMenuIsOpen && !showMenu) {
     return;
   }
@@ -2830,7 +2830,7 @@ function handleStartupError(error: unknown): void {
   const message = toErrorMessage(error);
   console.error("[desktop] 启动失败:", message);
   dialog.showErrorBox(
-    "Local AI Gateway 启动失败",
+    "RelayGate 启动失败",
     `桌面端未能成功启动本地网关或加载控制台界面。\n\n原因：${message}\n\n请先确认当前安装包为最新版本，或重新运行“重启服务”后再试。`,
   );
   app.quit();
@@ -3059,7 +3059,7 @@ ipcMain.handle("gateway:show-native-notification", async (_event, payload: unkno
   const input = (payload ?? {}) as { title?: string; body?: string };
   const title = typeof input.title === "string" && input.title.trim()
     ? input.title.trim()
-    : "Local AI Gateway";
+    : "RelayGate";
   const body = typeof input.body === "string" ? input.body.trim() : "";
   if (!Notification.isSupported()) {
     return { ok: false, supported: false };
@@ -3536,12 +3536,12 @@ ipcMain.handle("gateway:get-system-settings", async () => {
 ipcMain.handle("gateway:export-app-data", async () => {
   const snapshot = getAppDataSnapshotSummary(gatewayPaths);
   const result = await dialog.showSaveDialog({
-    title: "导出 Local AI Gateway 应用数据",
+    title: "导出 RelayGate 应用数据",
     defaultPath: join(
       app.getPath("downloads"),
       createBackupFileName("local-ai-gateway-backup"),
     ),
-    filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+    filters: [{ name: "RelayGate 备份", extensions: ["json"] }],
   });
 
   if (result.canceled || !result.filePath) {
@@ -3583,9 +3583,9 @@ ipcMain.handle("gateway:open-backups-folder", async () => {
 
 ipcMain.handle("gateway:preview-import-app-data", async () => {
   const result = await dialog.showOpenDialog({
-    title: "导入 Local AI Gateway 应用数据",
+    title: "导入 RelayGate 应用数据",
     properties: ["openFile"],
-    filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+    filters: [{ name: "RelayGate 备份", extensions: ["json"] }],
   });
 
   if (result.canceled || result.filePaths.length === 0) {
@@ -3615,9 +3615,9 @@ ipcMain.handle("gateway:import-app-data", async (_event, selectedPath?: string) 
   let targetPath = selectedPath?.trim();
   if (!targetPath) {
     const result = await dialog.showOpenDialog({
-      title: "导入 Local AI Gateway 应用数据",
+      title: "导入 RelayGate 应用数据",
       properties: ["openFile"],
-      filters: [{ name: "Local AI Gateway 备份", extensions: ["json"] }],
+      filters: [{ name: "RelayGate 备份", extensions: ["json"] }],
     });
 
     if (result.canceled || result.filePaths.length === 0) {

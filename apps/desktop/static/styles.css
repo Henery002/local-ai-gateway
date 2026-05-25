@@ -184,35 +184,35 @@ button, input, select {
 }
 
 .brand-area {
-  min-height: 72px;
-  padding: 16px var(--space-4);
+  min-height: 82px;
+  padding: 17px var(--space-4);
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 13px;
   text-align: left;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .brand-mark {
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  overflow: hidden;
-  background: var(--accent-soft);
-  border-radius: var(--radius-md);
+  overflow: visible;
+  background: transparent;
+  border-radius: 0;
   box-shadow: none;
-  padding: 6px;
-  border: 1px solid rgba(37, 99, 235, 0.18);
+  padding: 0;
+  border: 0;
 }
 
 .brand-mark img {
-  width: 100%;
-  height: 100%;
+  width: 46px;
+  height: 46px;
   display: block;
   object-fit: contain;
 }
@@ -227,13 +227,15 @@ button, input, select {
 }
 
 .brand-text strong {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
   color: var(--text-primary);
 }
 
 .brand-text span {
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--text-tertiary);
 }
 
@@ -338,21 +340,58 @@ button, input, select {
 }
 
 .sidebar-foot-card {
-  padding: var(--space-3);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
+  padding: 13px;
+  background:
+    linear-gradient(145deg, rgba(37, 99, 235, 0.08), rgba(20, 184, 166, 0.06)),
+    var(--color-bg-card);
+  border: 1px solid color-mix(in oklab, var(--accent-color) 18%, var(--color-border-subtle));
   border-radius: var(--radius-md);
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
-  text-align: center;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055);
 }
 
 .sidebar-foot-card strong {
   display: block;
   color: var(--text-primary);
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.brand-control-card p {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.brand-control-eyebrow {
+  color: var(--accent-color);
+  display: block;
+  font-size: 11px !important;
+  font-weight: 800;
+  letter-spacing: 0;
   margin-bottom: 4px;
-  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.brand-control-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.brand-control-tags span {
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px !important;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 7px;
 }
 
 /* Main Content Area */
@@ -452,6 +491,26 @@ button, input, select {
   max-width: 600px;
 }
 
+.header-brand-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.header-brand-meta span {
+  align-items: center;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 12px !important;
+  font-weight: 700;
+  min-height: 24px;
+  padding: 0 10px;
+}
+
 .service-status-badge {
   display: inline-flex;
   align-items: center;
@@ -485,7 +544,9 @@ button, input, select {
 
 .header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 .header-stats {
@@ -8107,7 +8168,8 @@ button, input, select {
   .usage-dimension-grid,
   .usage-alert-rule-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .brand-area { padding: 0; margin-right: 20px; flex-direction: row; text-align: left; gap: 12px; }
-  .brand-mark { width: 48px; height: 48px; padding: 8px; }
+  .brand-mark { width: 48px; height: 48px; padding: 0; }
+  .brand-mark img { width: 48px; height: 48px; }
   .brand-text { align-items: flex-start; gap: 2px; }
   .sidebar-foot { display: none; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }

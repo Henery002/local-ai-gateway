@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local AI Gateway</title>
+    <title>RelayGate</title>
     <link rel="stylesheet" href="../../../node_modules/gridjs/dist/theme/mermaid.min.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -13,11 +13,11 @@
       <aside class="sidebar compact-sidebar">
         <div class="brand-area">
           <div class="brand-mark">
-            <img src="../assets/icons/source/brand-icon.svg" alt="Local AI Gateway 图标" />
+            <img src="../assets/icons/source/brand-icon.svg" alt="RelayGate 图标" />
           </div>
           <div class="brand-text">
-            <strong>Local AI Gateway</strong>
-            <span>控制台</span>
+            <strong>RelayGate</strong>
+            <span>公网运营控制台</span>
           </div>
         </div>
 
@@ -110,9 +110,15 @@
         </div>
 
         <div class="sidebar-foot">
-          <div class="sidebar-foot-card">
-            <strong>本机控制面</strong>
-            管理面仅本机开放，公网只走成员 Key
+          <div class="sidebar-foot-card brand-control-card">
+            <span class="brand-control-eyebrow">Control Plane</span>
+            <strong>本机管理面</strong>
+            <p>公网只开放推理入口，成员、Key、号池与审计数据均保留在本机。</p>
+            <div class="brand-control-tags" aria-label="系统状态标签">
+              <span>公网优先</span>
+              <span>本机持久化</span>
+              <span id="sidebar-last-updated">更新 2026-05-25 14:44</span>
+            </div>
           </div>
         </div>
       </aside>
@@ -127,16 +133,20 @@
           <div class="header-main">
             <div class="header-title-wrap">
               <div class="header-title-row">
-                <h1>本地 AI 网关</h1>
+                <h1>公网中转网关</h1>
                 <span class="service-status-badge active" id="top-summary-status">加载中</span>
               </div>
-              <p>管理本地模型、统一授权接入与网络路由。</p>
+              <p>管理公网 Provider、成员密钥、号池调度与用量治理。</p>
+              <div class="header-brand-meta" aria-label="系统品牌信息">
+                <span>RelayGate 控制台</span>
+                <span id="header-last-updated">最近更新 2026-05-25 14:44</span>
+              </div>
             </div>
             <div class="header-actions">
               <button id="refresh" class="btn secondary">刷新状态</button>
               <button id="restart" class="btn secondary">重启服务</button>
-              <button id="copy-snippet" class="btn secondary">复制接入片段</button>
-              <button id="open-logs" class="btn secondary">打开日志</button>
+              <button id="copy-snippet" class="btn secondary">复制 Provider</button>
+              <button id="open-logs" class="btn secondary">运维日志</button>
             </div>
           </div>
           <div id="header-usage-observe-panel"></div>
@@ -1284,13 +1294,13 @@
                   <div class="system-action-grid system-action-grid-compact">
                     <button class="system-action-card" data-action="open-system-modal" data-system-modal-id="system-lan-template-modal" type="button">
                       <span class="badge neutral">LAN</span>
-                      <strong>LAN 成员接入模板</strong>
-                      <small>查看并复制局域网成员 Base URL / Model / cURL 模板。</small>
+                      <strong>RelayGate Provider LAN 模板</strong>
+                      <small>查看并复制局域网成员 Provider / Base URL / Model / cURL 模板。</small>
                     </button>
                     <button class="system-action-card" data-action="open-system-modal" data-system-modal-id="system-public-template-modal" type="button">
                       <span class="badge neutral">公网</span>
-                      <strong>公网成员接入模板</strong>
-                      <small>查看 Cloudflare Tunnel / HTTPS 入口的成员接入模板。</small>
+                      <strong>RelayGate Provider 公网模板</strong>
+                      <small>查看 Cloudflare Tunnel / HTTPS 入口的成员 Provider 模板。</small>
                     </button>
                     <button class="system-action-card" data-action="open-system-modal" data-system-modal-id="system-public-validation-modal" type="button">
                       <span class="badge neutral">验收</span>
@@ -1409,8 +1419,8 @@
       <div class="modal-content figma-modal system-diagnostics-modal">
         <div class="modal-header">
           <div>
-            <h3>LAN 成员接入模板</h3>
-            <p>用于把当前局域网共享入口分发给可信成员，真实 API Key 仍需从访问成员 Key 单独分发。</p>
+            <h3>RelayGate Provider LAN 模板</h3>
+            <p>用于把当前局域网 Provider 分发给可信成员，真实 API Key 仍需从访问成员 Key 单独分发。</p>
           </div>
           <button class="btn ghost mini" data-action="close-system-modal" data-system-modal-id="system-lan-template-modal" type="button">关闭</button>
         </div>
@@ -1424,8 +1434,8 @@
       <div class="modal-content figma-modal system-diagnostics-modal">
         <div class="modal-header">
           <div>
-            <h3>公网成员接入模板</h3>
-            <p>用于 Cloudflare Tunnel / HTTPS 公网入口，需配合公网成员 Key 和 public-ready 号池。</p>
+            <h3>RelayGate Provider 公网模板</h3>
+            <p>用于 Cloudflare Tunnel / HTTPS 公网 Provider，需配合公网成员 Key 和 public-ready 号池。</p>
           </div>
           <button class="btn ghost mini" data-action="close-system-modal" data-system-modal-id="system-public-template-modal" type="button">关闭</button>
         </div>
