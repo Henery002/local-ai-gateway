@@ -32,6 +32,7 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("最近更新 2026-05-25 14:44");
     expect(indexHtml).toContain("更新 2026-05-25 14:44");
     expect(indexHtml).toContain("复制 Provider");
+    expect(indexHtml).not.toContain("复制片段");
     expect(styles).toContain("color-scheme: light");
     expect(styles).toContain("--color-bg-app: #f6f7fb");
     expect(styles).toContain("--color-bg-sidebar: #ffffff");
@@ -413,7 +414,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("allowedModelAliases");
     expect(mainSource).toContain("defaultModel?: string");
     expect(mainSource).toContain("payload.openclaw?.model ?? payload.defaultModel");
-    expect(mainSource).toContain("apiKey=<你的 Gateway API Key 或成员 API Key>");
+    expect(mainSource).toContain("RelayGate Provider");
+    expect(mainSource).toContain("api_key: <你的 RelayGate Provider API Key>");
     expect(mainSource).not.toContain("apiKey=<你的 Local AI Gateway API Key>");
   });
 
@@ -963,6 +965,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("自定义 Provider");
     expect(rendererSource).toContain("RelayGate Provider 公网接入模板");
     expect(rendererSource).toContain("Provider 名称建议：RelayGate Provider");
+    expect(rendererSource).toContain("Codex / CC Switch 模板");
+    expect(rendererSource).toContain("Claude Code 模板");
+    expect(rendererSource).toContain("Trae 模板");
+    expect(rendererSource).toContain("Cursor 模板");
+    expect(rendererSource).not.toContain("Hermes 模板");
     expect(rendererSource).toContain("recent-error-card");
     expect(runtimeDiagnosticsSource).toContain("lan-sharing-ready");
     expect(runtimeDiagnosticsSource).toContain("lan-bind-loopback");

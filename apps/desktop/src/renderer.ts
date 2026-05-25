@@ -1309,7 +1309,14 @@ type DashboardView =
   | "notifications"
   | "operations"
   | "system";
-type IntegrationTemplateKey = "openclaw" | "hermes" | "curl";
+type IntegrationTemplateKey =
+  | "generic"
+  | "codex"
+  | "claude-code"
+  | "trae"
+  | "cursor"
+  | "openclaw"
+  | "curl";
 type RoutingObserveWindow = "5m" | "1h" | "24h";
 type UsageAlertStatusFilter = "all" | "unacknowledged" | "acknowledged";
 type UsageAlertSeverityFilter = "all" | AccessAlertEvent["severity"];
@@ -10716,14 +10723,23 @@ function buildLanAccessTemplateText(): string {
     "api_key: <分发给该成员的一次性 API Key 明文>",
     `model: ${recommendedModel}`,
     "",
-    "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "通用 OpenAI-compatible / Custom Provider：",
     "- Provider 名称建议：RelayGate Provider (LAN)",
     "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
     `- Base URL：${baseUrl}`,
     "- API Key：粘贴该成员的专属 API Key",
     `- Model：${recommendedModel}`,
     `- 可用模型别名：${modelAliasText}`,
-    "- Codex App / CC Switch：wire_api = responses，requires_openai_auth = true",
+    "",
+    "Codex App / CC Switch：",
+    "- wire_api = responses",
+    "- requires_openai_auth = true",
+    "- model_provider = custom",
+    "",
+    "Trae / Cursor / OpenClaw / 其他支持自定义 OpenAI Provider 的工具：",
+    "- API 格式选择 OpenAI-compatible / Chat Completions / Responses 其一",
+    "- Base URL 不要重复拼接 /v1",
+    "- API Key 使用成员专属 Key，不使用管理员本机 Key",
     "",
     "cURL 验证：",
     `curl ${baseUrl}/models \\`,
@@ -10748,18 +10764,35 @@ function buildPublicAccessTemplateText(): string {
   return [
     "RelayGate Provider 公网接入模板",
     "",
+    "通用接入参数：",
+    "provider_name: RelayGate Provider",
     `base_url: ${baseUrl}`,
     "api_key: <分发给该公网成员的一次性 API Key 明文>",
     `model: ${recommendedModel}`,
+    `available_models: ${modelAliasText}`,
     "",
-    "cc_switch / Codex / 支持自定义 Provider 的 Agent 工具：",
+    "通用 OpenAI-compatible / Custom Provider：",
     "- Provider 名称建议：RelayGate Provider",
     "- Provider 类型：OpenAI-compatible 或 Custom OpenAI",
     `- Base URL：${baseUrl}`,
     "- API Key：粘贴该公网成员的专属 API Key",
     `- Model：${recommendedModel}`,
     `- 可用模型别名：${modelAliasText}`,
-    "- Codex App / CC Switch：wire_api = responses，requires_openai_auth = true",
+    "",
+    "Codex App / CC Switch：",
+    "- model_provider = custom",
+    "- wire_api = responses",
+    "- requires_openai_auth = true",
+    "",
+    "Claude Code / Trae / Cursor：",
+    "- 选择 OpenAI-compatible / Custom OpenAI / 自定义模型服务",
+    "- Base URL 填公网地址，API Key 填成员专属 Key",
+    "- 如果工具要求协议面，优先选择 Responses；没有 Responses 时使用 Chat Completions",
+    "",
+    "OpenClaw：",
+    "- provider 建议命名为 relaygate",
+    "- api = openai-completions",
+    "- headers 可选写入 x-client-tag: openclaw",
     "- 普通成员不需要本机切换脚本；脚本只用于管理员本机在 Cockpit 与本网关之间保留完整 Codex 配置地切换",
     "",
     "cURL 验证：",
@@ -11225,51 +11258,117 @@ function buildIntegrationSnippets(
 ): Record<IntegrationTemplateKey, string> {
   const baseUrl = options?.baseUrl ?? health.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const model = health.openclaw?.model ?? health.defaultModel ?? getRecommendedModelAlias();
-  const provider = health.openclaw?.provider ?? "openai";
   const apiKeyPlaceholder =
     options?.apiKeyPlaceholder ?? "<你的 Gateway API Key 或成员 API Key>";
-  const clientTag = options?.clientTag ?? "openclaw";
+  const clientTag = options?.clientTag ?? "relaygate";
   const requiresApiKey =
     Boolean(options?.forceApiKey) ||
     (Boolean(state.securitySettings?.enabled ?? health.inferenceAuth?.enabled) &&
       hasAnyInferenceCredential(state.securitySettings ?? health.inferenceAuth));
+  const authLine = requiresApiKey
+    ? `api_key: ${apiKeyPlaceholder}`
+    : "api_key: <按当前鉴权配置填写>";
+  const authorizationHeader = requiresApiKey
+    ? [`-H "Authorization: Bearer ${apiKeyPlaceholder}"`]
+    : [];
 
-  const openclaw = [
-    `provider=${provider}`,
-    `baseUrl=${baseUrl}`,
-    `model=${model}`,
-    `clientTag=${clientTag}`,
-    ...(requiresApiKey ? [`apiKey=${apiKeyPlaceholder}`] : []),
+  const generic = [
+    "RelayGate Provider",
+    "",
+    "通用 OpenAI-compatible / Custom Provider 参数：",
+    "provider_name: RelayGate Provider",
+    "provider_type: OpenAI-compatible / Custom OpenAI",
+    `base_url: ${baseUrl}`,
+    authLine,
+    `model: ${model}`,
+    "wire_api: responses 优先；不支持 Responses 时使用 chat/completions",
+    "",
+    "适用：Codex、Claude Code、Trae、Cursor、OpenClaw、支持自定义 OpenAI Provider 的 Agent 客户端。",
   ].join("\n");
 
-  const hermes = [
-    "model:",
-    "  provider: custom",
-    `  base_url: ${baseUrl}`,
-    `  default: ${model}`,
-    "custom_providers:",
-    `- name: ${model}`,
-    `  base_url: ${baseUrl}`,
-    `  model: ${model}`,
-    ...(requiresApiKey ? [`  api_key: ${apiKeyPlaceholder}`] : []),
+  const codex = [
+    "# Codex App / CC Switch",
+    'model_provider = "custom"',
+    `model = "${model}"`,
+    "",
+    "[model_providers.custom]",
+    'name = "RelayGate Provider"',
+    'wire_api = "responses"',
+    "requires_openai_auth = true",
+    `base_url = "${baseUrl}"`,
+    "",
+    "# API Key 在 CC Switch / Codex Provider 配置中填写公网成员 Key。",
+  ].join("\n");
+
+  const claudeCode = [
+    "# Claude Code / 支持 OpenAI-compatible 的 Claude 类客户端",
+    "Provider 名称：RelayGate Provider",
+    "Provider 类型：OpenAI-compatible / Custom OpenAI",
+    `Base URL：${baseUrl}`,
+    `API Key：${apiKeyPlaceholder}`,
+    `Model：${model}`,
+    "协议面：优先 Responses；如客户端仅支持 Chat Completions，则选择 OpenAI Chat Completions。",
+    "",
+    "说明：若客户端只支持 Anthropic 原生协议而不支持 OpenAI-compatible Provider，则不能直接使用该模板。",
+  ].join("\n");
+
+  const trae = [
+    "# Trae",
+    "Provider 类型：OpenAI-compatible / Custom OpenAI",
+    "Provider 名称：RelayGate Provider",
+    `Base URL：${baseUrl}`,
+    `API Key：${apiKeyPlaceholder}`,
+    `Model：${model}`,
+    "模型列表：优先通过 /v1/models 获取；不要把 Base URL 写成 /v1/v1。",
+  ].join("\n");
+
+  const cursor = [
+    "# Cursor",
+    "OpenAI Compatible Base URL:",
+    baseUrl,
+    "API Key:",
+    apiKeyPlaceholder,
+    "Model:",
+    model,
+    "",
+    "如 Cursor 页面要求 Provider 名称，填写 RelayGate Provider；如要求 API 类型，选择 OpenAI-compatible。",
+  ].join("\n");
+
+  const openclaw = [
+    "# OpenClaw",
+    "provider=relaygate",
+    `baseUrl=${baseUrl}`,
+    `model=${model}`,
+    `clientTag=${clientTag === "public-user" ? "openclaw" : clientTag}`,
+    ...(requiresApiKey ? [`apiKey=${apiKeyPlaceholder}`] : []),
+    "",
+    "# 可选 header: x-client-tag=openclaw",
   ].join("\n");
 
   const curlHeaders = [
     `-H "Content-Type: application/json"`,
     `-H "x-client-tag: ${clientTag}"`,
-    ...(requiresApiKey
-      ? [`-H "Authorization: Bearer ${apiKeyPlaceholder}"`]
-      : []),
+    ...authorizationHeader,
   ];
   const curl = [
+    "# cURL Chat Completions 验证",
     `curl ${baseUrl}/chat/completions \\`,
     ...curlHeaders.map((header) => `  ${header} \\`),
     `  -d '{"model":"${model}","messages":[{"role":"user","content":"ping"}]}'`,
+    "",
+    "# cURL Responses 验证",
+    `curl ${baseUrl}/responses \\`,
+    ...curlHeaders.map((header) => `  ${header} \\`),
+    `  -d '{"model":"${model}","input":"ping","max_output_tokens":8}'`,
   ].join("\n");
 
   return {
+    generic,
+    codex,
+    "claude-code": claudeCode,
+    trae,
+    cursor,
     openclaw,
-    hermes,
     curl,
   };
 }
@@ -11280,11 +11379,23 @@ function buildCombinedIntegrationSnippet(
 ): string {
   const snippets = buildIntegrationSnippets(health, options);
   return [
+    "# 通用接入模板",
+    snippets.generic,
+    "",
+    "# Codex / CC Switch",
+    snippets.codex,
+    "",
+    "# Claude Code",
+    snippets["claude-code"],
+    "",
+    "# Trae",
+    snippets.trae,
+    "",
+    "# Cursor",
+    snippets.cursor,
+    "",
     "# OpenClaw",
     snippets.openclaw,
-    "",
-    "# Hermes / Custom Provider",
-    snippets.hermes,
     "",
     "# cURL",
     snippets.curl,
@@ -11299,7 +11410,7 @@ function buildPublicIntegrationSnippet(): string {
   return buildCombinedIntegrationSnippet(health, {
     baseUrl: getPublicAccessBaseUrl(),
     apiKeyPlaceholder: "<公网成员 API Key>",
-    clientTag: "public-user",
+    clientTag: "relaygate-public",
     forceApiKey: true,
   });
 }
@@ -11324,14 +11435,34 @@ function renderGuide(): void {
     subtitle: string;
   }> = [
     {
-      key: "openclaw",
-      title: "OpenClaw 模板",
-      subtitle: "适用于 OpenClaw provider 配置文件",
+      key: "generic",
+      title: "通用 Provider 模板",
+      subtitle: "适用于支持 OpenAI-compatible / Custom OpenAI 的客户端",
     },
     {
-      key: "hermes",
-      title: "Hermes 模板",
-      subtitle: "适用于 Hermes 自定义 provider / custom provider 配置",
+      key: "codex",
+      title: "Codex / CC Switch 模板",
+      subtitle: "优先使用 Responses 协议面",
+    },
+    {
+      key: "claude-code",
+      title: "Claude Code 模板",
+      subtitle: "适用于支持 OpenAI-compatible Provider 的 Claude 类客户端",
+    },
+    {
+      key: "trae",
+      title: "Trae 模板",
+      subtitle: "适用于 Trae 自定义 OpenAI-compatible Provider",
+    },
+    {
+      key: "cursor",
+      title: "Cursor 模板",
+      subtitle: "适用于 Cursor OpenAI Compatible Base URL",
+    },
+    {
+      key: "openclaw",
+      title: "OpenClaw 模板",
+      subtitle: "兼容 OpenClaw provider 配置文件",
     },
     {
       key: "curl",
@@ -11347,12 +11478,7 @@ function renderGuide(): void {
       <div style="display: flex; flex-direction: column; gap: 10px;">
         ${snippetRows
           .map((row) => {
-            const snippet =
-              row.key === "openclaw"
-                ? snippets.openclaw
-                : row.key === "hermes"
-                  ? snippets.hermes
-                  : snippets.curl;
+            const snippet = snippets[row.key];
             return `
               <section style="border: 1px solid var(--border-light); border-radius: 10px; padding: 10px; background: var(--bg-surface);">
                 <div style="display: flex; justify-content: space-between; gap: 8px; align-items: flex-start;">
@@ -14874,11 +15000,11 @@ function bindNavigation(): void {
 
 async function copySnippetWithFeedback(): Promise<void> {
   if (state.health) {
-    await copyTextWithFallback(buildCombinedIntegrationSnippet(state.health));
+    await copyTextWithFallback(buildPublicIntegrationSnippet());
   } else {
     await getGatewayApi().copyOpenClawSnippet();
   }
-  setBanner("接入片段已复制。", "success");
+  setBanner("RelayGate Provider 公网接入模板已复制。", "success");
 }
 
 async function copyTextWithFallback(text: string): Promise<void> {
@@ -14924,8 +15050,12 @@ async function copyTemplateWithFeedback(
   }
   const snippets = buildIntegrationSnippets(health);
   const labels: Record<IntegrationTemplateKey, string> = {
+    generic: "通用 Provider 模板",
+    codex: "Codex / CC Switch 模板",
+    "claude-code": "Claude Code 模板",
+    trae: "Trae 模板",
+    cursor: "Cursor 模板",
     openclaw: "OpenClaw 模板",
-    hermes: "Hermes 模板",
     curl: "通用 cURL 模板",
   };
   await copyTextWithFallback(snippets[key]);

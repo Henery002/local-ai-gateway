@@ -1767,7 +1767,7 @@ async function prunePoolsForDeletedAccounts(
   };
 }
 
-async function buildOpenClawSnippet(): Promise<string> {
+async function buildRelayGateProviderSnippet(): Promise<string> {
   const payload = (await callAdmin("/admin/health")) as {
     defaultModel?: string;
     openclaw?: {
@@ -1779,13 +1779,23 @@ async function buildOpenClawSnippet(): Promise<string> {
   };
 
   const baseUrl = buildGatewayBaseUrl(getConfiguredGatewayPort());
+  const providerBaseUrl =
+    payload.inferenceAuth?.publicAccess?.enabled &&
+    payload.inferenceAuth.publicAccess.publicBaseUrl?.startsWith("https://")
+      ? payload.inferenceAuth.publicAccess.publicBaseUrl
+      : `${baseUrl}/v1`;
+  const model = payload.openclaw?.model ?? payload.defaultModel ?? "codex-default";
   const lines = [
-    `baseUrl=${payload.openclaw?.baseUrl ?? `${baseUrl}/v1`}`,
-    `provider=${payload.openclaw?.provider ?? "openai"}`,
-    `model=${payload.openclaw?.model ?? payload.defaultModel ?? "codex-default"}`,
+    "RelayGate Provider",
+    "",
+    "provider_name: RelayGate Provider",
+    "provider_type: OpenAI-compatible / Custom OpenAI",
+    `base_url: ${providerBaseUrl}`,
+    `model: ${model}`,
+    "wire_api: responses 优先；不支持 Responses 时使用 chat/completions",
   ];
   if (payload.inferenceAuth?.enabled) {
-    lines.push("apiKey=<你的 Gateway API Key 或成员 API Key>");
+    lines.push("api_key: <你的 RelayGate Provider API Key>");
   }
   return lines.join("\n");
 }
@@ -3322,7 +3332,7 @@ ipcMain.handle("gateway:restart", async () => {
 
 ipcMain.handle("gateway:copy-openclaw-snippet", async () => {
   await gatewayManager.ensureRunning();
-  clipboard.writeText(await buildOpenClawSnippet());
+  clipboard.writeText(await buildRelayGateProviderSnippet());
   return { ok: true };
 });
 
