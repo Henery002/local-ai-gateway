@@ -3700,7 +3700,7 @@ function renderAccessConsumerList(
         key,
       ]);
     }
-    const rows = consumers
+    const fallbackRows = consumers
       .map((consumer) => {
         const keys = keysByConsumer.get(consumer.id) ?? [];
         const enabledKeys = keys.filter(
@@ -3776,7 +3776,7 @@ function renderAccessConsumerList(
         `;
       })
       .join("");
-    node.innerHTML = `
+    const fallbackMarkup = `
       <div class="figma-table access-consumer-table" role="table" aria-label="访问成员">
         <div class="figma-table-head access-consumer-table-head" role="row">
           <span>成员</span>
@@ -3788,9 +3788,10 @@ function renderAccessConsumerList(
           <span>更新时间</span>
           <span class="access-consumer-actions-cell">操作</span>
         </div>
-        ${rows}
+        ${fallbackRows}
       </div>
     `;
+    renderAccessConsumerGrid(consumers, accessControl, fallbackMarkup);
     return;
   }
 
@@ -3801,7 +3802,7 @@ function renderAccessConsumerList(
     return;
   }
 
-  const rows = mappings
+  const fallbackRows = mappings
     .map(
       (mapping) => `
         <div class="figma-table-row access-consumer-row" role="row">
@@ -3840,7 +3841,7 @@ function renderAccessConsumerList(
       `,
     )
     .join("");
-  node.innerHTML = `
+  const fallbackMarkup = `
     <div class="figma-table access-consumer-table" role="table" aria-label="兼容客户端密钥">
       <div class="figma-table-head access-consumer-table-head" role="row">
         <span>客户端</span>
@@ -3852,9 +3853,143 @@ function renderAccessConsumerList(
         <span>更新时间</span>
         <span class="access-consumer-actions-cell">状态</span>
       </div>
-      ${rows}
+      ${fallbackRows}
     </div>
   `;
+  renderAccessMappingGrid(mappings, fallbackMarkup);
+}
+
+function renderAccessConsumerGrid(
+  consumers: SecurityAccessConsumer[],
+  accessControl: SecurityAccessControl | undefined,
+  fallbackMarkup: string,
+): void {
+  const keysByConsumer = new Map<string, SecurityAccessKey[]>();
+  for (const key of accessControl?.keys ?? []) {
+    keysByConsumer.set(key.consumerId, [
+      ...(keysByConsumer.get(key.consumerId) ?? []),
+      key,
+    ]);
+  }
+  renderGridTable({
+    id: "access-consumer-list",
+    columns: [
+      { name: "成员", width: "220px" },
+      { name: "Key 状态", width: "190px" },
+      { name: "额度", width: "180px" },
+      { name: "限制", width: "180px" },
+      { name: "模型 / 号池", width: "170px" },
+      { name: "更新时间", width: "170px" },
+      { name: "操作", width: "220px", sort: false },
+    ],
+    data: consumers.map((consumer) => {
+      const keys = keysByConsumer.get(consumer.id) ?? [];
+      const enabledKeys = keys.filter(
+        (key) => key.status === "enabled" && !isPastIsoDate(key.expiresAt),
+      ).length;
+      const expiredKeys = keys.filter((key) => isPastIsoDate(key.expiresAt)).length;
+      const displayKey =
+        keys.find((key) => key.status === "enabled" && !isPastIsoDate(key.expiresAt)) ??
+        keys[0];
+      const keyPreview = displayKey
+        ? `${displayKey.keyPrefix || "lagw"}...${displayKey.keySuffix || "****"}`
+        : "尚未创建 Key";
+      const policy = accessControl?.policies.find(
+        (item) => item.consumerId === consumer.id,
+      );
+      const quotaSummary = getAccessPolicyQuotaSummary(policy);
+      const poolCount = policy?.allowedPoolIds?.length ?? 0;
+      const modelCount = policy?.allowedModelAliases?.length ?? 0;
+      const consumerEnabled = consumer.status === "enabled";
+      const toggleLabel = consumerEnabled ? "禁用" : "启用";
+      return [
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(consumer.name || consumer.clientTag || "未命名访问者")}</strong>
+            <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")} · ${escapeHtml(consumer.type)}</span>
+            <span>${escapeHtml(consumer.note || "暂无备注")}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(formatCompactCount(enabledKeys))} / ${escapeHtml(formatCompactCount(keys.length))} 可用</strong>
+            <span>${escapeHtml(keyPreview)}</span>
+            <span>${expiredKeys > 0 ? `${escapeHtml(formatCompactCount(expiredKeys))} 个已过期` : "无过期 Key"}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(quotaSummary)}</strong>
+            <span>${policy?.quota?.periodStartedAt ? `起始 ${escapeHtml(formatAccessIsoDate(policy.quota.periodStartedAt))}` : "保存后热生效"}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.requestsPerMinute, "/min"))} / ${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.maxConcurrentRequests))}</strong>
+            <span>${policy?.expiresAt ? `到期 ${escapeHtml(formatAccessIsoDate(policy.expiresAt))}` : "策略不过期"}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${modelCount > 0 ? `${escapeHtml(String(modelCount))} 模型` : "模型不限"} / ${poolCount > 0 ? `${escapeHtml(String(poolCount))} 号池` : "号池不限"}</strong>
+            <span>${escapeHtml((consumer.tags ?? []).join(", ") || "无标签")}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(formatAccessIsoDate(consumer.updatedAt))}</strong>
+            <span>${consumerEnabled ? "当前可调用" : "已暂停调用"}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-actions">
+            <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
+            <button class="btn ghost mini" data-access-member-select="${escapeHtml(consumer.id)}" type="button">编辑</button>
+            <button class="btn secondary mini" data-access-member-toggle="${escapeHtml(consumer.id)}" type="button">${toggleLabel}</button>
+            <button class="btn danger-ghost mini" data-access-member-delete="${escapeHtml(consumer.id)}" type="button">删除</button>
+          </div>
+        `),
+      ];
+    }),
+    emptyMessage: "当前暂无访问成员。",
+    fallbackMarkup,
+    pageSize: 12,
+    search: true,
+  });
+}
+
+function renderAccessMappingGrid(
+  mappings: SecurityClientMapping[],
+  fallbackMarkup: string,
+): void {
+  renderGridTable({
+    id: "access-consumer-list",
+    columns: [
+      { name: "客户端", width: "240px" },
+      { name: "Key 状态", width: "140px" },
+      { name: "Header 覆盖", width: "140px" },
+      { name: "额度", width: "180px" },
+      { name: "模型 / 号池", width: "180px" },
+      { name: "状态", width: "110px" },
+    ],
+    data: mappings.map((mapping) => [
+      gridHtml(`
+        <div class="gateway-grid-stack">
+          <strong>${escapeHtml(mapping.name || mapping.clientTag || "未命名客户端")}</strong>
+          <span>${escapeHtml(mapping.clientTag || "未设置 clientTag")}</span>
+        </div>
+      `),
+      mapping.hasApiKey ? "已保存" : "缺少密钥",
+      mapping.allowHeaderOverride ? "允许" : "禁止",
+      "沿用兼容配置",
+      "未接入成员策略",
+      gridHtml(`<span class="badge ${mapping.enabled ? "active" : "neutral"}">${mapping.enabled ? "启用" : "暂停"}</span>`),
+    ]),
+    emptyMessage: "当前暂无访问者或客户端密钥映射。",
+    fallbackMarkup,
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function formatAccessStatusLabel(
@@ -7395,6 +7530,7 @@ function renderUsageAlertEvents(): void {
     return true;
   });
   if (!events.length) {
+    disposeGridTable("usage-alert-event-list");
     node.innerHTML = "<div class='empty-card'>暂无符合筛选条件的正式访问告警事件。</div>";
     return;
   }
@@ -7448,19 +7584,65 @@ function renderUsageAlertEvents(): void {
     },
   ].filter((group) => group.events.length > 0);
 
-  node.innerHTML = groupedEvents
-    .map(
-      (group) => `
-        <div class="usage-alert-event-group">
-          <div class="usage-alert-group-title">
-            <strong>${escapeHtml(group.title)}</strong>
-            <span>${escapeHtml(formatCompactCount(group.events.length))} 条</span>
+  renderGridTable({
+    id: "usage-alert-event-list",
+    columns: [
+      { name: "时间", width: "150px" },
+      { name: "状态", width: "120px" },
+      { name: "成员 / Key", width: "220px" },
+      { name: "事件类型", width: "170px" },
+      { name: "内容" },
+      { name: "级别", width: "100px" },
+      { name: "操作", width: "120px", sort: false },
+    ],
+    data: events.map((event) => {
+      const isAcknowledged = Boolean(event.acknowledgedAt);
+      const occurrenceCount = event.occurrenceCount ?? 1;
+      const lastSeenAt = event.lastSeenAt ?? event.timestamp;
+      const consumerType = getAccessAlertConsumerType(event);
+      const ackAction =
+        event.id && !isAcknowledged
+          ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(event.id))}" type="button">确认</button>`
+          : "";
+      return [
+        gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatDate(event.timestamp))}</span>`),
+        gridHtml(`<span class="badge ${isAcknowledged ? "active" : "warning"}">${isAcknowledged ? "已确认" : "未确认"}</span>`),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(event.consumerId ?? "未关联成员")}</strong>
+            <span>${escapeHtml(event.accessKeyId ? `Key ${event.accessKeyId}` : "未关联 Key")}</span>
+            ${consumerType ? `<span>${escapeHtml(formatAccessAlertConsumerTypeLabel(consumerType))}</span>` : ""}
           </div>
-          ${group.events.map(renderEventCard).join("")}
-        </div>
-      `,
-    )
-    .join("");
+        `),
+        event.type,
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(event.message)}</strong>
+            <span>${occurrenceCount > 1 ? `重复 ${escapeHtml(formatCompactCount(occurrenceCount))} 次 · 最近 ${escapeHtml(formatDate(lastSeenAt))}` : "首次事件"}</span>
+            ${event.acknowledgedAt ? `<span>确认于 ${escapeHtml(formatDate(event.acknowledgedAt))}${event.acknowledgedBy ? ` · ${escapeHtml(event.acknowledgedBy)}` : ""}</span>` : ""}
+          </div>
+        `),
+        gridHtml(`<span class="badge ${escapeHtml(accessAlertSeverityTone(event.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(event.severity))}</span>`),
+        gridHtml(ackAction || `<span class="gateway-grid-muted">-</span>`),
+      ];
+    }),
+    emptyMessage: "暂无符合筛选条件的正式访问告警事件。",
+    fallbackMarkup: groupedEvents
+      .map(
+        (group) => `
+          <div class="usage-alert-event-group">
+            <div class="usage-alert-group-title">
+              <strong>${escapeHtml(group.title)}</strong>
+              <span>${escapeHtml(formatCompactCount(group.events.length))} 条</span>
+            </div>
+            ${group.events.map(renderEventCard).join("")}
+          </div>
+        `,
+      )
+      .join(""),
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function getNotificationIdForAlert(event: AccessAlertEvent): string {
@@ -7842,6 +8024,7 @@ function renderNotificationCenter(): void {
     return state.notificationTypeFilter === "all" || item.typeFilter === state.notificationTypeFilter;
   });
   if (items.length === 0) {
+    disposeGridTable("notification-list");
     listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无消息通知。</div>";
     if (paginationNode) {
       paginationNode.innerHTML = "";
@@ -7849,11 +8032,15 @@ function renderNotificationCenter(): void {
     updateNotificationUnreadBadge();
     return;
   }
-  const totalPages = Math.max(1, Math.ceil(items.length / state.notificationPageSize));
-  state.notificationPage = Math.min(Math.max(1, state.notificationPage), totalPages);
-  const pageStart = (state.notificationPage - 1) * state.notificationPageSize;
-  const pageItems = items.slice(pageStart, pageStart + state.notificationPageSize);
-  listNode.innerHTML = pageItems
+  renderNotificationGrid(items);
+  if (paginationNode) {
+    paginationNode.innerHTML = `<span>共 ${escapeHtml(formatCompactCount(items.length))} 条，分页由表格底部控制。</span>`;
+  }
+  updateNotificationUnreadBadge();
+}
+
+function buildNotificationListFallbackMarkup(items: NotificationItem[]): string {
+  return items
     .map(
       (item) => `
         <div class="notification-card ${item.read ? "read" : "unread"} tone-${escapeHtml(accessAlertSeverityTone(item.severity))}">
@@ -7879,16 +8066,50 @@ function renderNotificationCenter(): void {
       `,
     )
     .join("");
-  if (paginationNode) {
-    paginationNode.innerHTML = `
-      <span>第 ${escapeHtml(String(state.notificationPage))} / ${escapeHtml(String(totalPages))} 页 · 共 ${escapeHtml(formatCompactCount(items.length))} 条</span>
-      <div class="notification-page-actions">
-        <button class="btn secondary mini" data-action="notification-page" data-page="prev" type="button" ${state.notificationPage <= 1 ? "disabled" : ""}>上一页</button>
-        <button class="btn secondary mini" data-action="notification-page" data-page="next" type="button" ${state.notificationPage >= totalPages ? "disabled" : ""}>下一页</button>
-      </div>
-    `;
-  }
-  updateNotificationUnreadBadge();
+}
+
+function renderNotificationGrid(items: NotificationItem[]): void {
+  renderGridTable({
+    id: "notification-list",
+    columns: [
+      { name: "时间", width: "150px" },
+      { name: "状态", width: "120px" },
+      { name: "类型", width: "140px" },
+      { name: "成员", width: "180px" },
+      { name: "消息内容" },
+      { name: "级别", width: "100px" },
+      { name: "操作", width: "180px", sort: false },
+    ],
+    data: items.map((item) => [
+      gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatDate(item.timestamp))}</span>`),
+      gridHtml(`<span class="badge ${item.read ? "active" : "warning"}">${item.read ? "已读" : "未读"}</span>`),
+      gridHtml(`<span class="badge neutral">${escapeHtml(item.typeLabel)}</span>`),
+      gridHtml(`
+        <div class="gateway-grid-stack">
+          <strong>${escapeHtml(item.consumerLabel ?? "未关联成员")}</strong>
+          <span>${escapeHtml(item.accessKeyLabel ?? "未关联 Key")}</span>
+        </div>
+      `),
+      gridHtml(`
+        <div class="gateway-grid-stack">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.body)}</span>
+          <span>${escapeHtml(item.meta.join(" · ") || "无更多上下文")}</span>
+        </div>
+      `),
+      gridHtml(`<span class="badge ${escapeHtml(accessAlertSeverityTone(item.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(item.severity))}</span>`),
+      gridHtml(`
+        <div class="gateway-grid-actions">
+          ${item.read ? "" : `<button class="btn secondary mini" data-action="mark-notification-read" data-notification-id="${escapeHtml(item.id)}" type="button">标为已读</button>`}
+          ${item.alert?.id && !item.alert.acknowledgedAt ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(item.alert.id))}" type="button">确认告警</button>` : ""}
+        </div>
+      `),
+    ]),
+    emptyMessage: "当前筛选下暂无消息通知。",
+    fallbackMarkup: buildNotificationListFallbackMarkup(items),
+    pageSize: state.notificationPageSize,
+    search: true,
+  });
 }
 
 function launchAgentTone(status: LaunchAgentStatus, healthy?: boolean): "active" | "warning" | "neutral" {
@@ -12164,85 +12385,112 @@ function renderPoolCards(): void {
 
   container.innerHTML = [
     buildPoolBulkToolbarMarkup(pools),
-    `<div class="pool-list-table figma-table">
-      <div class="figma-table-head pool-list-row pool-list-head">
-        <div class="figma-table-cell">号池</div>
-        <div class="figma-table-cell">可见性</div>
-        <div class="figma-table-cell">策略</div>
-        <div class="figma-table-cell">成员</div>
-        <div class="figma-table-cell">运行态</div>
-        <div class="figma-table-cell pool-list-actions-cell">操作</div>
-      </div>
+    `<div id="pool-list-grid" class="pool-list-table"></div>`,
+  ].join("");
+  renderPoolGrid(pools);
+}
+
+function buildPoolListFallbackMarkup(pools: PoolDefinition[]): string {
+  return `
+    <div class="pool-list-table figma-table">
       ${pools
-        .map((pool, index) => {
-          const selected = selectedPoolIds.has(pool.id);
-          const poolRuntime = getPoolRuntime(pool.id);
-          const memberCount = pool.members?.length ?? 0;
-          const eligibleCount =
-            poolRuntime?.eligibleMemberCount ?? Math.max(memberCount, 0);
-          const coolingCount = poolRuntime?.coolingMemberCount ?? 0;
-          return `
-            <div
-              class="figma-table-row pool-list-row"
-              data-pool-list-row
-              data-pool-id="${escapeHtml(pool.id)}"
-              data-selected="${selected ? "true" : "false"}"
-              data-action="pool-edit"
-              role="button"
-              tabindex="0"
-            >
-              <div class="figma-table-cell pool-list-main-cell">
-                <label class="pool-card-select" data-pool-select-control="true" title="选择此号池用于批量操作">
-                  <input
-                    type="checkbox"
-                    data-field="pool-card-selector"
-                    data-pool-id="${escapeHtml(pool.id)}"
-                    aria-label="选择号池 ${escapeHtml(pool.name || pool.id)}"
-                    ${selected ? "checked" : ""}
-                  />
-                </label>
-                <div class="pool-card-index-avatar">${index + 1}</div>
-                <div class="pool-card-title-text">
-                  <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
-                  <span title="${escapeHtml(pool.id)}">${escapeHtml(pool.id)}</span>
-                </div>
+        .map(
+          (pool) => `
+            <div class="figma-table-row pool-list-row">
+              <div class="figma-table-cell">
+                <strong>${escapeHtml(pool.name || "未命名号池")}</strong>
+                <span>${escapeHtml(pool.id)}</span>
               </div>
               <div class="figma-table-cell">
                 <span class="badge neutral">${escapeHtml(formatPoolVisibilityLabel(pool.visibility))}</span>
                 <span class="badge ${pool.enabled === false ? "neutral" : "active"}">${escapeHtml(formatPoolEnabledLabel(pool))}</span>
               </div>
-              <div class="figma-table-cell">
-                <strong>${escapeHtml(formatPoolSelectionStrategyLabel(pool.selectionStrategy))}</strong>
-                <span class="muted-text">阈值 ${escapeHtml(String(typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15))}%</span>
-              </div>
-              <div class="figma-table-cell">
-                <strong>${escapeHtml(String(memberCount))} 个账号</strong>
-                <span class="muted-text">可选 ${escapeHtml(String(eligibleCount))} · 冷却 ${escapeHtml(String(coolingCount))}</span>
-              </div>
-              <div class="figma-table-cell">
-                <strong>${escapeHtml(poolRuntime?.selectionReason ?? "等待运行观测")}</strong>
-                <span class="muted-text">最近选中 ${escapeHtml(formatRecentCall(poolRuntime?.lastSelectedAt))}</span>
-              </div>
-              <div class="figma-table-cell pool-card-actions pool-list-actions-cell">
-                <button
-                  type="button"
-                  class="btn primary mini"
-                  data-action="pool-edit"
-                  data-pool-id="${escapeHtml(pool.id)}"
-                >编辑</button>
-                <button
-                  type="button"
-                  class="btn ghost danger-ghost mini"
-                  data-action="pool-remove"
-                  data-pool-id="${escapeHtml(pool.id)}"
-                >删除</button>
+              <div class="figma-table-cell pool-card-actions">
+                <button class="btn primary mini" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}" type="button">编辑</button>
+                <button class="btn ghost danger-ghost mini" data-action="pool-remove" data-pool-id="${escapeHtml(pool.id)}" type="button">删除</button>
               </div>
             </div>
-          `;
-        })
+          `,
+        )
         .join("")}
-    </div>`,
-  ].join("");
+    </div>
+  `;
+}
+
+function renderPoolGrid(pools: PoolDefinition[]): void {
+  renderGridTable({
+    id: "pool-list-grid",
+    columns: [
+      { name: "选择", width: "78px", sort: false },
+      { name: "号池", width: "260px" },
+      { name: "可见性", width: "150px" },
+      { name: "策略", width: "170px" },
+      { name: "成员", width: "160px" },
+      { name: "运行态" },
+      { name: "操作", width: "150px", sort: false },
+    ],
+    data: pools.map((pool, index) => {
+      const selected = selectedPoolIds.has(pool.id);
+      const poolRuntime = getPoolRuntime(pool.id);
+      const memberCount = pool.members?.length ?? 0;
+      const eligibleCount =
+        poolRuntime?.eligibleMemberCount ?? Math.max(memberCount, 0);
+      const coolingCount = poolRuntime?.coolingMemberCount ?? 0;
+      return [
+        gridHtml(`
+          <label class="pool-card-select" data-pool-select-control="true" title="选择此号池用于批量操作">
+            <input
+              type="checkbox"
+              data-field="pool-card-selector"
+              data-pool-id="${escapeHtml(pool.id)}"
+              aria-label="选择号池 ${escapeHtml(pool.name || pool.id)}"
+              ${selected ? "checked" : ""}
+            />
+          </label>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>#${index + 1} ${escapeHtml(pool.name || "未命名号池")}</strong>
+            <span>${escapeHtml(pool.id)}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-token-parts">
+            <span>${escapeHtml(formatPoolVisibilityLabel(pool.visibility))}</span>
+            <span>${escapeHtml(formatPoolEnabledLabel(pool))}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(formatPoolSelectionStrategyLabel(pool.selectionStrategy))}</strong>
+            <span>阈值 ${escapeHtml(String(typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15))}%</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(String(memberCount))} 个账号</strong>
+            <span>可选 ${escapeHtml(String(eligibleCount))} · 冷却 ${escapeHtml(String(coolingCount))}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(poolRuntime?.selectionReason ?? "等待运行观测")}</strong>
+            <span>最近选中 ${escapeHtml(formatRecentCall(poolRuntime?.lastSelectedAt))}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-actions">
+            <button class="btn primary mini" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}" type="button">编辑</button>
+            <button class="btn ghost danger-ghost mini" data-action="pool-remove" data-pool-id="${escapeHtml(pool.id)}" type="button">删除</button>
+          </div>
+        `),
+      ];
+    }),
+    emptyMessage: "当前还没有号池。",
+    fallbackMarkup: buildPoolListFallbackMarkup(pools),
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function applyPoolSettingsToForm(): void {

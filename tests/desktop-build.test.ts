@@ -448,6 +448,10 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderRequestAuditGrid");
     expect(rendererSource).toContain("renderAccountUsageRankingGrid");
     expect(rendererSource).toContain("renderRecentErrorsGrid");
+    expect(rendererSource).toContain("renderAccessConsumerGrid");
+    expect(rendererSource).toContain("renderPoolGrid");
+    expect(rendererSource).toContain("renderNotificationGrid");
+    expect(rendererSource).toContain('id: "usage-alert-event-list"');
     expect(indexHtml).toContain("gridjs/dist/gridjs.umd.js");
     expect(indexHtml).toContain("gridjs/dist/theme/mermaid.min.css");
     expect(indexHtml).toContain('id="request-audit-list"');
@@ -458,6 +462,10 @@ describe("desktop build output", () => {
     expect(styles).toContain("--card-shadow-hover:");
     expect(styles).toContain(".gateway-grid-shell");
     expect(styles).toContain(".gateway-grid-table");
+    expect(styles).toContain("tr:nth-child(even)");
+    expect(styles).toContain("overflow-x: auto;");
+    expect(styles).toContain(".gateway-grid-actions");
+    expect(styles).toContain("min(1280px, calc(100vw - 40px))");
     expect(styles).toContain(".ops-audit-member-focus");
     expect(styles).toContain(".notification-summary-card:hover");
     expect(styles).toContain(".system-status-strip .startup-check-item:hover");
