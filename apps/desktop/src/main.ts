@@ -27,6 +27,7 @@ import {
   nativeTheme,
   net,
   Notification,
+  screen,
   shell,
   type MessageBoxOptions,
   type MenuItemConstructorOptions,
@@ -87,9 +88,12 @@ const appIconPath = join(iconAssetDir, "app-icon.png");
 const gatewayPaths = resolveGatewayPaths();
 const desktopMainLogPath = join(gatewayPaths.logsDir, "desktop-main.log");
 const launchAgentsDir = join(app.getPath("home"), "Library", "LaunchAgents");
-const GATEWAY_SERVICE_LABEL = "com.local-ai-gateway.gateway";
+const GATEWAY_SERVICE_LABEL = "com.relaygate.gateway";
 const CLOUDFLARED_SERVICE_LABEL = "com.local-ai-gateway.cloudflared";
-const LEGACY_DEV_GATEWAY_SERVICE_LABELS = ["com.local-ai-gateway.gateway.devsource"];
+const LEGACY_DEV_GATEWAY_SERVICE_LABELS = [
+  "com.local-ai-gateway.gateway",
+  "com.local-ai-gateway.gateway.devsource",
+];
 const gatewayServiceDir = join(gatewayPaths.rootDir, "service");
 const gatewayServiceLauncherPath = join(gatewayServiceDir, "gateway-launcher.mjs");
 const gatewayServiceRunnerPath = join(gatewayServiceDir, "gateway-service-runner.mjs");
@@ -115,11 +119,14 @@ const DESKTOP_UI_ZOOM_LEVEL = -1;
 const BACKUP_STORE_MAX_FILES = 20;
 const BACKUP_STORE_RETAIN_DAYS = 30;
 const ACTIVE_TRAY_FRAME_COUNT = 12;
+const STATUS_TRAY_GUID = "8f5db91d-c52f-4f7c-b3cb-43c870ad1d9a";
 const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
-const TRAY_REFRESH_INTERVAL_MS = 1_200;
+const TRAY_REFRESH_INTERVAL_MS = 15_000;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
+const TRAY_FALLBACK_VISIBILITY_CHECK_MS = 1_500;
+const GATEWAY_HEALTH_PROBE_TIMEOUT_MS = 1_500;
 const IGNORABLE_STDIO_ERROR_CODES = new Set(["EIO", "EPIPE", "ENXIO"]);
 const GATEWAY_HEALTH_WAIT_TIMEOUT_MS = 45_000;
 
@@ -168,13 +175,16 @@ let pendingCodexOAuthFlow: PendingCodexOAuthFlow | undefined;
 let codexOAuthInProgress = false;
 let mainWindow: BrowserWindow | undefined;
 let statusTray: Tray | undefined;
+let trayFallbackWindow: BrowserWindow | undefined;
 let trayRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationTimer: ReturnType<typeof setInterval> | undefined;
 let trayUsageRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let trayFallbackVisibilityTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationFrame = 0;
 let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
+let lastTrayVisibilityState: boolean | undefined;
 let trayMenuIsOpen = false;
 let trayStickyContext: TrayStickyContext = {};
 let allowAppQuit = false;
@@ -751,10 +761,15 @@ async function waitForLaunchAgentRunning(
 }
 
 function resolveNodeExecutable(): string {
+  const nvmNodePath = join(
+    app.getPath("home"),
+    ".nvm/versions/node/v22.22.0/bin/node",
+  );
   const candidates = [
     process.env.LOCAL_AI_GATEWAY_NODE_PATH,
     process.env.npm_node_execpath,
     basename(process.execPath) === "node" ? process.execPath : undefined,
+    nvmNodePath,
     tryExecText("/bin/zsh", ["-lc", "command -v node"])?.trim(),
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
@@ -1031,16 +1046,23 @@ function writeGatewayServiceFiles(): void {
 
 function getGatewayServiceProgramArguments(): string[] {
   if (app.isPackaged) {
-    return [app.getPath("exe"), gatewayServiceRunnerPath];
+    try {
+      return [resolveNodeExecutable(), gatewayServiceRunnerPath];
+    } catch {
+      return [app.getPath("exe"), gatewayServiceRunnerPath];
+    }
   }
   return [resolveNodeExecutable(), gatewayServiceLauncherPath];
 }
 
 function getGatewayServiceEnvironment(port: number): Record<string, string> {
+  const programArguments = getGatewayServiceProgramArguments();
   return {
     LOCAL_AI_GATEWAY_PORT: String(port),
     LOCAL_AI_GATEWAY_SERVICE: "1",
-    ...(app.isPackaged ? { [ELECTRON_RUN_AS_NODE_ENV_KEY]: "1" } : {}),
+    ...(programArguments[0] === app.getPath("exe")
+      ? { [ELECTRON_RUN_AS_NODE_ENV_KEY]: "1" }
+      : {}),
   };
 }
 
@@ -1231,10 +1253,25 @@ class GatewayServiceManager {
 
 async function isGatewayEndpointHealthy(port: number): Promise<boolean> {
   try {
-    const response = await fetch(`${buildGatewayBaseUrl(port)}/healthz`);
-    return response.ok;
+    const response = await fetchWithTimeout(
+      `${buildGatewayBaseUrl(port)}/__relaygate/livez`,
+      GATEWAY_HEALTH_PROBE_TIMEOUT_MS,
+    );
+    return response.status < 500;
   } catch {
     return false;
+  }
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1254,7 +1291,7 @@ async function waitForGatewayEndpointHealthy(port: number): Promise<void> {
 const gatewayServiceManager = new GatewayServiceManager();
 
 function shouldAutoManageGatewayService(): boolean {
-  return app.isPackaged && gatewayServiceManager.isInstalled();
+  return app.isPackaged;
 }
 
 class GatewayProcessManager {
@@ -1268,20 +1305,20 @@ class GatewayProcessManager {
       return this.ensuring;
     }
 
-    const port = getConfiguredGatewayPort();
-    if (await this.isHealthy(port)) {
-      return { managed: this.managed };
-    }
-
-    const existingPid = this.findListeningProcessId(port);
-    if (existingPid && existingPid !== process.pid) {
-      const command = this.readProcessCommand(existingPid);
-      if (this.looksLikeLocalGatewayCommand(command)) {
-        return { managed: false };
-      }
-    }
-
     this.ensuring = (async () => {
+      const port = getConfiguredGatewayPort();
+      if (await this.isHealthy(port)) {
+        return { managed: this.managed };
+      }
+
+      const existingPid = this.findListeningProcessId(port);
+      if (existingPid && existingPid !== process.pid) {
+        const command = this.readProcessCommand(existingPid);
+        if (this.looksLikeLocalGatewayCommand(command) && !shouldAutoManageGatewayService()) {
+          return { managed: false };
+        }
+      }
+
       if (shouldAutoManageGatewayService()) {
         await gatewayServiceManager.start();
         this.managed = false;
@@ -1501,8 +1538,11 @@ class GatewayProcessManager {
 
   private async isHealthy(port: number): Promise<boolean> {
     try {
-      const response = await fetch(`${buildGatewayBaseUrl(port)}/healthz`);
-      return response.ok;
+      const response = await fetchWithTimeout(
+        `${buildGatewayBaseUrl(port)}/__relaygate/livez`,
+        GATEWAY_HEALTH_PROBE_TIMEOUT_MS,
+      );
+      return response.status < 500;
     } catch {
       return false;
     }
@@ -2473,6 +2513,177 @@ function applyTrayImage(state: TrayVisualState): void {
   if (icon) {
     statusTray.setImage(icon);
   }
+  statusTray.setTitle("RG");
+}
+
+function getTrayBoundsSnapshot() {
+  try {
+    return statusTray?.getBounds();
+  } catch {
+    return undefined;
+  }
+}
+
+function isTrayVisibleInMenuBar(): boolean {
+  const bounds = getTrayBoundsSnapshot();
+  return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+}
+
+function getTrayFallbackHtml(): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-app-region: drag;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      }
+      button {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 14px;
+        color: #f8fafc;
+        background: linear-gradient(135deg, #111827 0%, #2563eb 100%);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+        cursor: pointer;
+        -webkit-app-region: no-drag;
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+    </style>
+  </head>
+  <body>
+    <button title="RelayGate 控制台">RG</button>
+    <script>
+      document.body.addEventListener("click", () => {
+        window.location.href = "relaygate://show";
+      });
+      document.body.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        window.location.href = "relaygate://show";
+      });
+    </script>
+  </body>
+</html>`;
+}
+
+function positionTrayFallbackWindow(): void {
+  if (!trayFallbackWindow || trayFallbackWindow.isDestroyed()) {
+    return;
+  }
+  const display = screen.getPrimaryDisplay();
+  const { workArea, bounds } = display;
+  const width = 52;
+  const height = 28;
+  const x = Math.round(workArea.x + workArea.width - width - 14);
+  const y = Math.round(Math.max(bounds.y + 6, workArea.y - height - 2));
+  trayFallbackWindow.setBounds({ x, y, width, height }, false);
+}
+
+function ensureTrayFallbackWindow(reason: string): void {
+  if (process.platform !== "darwin") {
+    return;
+  }
+  if (trayFallbackWindow && !trayFallbackWindow.isDestroyed()) {
+    positionTrayFallbackWindow();
+    if (!trayFallbackWindow.isVisible()) {
+      trayFallbackWindow.showInactive();
+    }
+    return;
+  }
+
+  trayFallbackWindow = new BrowserWindow({
+    width: 52,
+    height: 28,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    movable: true,
+    skipTaskbar: true,
+    show: false,
+    alwaysOnTop: true,
+    hasShadow: false,
+    title: "RelayGate",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  trayFallbackWindow.setAlwaysOnTop(true, "floating");
+  trayFallbackWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  trayFallbackWindow.webContents.on("will-navigate", (event, targetUrl) => {
+    if (targetUrl.startsWith("relaygate://show")) {
+      event.preventDefault();
+      void showMainWindow();
+    }
+  });
+  trayFallbackWindow.on("closed", () => {
+    trayFallbackWindow = undefined;
+  });
+  positionTrayFallbackWindow();
+  void trayFallbackWindow.loadURL(
+    `data:text/html;charset=utf-8,${encodeURIComponent(getTrayFallbackHtml())}`,
+  );
+  trayFallbackWindow.once("ready-to-show", () => {
+    trayFallbackWindow?.showInactive();
+  });
+  appendDesktopMainLog("info", [
+    "tray_fallback_window_created",
+    {
+      reason,
+      trayBounds: getTrayBoundsSnapshot(),
+      windowBounds: trayFallbackWindow.getBounds(),
+    },
+  ]);
+}
+
+function hideTrayFallbackWindow(reason: string): void {
+  if (!trayFallbackWindow || trayFallbackWindow.isDestroyed()) {
+    return;
+  }
+  if (!trayFallbackWindow.isVisible()) {
+    return;
+  }
+  trayFallbackWindow.hide();
+  appendDesktopMainLog("info", ["tray_fallback_window_hidden", { reason }]);
+}
+
+function syncTrayFallbackVisibility(reason: string): void {
+  if (process.platform !== "darwin" || !statusTray) {
+    return;
+  }
+  const bounds = getTrayBoundsSnapshot();
+  const visible = isTrayVisibleInMenuBar();
+  if (lastTrayVisibilityState !== visible || reason !== "interval") {
+    appendDesktopMainLog("info", [
+      "tray_visibility_checked",
+      { reason, visible, bounds, guid: statusTray.getGUID() },
+    ]);
+  }
+  lastTrayVisibilityState = visible;
+  if (visible) {
+    hideTrayFallbackWindow(reason);
+    return;
+  }
+  ensureTrayFallbackWindow(reason);
 }
 
 function ensureTrayAnimation(): void {
@@ -2901,10 +3112,21 @@ function setupStatusTray(): void {
 
   const icon = loadTrayIcon("idle");
   if (!icon) {
+    appendDesktopMainLog("error", ["tray_icon_load_failed", getTrayIconBaseName("idle")]);
     return;
   }
 
-  statusTray = new Tray(icon);
+  statusTray = new Tray(icon, STATUS_TRAY_GUID);
+  statusTray.setTitle("RG");
+  appendDesktopMainLog("info", [
+    "tray_created",
+    {
+      title: "RG",
+      icon: getTrayIconBaseName("idle"),
+      guid: statusTray.getGUID(),
+      bounds: statusTray.getBounds(),
+    },
+  ]);
   statusTray.on("click", () => {
     void refreshTrayStatus(true);
   });
@@ -2915,8 +3137,18 @@ function setupStatusTray(): void {
     trayAnimationFrame = 0;
     void refreshTrayStatus();
   });
+  screen.on("display-metrics-changed", () => {
+    positionTrayFallbackWindow();
+    syncTrayFallbackVisibility("display-metrics-changed");
+  });
   configureTrayUsageRefreshTimer();
   void refreshTrayStatus();
+  setTimeout(() => {
+    syncTrayFallbackVisibility("initial-delay");
+  }, 800);
+  trayFallbackVisibilityTimer = setInterval(() => {
+    syncTrayFallbackVisibility("interval");
+  }, TRAY_FALLBACK_VISIBILITY_CHECK_MS);
   trayRefreshTimer = setInterval(() => {
     void refreshTrayStatus();
   }, TRAY_REFRESH_INTERVAL_MS);
@@ -4008,7 +4240,13 @@ app.on("before-quit", (event) => {
     clearInterval(trayUsageRefreshTimer);
     trayUsageRefreshTimer = undefined;
   }
+  if (trayFallbackVisibilityTimer) {
+    clearInterval(trayFallbackVisibilityTimer);
+    trayFallbackVisibilityTimer = undefined;
+  }
   stopTrayAnimation();
+  trayFallbackWindow?.destroy();
+  trayFallbackWindow = undefined;
   statusTray?.destroy();
   statusTray = undefined;
 });

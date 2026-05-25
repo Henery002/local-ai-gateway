@@ -2556,6 +2556,8 @@ export function createGatewayApp(runtime: GatewayRuntime): FastifyInstance {
     reply.status(getStatusCode(normalized)).send(buildErrorBody(normalized));
   });
 
+  app.get("/__relaygate/livez", async () => ({ ok: true }));
+
   app.get("/healthz", async () => runtime.getHealth());
 
   app.get("/v1/models", async (request) => {
