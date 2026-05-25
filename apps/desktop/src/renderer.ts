@@ -3919,7 +3919,8 @@ function renderAccessConsumerGrid(
       { name: "限制", width: "160px" },
       { name: "模型 / 号池", width: "150px" },
       { name: "更新时间", width: "150px" },
-      { name: "操作", width: "190px", sort: false },
+      { name: "状态", width: "86px" },
+      { name: "操作", width: "146px", sort: false },
     ],
     data: consumers.map((consumer) => {
       const keys = keysByConsumer.get(consumer.id) ?? [];
@@ -3980,9 +3981,9 @@ function renderAccessConsumerGrid(
             <span>${consumerEnabled ? "当前可调用" : "已暂停调用"}</span>
           </div>
         `),
+        gridHtml(`<span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>`),
         gridHtml(`
           <div class="gateway-grid-actions">
-            <span class="badge ${consumer.status === "enabled" ? "active" : "neutral"}">${formatAccessStatusLabel(consumer.status)}</span>
             <button class="btn ghost mini" data-access-member-select="${escapeHtml(consumer.id)}" type="button">编辑</button>
             <button class="btn secondary mini" data-access-member-toggle="${escapeHtml(consumer.id)}" type="button">${toggleLabel}</button>
             <button class="btn danger-ghost mini" data-access-member-delete="${escapeHtml(consumer.id)}" type="button">删除</button>
@@ -3994,7 +3995,7 @@ function renderAccessConsumerGrid(
     fallbackMarkup,
     pageSize: 20,
     search: true,
-    minWidth: "1230px",
+    minWidth: "1250px",
   });
 }
 
@@ -4394,8 +4395,8 @@ function renderAccessKeyRows(keys: SecurityAccessKey[], emptyCopy: string): stri
             <strong>${escapeHtml(key.name || key.id)}</strong>
             <span>${escapeHtml(key.keyPrefix || "lagw")}...${escapeHtml(key.keySuffix || "****")}</span>
           </div>
-          <span class="badge ${accessKeyBadgeClass(key)} access-key-status-badge">${escapeHtml(statusLabel)}</span>
           <div class="access-key-meta">
+            <span class="badge ${accessKeyBadgeClass(key)} access-key-status-badge">${escapeHtml(statusLabel)}</span>
             <span>创建：${escapeHtml(formatAccessIsoDate(key.createdAt))}</span>
             <span>最近使用：${escapeHtml(formatAccessIsoDate(key.lastUsedAt, "暂无调用"))}</span>
             <span>到期：${escapeHtml(formatAccessIsoDate(key.expiresAt, "未限制"))}</span>

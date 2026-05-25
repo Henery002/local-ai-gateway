@@ -1655,9 +1655,9 @@ button, input, select {
 
 .access-key-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.9fr) auto minmax(260px, 1.35fr) minmax(360px, 1.6fr);
-  align-items: center;
-  gap: 12px;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 12px 16px;
   padding: 12px 14px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
@@ -1701,13 +1701,21 @@ button, input, select {
   font-size: 12px !important;
 }
 
+.access-key-meta .access-key-status-badge {
+  align-self: start;
+  grid-row: span 2;
+}
+
 .access-key-actions {
+  border-top: 1px solid var(--border-light);
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(168px, 1fr) repeat(4, auto);
+  grid-template-columns: minmax(220px, 1fr) repeat(4, auto);
   align-items: center;
   gap: 8px;
   min-width: 0;
   justify-content: end;
+  padding-top: 10px;
 }
 
 .access-key-actions .input-field {
@@ -4495,8 +4503,29 @@ button, input, select {
 
 .access-member-limit-grid {
   border-top: 1px solid var(--border-light);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: start;
   margin-top: 2px;
   padding-top: 16px;
+}
+
+.access-member-limit-grid .form-field {
+  align-self: start;
+  grid-column: span 2;
+  min-height: 78px;
+}
+
+.access-member-limit-grid .form-field:nth-last-child(2),
+.access-member-limit-grid .form-field:last-child {
+  grid-column: span 3;
+}
+
+.access-member-limit-grid .input-field {
+  width: 100%;
+}
+
+.access-member-limit-grid .form-hint {
+  min-height: 18px;
 }
 
 .unit-input {
@@ -6318,6 +6347,36 @@ button, input, select {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.gateway-grid-actions:not(.account-grid-actions) {
+  justify-content: flex-start;
+  min-width: max-content;
+}
+
+.gateway-grid-actions:not(.account-grid-actions) .btn {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--color-brand-600);
+  min-height: 28px;
+  padding: 2px 4px;
+}
+
+.gateway-grid-actions:not(.account-grid-actions) .btn:hover {
+  background: var(--color-bg-hover) !important;
+  color: var(--color-brand-700);
+}
+
+.gateway-grid-actions:not(.account-grid-actions) .btn.danger-ghost,
+.gateway-grid-actions:not(.account-grid-actions) .btn.danger {
+  color: var(--danger);
+}
+
+.gateway-grid-actions:not(.account-grid-actions) .btn.danger-ghost:hover,
+.gateway-grid-actions:not(.account-grid-actions) .btn.danger:hover {
+  background: var(--danger-bg) !important;
+  color: var(--danger);
 }
 
 .gateway-grid-actions:empty::before {

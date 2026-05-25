@@ -154,6 +154,7 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("class=\"figma-table-head access-consumer-table-head\"");
     expect(rendererSource).toContain("class=\"figma-table-row access-consumer-row\"");
     expect(rendererSource).toContain("access-consumer-actions-cell");
+    expect(rendererSource).toContain('{ name: "状态", width: "86px" }');
     expect(rendererSource).toContain("创建时间");
     expect(rendererSource).toContain("更新时间");
     expect(rendererSource).toContain("data-access-member-toggle");
@@ -400,7 +401,8 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"access-member-period-days\"");
     expect(indexHtml).toContain("id=\"access-member-period-token-limit\"");
     expect(styles).toContain(".access-key-row {");
-    expect(styles).toContain("grid-template-columns: 1fr;");
+    expect(styles).toContain("grid-column: 1 / -1;");
+    expect(styles).toContain(".access-member-limit-grid .form-field:nth-last-child(2)");
     expect(styles).toContain(".access-key-create-form");
     expect(styles).toContain(".access-key-create-form .btn");
   });
@@ -481,6 +483,8 @@ describe("desktop build output", () => {
     expect(styles).toContain("overflow-x: auto;");
     expect(styles).toContain(".gateway-grid-clickable");
     expect(styles).toContain(".gateway-grid-actions");
+    expect(styles).toContain(".gateway-grid-actions:not(.account-grid-actions) .btn");
+    expect(styles).toContain("border: 0 !important;");
     expect(styles).toContain("min(1280px, calc(100vw - 40px))");
     expect(styles).toContain(".ops-audit-member-focus");
     expect(styles).toContain(".notification-summary-card:hover");
