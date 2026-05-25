@@ -1399,8 +1399,6 @@ const state: {
   usageAlertConsumerTypeFilter: UsageAlertConsumerTypeFilter;
   notificationFilter: NotificationFilter;
   notificationTypeFilter: NotificationTypeFilter;
-  notificationPage: number;
-  notificationPageSize: number;
   notificationReadIds: Set<string>;
   nativePushedNotificationIds: Set<string>;
   routingClientFilter: string;
@@ -1432,8 +1430,6 @@ const state: {
   usageAlertConsumerTypeFilter: "all",
   notificationFilter: "all",
   notificationTypeFilter: "all",
-  notificationPage: 1,
-  notificationPageSize: 20,
   notificationReadIds: new Set<string>(),
   nativePushedNotificationIds: new Set<string>(),
   routingClientFilter: "all",
@@ -1466,6 +1462,19 @@ let usageTooltipInteractionsBound = false;
 const usageChartInstances = new Map<string, EChartsInstance>();
 let usageChartResizeBound = false;
 const gridTableInstances = new Map<string, { destroy?: () => void }>();
+type GridTableOptions = {
+  id: string;
+  columns: Array<string | Record<string, unknown>>;
+  data: unknown[][];
+  emptyMessage: string;
+  fallbackMarkup: string;
+  pageSize?: number;
+  search?: boolean;
+  minWidth?: string;
+};
+const gridTableRenderOptions = new Map<string, GridTableOptions>();
+const gridTablePageSizes = new Map<string, number>();
+const GRID_TABLE_PAGE_SIZE_OPTIONS = [20, 50, 100, 200] as const;
 
 function disposeGridTable(id: string): void {
   const existing = gridTableInstances.get(id);
@@ -1484,19 +1493,24 @@ function gridHtml(markup: string): unknown {
   return window.gridjs?.html ? window.gridjs.html(markup) : markup;
 }
 
-function renderGridTable(options: {
-  id: string;
-  columns: Array<string | Record<string, unknown>>;
-  data: unknown[][];
-  emptyMessage: string;
-  fallbackMarkup: string;
-  pageSize?: number;
-  search?: boolean;
-}): void {
+function normalizeGridPageSize(value: number | undefined): number {
+  return GRID_TABLE_PAGE_SIZE_OPTIONS.includes(
+    value as (typeof GRID_TABLE_PAGE_SIZE_OPTIONS)[number],
+  )
+    ? Number(value)
+    : 20;
+}
+
+function renderGridTable(options: GridTableOptions): void {
   const container = document.getElementById(options.id);
   if (!container) {
     return;
   }
+  gridTableRenderOptions.set(options.id, options);
+  container.style.setProperty(
+    "--gateway-grid-min-width",
+    options.minWidth ?? "1040px",
+  );
   disposeGridTable(options.id);
   if (!options.data.length) {
     container.innerHTML = `<div class="empty-card">${escapeHtml(options.emptyMessage)}</div>`;
@@ -1507,14 +1521,35 @@ function renderGridTable(options: {
     container.innerHTML = options.fallbackMarkup;
     return;
   }
-  container.innerHTML = "";
-  const pageSize = options.pageSize ?? 10;
+  const pageSize = normalizeGridPageSize(
+    gridTablePageSizes.get(options.id) ?? options.pageSize,
+  );
+  gridTablePageSizes.set(options.id, pageSize);
+  const gridTargetId = `${options.id}-gridjs-target`;
+  container.innerHTML = `
+    <div class="gateway-grid-toolbar">
+      <label class="gateway-grid-page-size">
+        <span>每页</span>
+        <select class="input-field" data-grid-page-size="${escapeHtml(options.id)}">
+          ${GRID_TABLE_PAGE_SIZE_OPTIONS.map(
+            (size) => `<option value="${size}"${size === pageSize ? " selected" : ""}>${size}</option>`,
+          ).join("")}
+        </select>
+      </label>
+    </div>
+    <div id="${gridTargetId}" class="gateway-grid-target"></div>
+  `;
+  const gridTarget = document.getElementById(gridTargetId);
+  if (!gridTarget) {
+    container.innerHTML = options.fallbackMarkup;
+    return;
+  }
   const grid = new Grid({
     columns: options.columns,
     data: options.data,
     autoWidth: false,
     fixedHeader: true,
-    height: options.data.length > pageSize ? "520px" : "auto",
+    height: options.data.length > pageSize ? "560px" : "auto",
     search: options.search ?? false,
     sort: true,
     pagination:
@@ -1549,7 +1584,7 @@ function renderGridTable(options: {
       error: "表格渲染失败",
     },
   });
-  grid.render(container);
+  grid.render(gridTarget);
   gridTableInstances.set(options.id, grid);
 }
 
@@ -3874,13 +3909,13 @@ function renderAccessConsumerGrid(
   renderGridTable({
     id: "access-consumer-list",
     columns: [
-      { name: "成员", width: "220px" },
-      { name: "Key 状态", width: "190px" },
+      { name: "成员", width: "230px" },
+      { name: "Key 状态", width: "170px" },
       { name: "额度", width: "180px" },
-      { name: "限制", width: "180px" },
-      { name: "模型 / 号池", width: "170px" },
-      { name: "更新时间", width: "170px" },
-      { name: "操作", width: "220px", sort: false },
+      { name: "限制", width: "160px" },
+      { name: "模型 / 号池", width: "150px" },
+      { name: "更新时间", width: "150px" },
+      { name: "操作", width: "190px", sort: false },
     ],
     data: consumers.map((consumer) => {
       const keys = keysByConsumer.get(consumer.id) ?? [];
@@ -3904,39 +3939,39 @@ function renderAccessConsumerGrid(
       const toggleLabel = consumerEnabled ? "禁用" : "启用";
       return [
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${escapeHtml(consumer.name || consumer.clientTag || "未命名访问者")}</strong>
             <span>${escapeHtml(consumer.clientTag || "未设置 clientTag")} · ${escapeHtml(consumer.type)}</span>
             <span>${escapeHtml(consumer.note || "暂无备注")}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${escapeHtml(formatCompactCount(enabledKeys))} / ${escapeHtml(formatCompactCount(keys.length))} 可用</strong>
             <span>${escapeHtml(keyPreview)}</span>
             <span>${expiredKeys > 0 ? `${escapeHtml(formatCompactCount(expiredKeys))} 个已过期` : "无过期 Key"}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${escapeHtml(quotaSummary)}</strong>
             <span>${policy?.quota?.periodStartedAt ? `起始 ${escapeHtml(formatAccessIsoDate(policy.quota.periodStartedAt))}` : "保存后热生效"}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.requestsPerMinute, "/min"))} / ${escapeHtml(formatAccessPolicyNumberLimit(policy?.limits?.maxConcurrentRequests))}</strong>
             <span>${policy?.expiresAt ? `到期 ${escapeHtml(formatAccessIsoDate(policy.expiresAt))}` : "策略不过期"}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${modelCount > 0 ? `${escapeHtml(String(modelCount))} 模型` : "模型不限"} / ${poolCount > 0 ? `${escapeHtml(String(poolCount))} 号池` : "号池不限"}</strong>
             <span>${escapeHtml((consumer.tags ?? []).join(", ") || "无标签")}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-access-member-select="${escapeHtml(consumer.id)}">
             <strong>${escapeHtml(formatAccessIsoDate(consumer.updatedAt))}</strong>
             <span>${consumerEnabled ? "当前可调用" : "已暂停调用"}</span>
           </div>
@@ -3953,8 +3988,9 @@ function renderAccessConsumerGrid(
     }),
     emptyMessage: "当前暂无访问成员。",
     fallbackMarkup,
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "1230px",
   });
 }
 
@@ -3966,11 +4002,11 @@ function renderAccessMappingGrid(
     id: "access-consumer-list",
     columns: [
       { name: "客户端", width: "240px" },
-      { name: "Key 状态", width: "140px" },
-      { name: "Header 覆盖", width: "140px" },
-      { name: "额度", width: "180px" },
-      { name: "模型 / 号池", width: "180px" },
-      { name: "状态", width: "110px" },
+      { name: "Key 状态", width: "120px" },
+      { name: "Header 覆盖", width: "120px" },
+      { name: "额度", width: "150px" },
+      { name: "模型 / 号池", width: "150px" },
+      { name: "状态", width: "90px" },
     ],
     data: mappings.map((mapping) => [
       gridHtml(`
@@ -3987,8 +4023,9 @@ function renderAccessMappingGrid(
     ]),
     emptyMessage: "当前暂无访问者或客户端密钥映射。",
     fallbackMarkup,
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "870px",
   });
 }
 
@@ -7587,13 +7624,13 @@ function renderUsageAlertEvents(): void {
   renderGridTable({
     id: "usage-alert-event-list",
     columns: [
-      { name: "时间", width: "150px" },
-      { name: "状态", width: "120px" },
-      { name: "成员 / Key", width: "220px" },
-      { name: "事件类型", width: "170px" },
+      { name: "时间", width: "145px" },
+      { name: "状态", width: "96px" },
+      { name: "成员 / Key", width: "200px" },
+      { name: "事件类型", width: "150px" },
       { name: "内容" },
-      { name: "级别", width: "100px" },
-      { name: "操作", width: "120px", sort: false },
+      { name: "级别", width: "88px" },
+      { name: "操作", width: "96px", sort: false },
     ],
     data: events.map((event) => {
       const isAcknowledged = Boolean(event.acknowledgedAt);
@@ -7640,8 +7677,9 @@ function renderUsageAlertEvents(): void {
         `,
       )
       .join(""),
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "1080px",
   });
 }
 
@@ -7959,11 +7997,6 @@ function normalizeNotificationTypeFilter(value: string | undefined): Notificatio
     : "all";
 }
 
-function normalizeNotificationPageSize(value: string | undefined): number {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return [10, 20, 50].includes(parsed) ? parsed : 20;
-}
-
 function renderNotificationCenter(): void {
   const summaryNode = document.getElementById("notification-summary");
   const listNode = document.getElementById("notification-list");
@@ -8004,14 +8037,8 @@ function renderNotificationCenter(): void {
   const typeFilterNode = document.getElementById(
     "notification-type-filter",
   ) as HTMLSelectElement | null;
-  const pageSizeNode = document.getElementById(
-    "notification-page-size",
-  ) as HTMLSelectElement | null;
   if (typeFilterNode) {
     typeFilterNode.value = state.notificationTypeFilter;
-  }
-  if (pageSizeNode) {
-    pageSizeNode.value = String(state.notificationPageSize);
   }
 
   const items = allItems.filter((item) => {
@@ -8072,13 +8099,13 @@ function renderNotificationGrid(items: NotificationItem[]): void {
   renderGridTable({
     id: "notification-list",
     columns: [
-      { name: "时间", width: "150px" },
-      { name: "状态", width: "120px" },
-      { name: "类型", width: "140px" },
-      { name: "成员", width: "180px" },
+      { name: "时间", width: "145px" },
+      { name: "状态", width: "90px" },
+      { name: "类型", width: "120px" },
+      { name: "成员", width: "170px" },
       { name: "消息内容" },
-      { name: "级别", width: "100px" },
-      { name: "操作", width: "180px", sort: false },
+      { name: "级别", width: "88px" },
+      { name: "操作", width: "160px", sort: false },
     ],
     data: items.map((item) => [
       gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatDate(item.timestamp))}</span>`),
@@ -8107,8 +8134,9 @@ function renderNotificationGrid(items: NotificationItem[]): void {
     ]),
     emptyMessage: "当前筛选下暂无消息通知。",
     fallbackMarkup: buildNotificationListFallbackMarkup(items),
-    pageSize: state.notificationPageSize,
+    pageSize: 20,
     search: true,
+    minWidth: "1110px",
   });
 }
 
@@ -8551,14 +8579,14 @@ function renderRequestAuditGrid(items: RequestAuditEntry[]): void {
   renderGridTable({
     id: "request-audit-list",
     columns: [
-      { name: "时间", width: "150px" },
-      { name: "成员 / Key", width: "220px" },
+      { name: "时间", width: "145px" },
+      { name: "成员 / Key", width: "200px" },
       { name: "模型 / 号池" },
-      { name: "账号", width: "220px" },
-      { name: "状态", width: "110px" },
-      { name: "Token", width: "100px" },
-      { name: "延迟", width: "90px" },
-      { name: "操作", width: "110px", sort: false },
+      { name: "账号", width: "200px" },
+      { name: "状态", width: "92px" },
+      { name: "Token", width: "86px" },
+      { name: "延迟", width: "82px" },
+      { name: "操作", width: "96px", sort: false },
     ],
     data: items.map((item) => {
       const account = formatAuditAccountLabel(item.accountId || item.sessionId, item.email);
@@ -8599,8 +8627,9 @@ function renderRequestAuditGrid(items: RequestAuditEntry[]): void {
     }),
     emptyMessage: "当前筛选下暂无请求记录。",
     fallbackMarkup: buildRequestAuditListMarkup(items),
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "1120px",
   });
 }
 
@@ -9174,12 +9203,12 @@ function renderAccountUsageRankingGrid(): void {
   renderGridTable({
     id: "account-usage-ranking-list",
     columns: [
-      { name: "排名", width: "80px" },
+      { name: "排名", width: "64px" },
       { name: "账号", width: "260px" },
-      { name: "请求", width: "100px" },
-      { name: "Token", width: "120px" },
-      { name: "成功率", width: "100px" },
-      { name: "平均延迟", width: "110px" },
+      { name: "请求", width: "82px" },
+      { name: "Token", width: "110px" },
+      { name: "成功率", width: "88px" },
+      { name: "平均延迟", width: "100px" },
       { name: "Token 构成", sort: false },
     ],
     data: rows.map((row, index) => [
@@ -9205,8 +9234,9 @@ function renderAccountUsageRankingGrid(): void {
     ]),
     emptyMessage: "当前窗口暂无账号级 Token 用量记录。",
     fallbackMarkup: buildAccountUsageRankingListMarkup(),
-    pageSize: 10,
+    pageSize: 20,
     search: true,
+    minWidth: "1040px",
   });
 }
 
@@ -9546,12 +9576,12 @@ function renderRoutingObserveModalList(
   renderGridTable({
     id: "routing-observe-modal-list",
     columns: [
-      { name: "时间", width: "150px" },
-      { name: "规则", width: "220px" },
-      { name: "客户端", width: "140px" },
+      { name: "时间", width: "145px" },
+      { name: "规则", width: "210px" },
+      { name: "客户端", width: "120px" },
       { name: "模型映射" },
-      { name: "会话", width: "180px" },
-      { name: "告警", width: "120px", sort: false },
+      { name: "会话", width: "160px" },
+      { name: "告警", width: "100px", sort: false },
     ],
     data: events.map((event) => [
       gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatRecentCall(event.timestamp))}</span>`),
@@ -9576,8 +9606,9 @@ function renderRoutingObserveModalList(
     ]),
     emptyMessage: "当前没有路由命中记录。",
     fallbackMarkup,
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "980px",
   });
 }
 
@@ -9958,12 +9989,12 @@ function renderAccountAssetsGrid(
   renderGridTable({
     id: "codex-accounts-grid",
     columns: [
-      { name: "选择", width: "76px", sort: false },
+      { name: "选择", width: "54px", sort: false },
       { name: "账号", width: "260px" },
       { name: "来源 / 所有权", width: "260px" },
       { name: "调用", width: "230px" },
       { name: "额度", width: "220px" },
-      { name: "操作", width: "190px", sort: false },
+      { name: "操作", width: "170px", sort: false },
     ],
     data: accounts.map((account) => {
       const title = getSessionTitle(account.representative);
@@ -10131,8 +10162,9 @@ function renderAccountAssetsGrid(
     }),
     emptyMessage: "当前还没有导入任何桌面端 Codex 账号。",
     fallbackMarkup: options.fallbackMarkup,
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "1220px",
   });
 }
 
@@ -11031,11 +11063,11 @@ function renderRecentErrorsGrid(
   renderGridTable({
     id: "recent-errors-modal-list",
     columns: [
-      { name: "时间", width: "150px" },
-      { name: "来源", width: "220px" },
-      { name: "类型", width: "140px" },
+      { name: "时间", width: "145px" },
+      { name: "来源", width: "200px" },
+      { name: "类型", width: "120px" },
       { name: "内容" },
-      { name: "状态", width: "110px" },
+      { name: "状态", width: "92px" },
     ],
     data: rows.map((row) => [
       gridHtml(`<span class="gateway-grid-muted">${escapeHtml(row.time)}</span>`),
@@ -11046,8 +11078,9 @@ function renderRecentErrorsGrid(
     ]),
     emptyMessage: "最近没有新的错误记录。",
     fallbackMarkup: buildRecentErrorsMarkup(refreshErrors, errors),
-    pageSize: 10,
+    pageSize: 20,
     search: true,
+    minWidth: "920px",
   });
 }
 
@@ -12592,13 +12625,13 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
   renderGridTable({
     id: "pool-list-grid",
     columns: [
-      { name: "选择", width: "78px", sort: false },
-      { name: "号池", width: "260px" },
-      { name: "可见性", width: "150px" },
-      { name: "策略", width: "170px" },
-      { name: "成员", width: "160px" },
+      { name: "选择", width: "54px", sort: false },
+      { name: "号池", width: "250px" },
+      { name: "可见性", width: "130px" },
+      { name: "策略", width: "150px" },
+      { name: "成员", width: "140px" },
       { name: "运行态" },
-      { name: "操作", width: "150px", sort: false },
+      { name: "操作", width: "132px", sort: false },
     ],
     data: pools.map((pool, index) => {
       const selected = selectedPoolIds.has(pool.id);
@@ -12620,31 +12653,31 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
           </label>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <strong>#${index + 1} ${escapeHtml(pool.name || "未命名号池")}</strong>
             <span>${escapeHtml(pool.id)}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-token-parts">
+          <div class="gateway-grid-token-parts gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <span>${escapeHtml(formatPoolVisibilityLabel(pool.visibility))}</span>
             <span>${escapeHtml(formatPoolEnabledLabel(pool))}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <strong>${escapeHtml(formatPoolSelectionStrategyLabel(pool.selectionStrategy))}</strong>
             <span>阈值 ${escapeHtml(String(typeof pool.minRemainingPercentage === "number" ? pool.minRemainingPercentage : 15))}%</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <strong>${escapeHtml(String(memberCount))} 个账号</strong>
             <span>可选 ${escapeHtml(String(eligibleCount))} · 冷却 ${escapeHtml(String(coolingCount))}</span>
           </div>
         `),
         gridHtml(`
-          <div class="gateway-grid-stack">
+          <div class="gateway-grid-stack gateway-grid-clickable" data-action="pool-edit" data-pool-id="${escapeHtml(pool.id)}">
             <strong>${escapeHtml(poolRuntime?.selectionReason ?? "等待运行观测")}</strong>
             <span>最近选中 ${escapeHtml(formatRecentCall(poolRuntime?.lastSelectedAt))}</span>
           </div>
@@ -12659,8 +12692,9 @@ function renderPoolGrid(pools: PoolDefinition[]): void {
     }),
     emptyMessage: "当前还没有号池。",
     fallbackMarkup: buildPoolListFallbackMarkup(pools),
-    pageSize: 12,
+    pageSize: 20,
     search: true,
+    minWidth: "1000px",
   });
 }
 
@@ -17102,15 +17136,20 @@ function bindActions(): void {
 
   document.addEventListener("change", (event) => {
     const target = event.target as HTMLSelectElement | null;
-    if (target?.id === "notification-type-filter") {
-      state.notificationTypeFilter = normalizeNotificationTypeFilter(target.value);
-      state.notificationPage = 1;
-      renderNotificationCenter();
+    const gridId = target?.dataset.gridPageSize;
+    if (gridId) {
+      gridTablePageSizes.set(
+        gridId,
+        normalizeGridPageSize(Number.parseInt(target.value, 10)),
+      );
+      const options = gridTableRenderOptions.get(gridId);
+      if (options) {
+        renderGridTable(options);
+      }
       return;
     }
-    if (target?.id === "notification-page-size") {
-      state.notificationPageSize = normalizeNotificationPageSize(target.value);
-      state.notificationPage = 1;
+    if (target?.id === "notification-type-filter") {
+      state.notificationTypeFilter = normalizeNotificationTypeFilter(target.value);
       renderNotificationCenter();
       return;
     }
@@ -17552,13 +17591,6 @@ function bindActions(): void {
       const nextFilter = button.dataset.notificationFilter;
       state.notificationFilter =
         nextFilter === "unread" || nextFilter === "read" ? nextFilter : "all";
-      state.notificationPage = 1;
-      renderNotificationCenter();
-      return;
-    }
-
-    if (action === "notification-page" && button.dataset.page) {
-      state.notificationPage += button.dataset.page === "next" ? 1 : -1;
       renderNotificationCenter();
       return;
     }

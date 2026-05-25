@@ -179,7 +179,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".account-assets-table {");
     expect(styles).toContain(".account-assets-table .account-assets-table-row {");
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
-    expect(styles).toContain(".account-assets-table .gateway-grid-table");
+    expect(rendererSource).toContain('minWidth: "1220px"');
     expect(styles).toContain(".account-grid-title");
     expect(styles).toContain(".account-assets-actions-cell .icon-btn[data-tooltip]::after");
     expect(styles).toContain(".access-consumer-table {");
@@ -456,6 +456,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderPoolGrid");
     expect(rendererSource).toContain("renderNotificationGrid");
     expect(rendererSource).toContain('id: "usage-alert-event-list"');
+    expect(rendererSource).toContain("GRID_TABLE_PAGE_SIZE_OPTIONS");
+    expect(rendererSource).toContain("data-grid-page-size");
+    expect(rendererSource).toContain("normalizeGridPageSize");
+    expect(rendererSource).toContain("gateway-grid-clickable");
+    expect(rendererSource).toContain('minWidth: "1220px"');
     expect(indexHtml).toContain("gridjs/dist/gridjs.umd.js");
     expect(indexHtml).toContain("gridjs/dist/theme/mermaid.min.css");
     expect(indexHtml).toContain('id="request-audit-list"');
@@ -466,8 +471,13 @@ describe("desktop build output", () => {
     expect(styles).toContain("--card-shadow-hover:");
     expect(styles).toContain(".gateway-grid-shell");
     expect(styles).toContain(".gateway-grid-table");
+    expect(styles).toContain(".gateway-grid-toolbar");
+    expect(styles).toContain(".gateway-grid-page-size");
+    expect(styles).toContain("justify-content: flex-end;");
+    expect(styles).toContain("text-align: center !important;");
     expect(styles).toContain("tr:nth-child(even)");
     expect(styles).toContain("overflow-x: auto;");
+    expect(styles).toContain(".gateway-grid-clickable");
     expect(styles).toContain(".gateway-grid-actions");
     expect(styles).toContain("min(1280px, calc(100vw - 40px))");
     expect(styles).toContain(".ops-audit-member-focus");
@@ -987,7 +997,6 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"usage-alert-severity-filter\"");
     expect(indexHtml).toContain("id=\"usage-alert-consumer-type-filter\"");
     expect(indexHtml).toContain("id=\"notification-type-filter\"");
-    expect(indexHtml).toContain("id=\"notification-page-size\"");
     expect(indexHtml).toContain("id=\"notification-pagination\"");
     expect(indexHtml).toContain("echarts/dist/echarts.min.js");
     expect(indexHtml).toContain("id=\"usage-consumer-filter\"");
@@ -1115,7 +1124,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildAccessAlertReadableBody");
     expect(rendererSource).toContain("buildAccessAlertNotification");
     expect(rendererSource).toContain("normalizeNotificationTypeFilter");
-    expect(rendererSource).toContain("notificationPageSize");
+    expect(rendererSource).toContain("GRID_TABLE_PAGE_SIZE_OPTIONS");
+    expect(rendererSource).toContain("data-grid-page-size");
     expect(rendererSource).toContain("class=\"usage-alert-event-card");
     expect(rendererSource).toContain("acknowledgedAt");
     expect(rendererSource).toContain("occurrenceCount");

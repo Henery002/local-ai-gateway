@@ -6148,6 +6148,28 @@ button, input, select {
   width: 100%;
 }
 
+.gateway-grid-toolbar {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gateway-grid-page-size {
+  align-items: center;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 6px;
+}
+
+.gateway-grid-page-size .input-field {
+  min-height: 32px;
+  min-width: 84px;
+  padding: 5px 8px;
+}
+
 .gateway-grid-shell .gridjs-wrapper {
   border: 0;
   border-radius: 0;
@@ -6156,6 +6178,8 @@ button, input, select {
 }
 
 .gateway-grid-shell .gridjs-search {
+  display: flex;
+  justify-content: flex-end;
   margin: 0 0 10px;
   width: 100%;
 }
@@ -6176,7 +6200,7 @@ button, input, select {
   color: var(--text-primary);
   font-size: 14px;
   line-height: 1.45;
-  min-width: 1040px;
+  min-width: var(--gateway-grid-min-width, 1040px);
   table-layout: fixed;
   width: 100%;
 }
@@ -6194,6 +6218,7 @@ button, input, select {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0;
+  text-align: center !important;
 }
 
 .gateway-grid-td {
@@ -6283,6 +6308,14 @@ button, input, select {
   font-size: 13px;
 }
 
+.gateway-grid-clickable {
+  cursor: pointer;
+}
+
+.gateway-grid-clickable:hover strong {
+  color: var(--color-accent-strong);
+}
+
 .account-grid-title {
   align-items: center;
   display: flex;
@@ -6307,10 +6340,6 @@ button, input, select {
 .account-row-quota.compact {
   gap: 6px;
   min-width: 180px;
-}
-
-.account-assets-table .gateway-grid-table {
-  min-width: 1220px;
 }
 
 .client-tag-chip {
