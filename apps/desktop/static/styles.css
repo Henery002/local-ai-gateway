@@ -6283,6 +6283,36 @@ button, input, select {
   font-size: 13px;
 }
 
+.account-grid-title {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.account-grid-title > div:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.account-grid-main .gateway-grid-token-parts {
+  margin-top: 4px;
+}
+
+.account-grid-actions {
+  gap: 8px;
+}
+
+.account-row-quota.compact {
+  gap: 6px;
+  min-width: 180px;
+}
+
+.account-assets-table .gateway-grid-table {
+  min-width: 1220px;
+}
+
 .client-tag-chip {
   display: inline-flex;
   align-items: center;

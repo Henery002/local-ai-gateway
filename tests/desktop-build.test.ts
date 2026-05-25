@@ -166,6 +166,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("account-assets-ownership-cell");
     expect(rendererSource).toContain("account-assets-usage-cell");
     expect(rendererSource).toContain("account-assets-actions-cell");
+    expect(rendererSource).toContain("renderAccountAssetsGrid");
+    expect(rendererSource).toContain('id: "codex-accounts-grid"');
     expect(rendererSource).toContain("同步额度（不刷新 refresh token）");
     expect(rendererSource).toContain("shouldProtectAccessDraftFromLiveRefresh");
     expect(rendererSource).toContain("markAccessDraftDirtyFromElement");
@@ -177,6 +179,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".account-assets-table {");
     expect(styles).toContain(".account-assets-table .account-assets-table-row {");
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
+    expect(styles).toContain(".account-assets-table .gateway-grid-table");
+    expect(styles).toContain(".account-grid-title");
     expect(styles).toContain(".account-assets-actions-cell .icon-btn[data-tooltip]::after");
     expect(styles).toContain(".access-consumer-table {");
     expect(styles).toContain("min-width: 1240px;");

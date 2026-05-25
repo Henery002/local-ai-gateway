@@ -9921,6 +9921,9 @@ function renderCodexAccounts(): void {
 
   container.innerHTML = `
     ${buildAccountBulkToolbarMarkup(accounts)}
+    <div id="codex-accounts-grid" class="account-assets-table"></div>
+  `;
+  const fallbackMarkup = `
     <div class="figma-table account-assets-table" data-accounts-grid role="table" aria-label="账号资产列表">
       <div class="figma-table-head account-assets-table-head" role="row">
         <span>账号</span>
@@ -9928,41 +9931,209 @@ function renderCodexAccounts(): void {
         <span>调用与额度</span>
         <span>操作</span>
       </div>
+      ${accounts.map((account) => buildAccountCardMarkup(account)).join("")}
     </div>
   `;
-  const grid = container.querySelector<HTMLElement>("[data-accounts-grid]");
-  if (!grid) {
-    updateAccountToolbarState();
-    return;
-  }
-
-  const batchToken = accountRenderToken;
-  let cursor = 0;
-  const batchSize = 10;
-
-  const appendNextBatch = () => {
-    if (batchToken !== accountRenderToken) {
-      return;
-    }
-    const nextHtml = accounts
-      .slice(cursor, cursor + batchSize)
-      .map((account) => buildAccountCardMarkup(account))
-      .join("");
-    if (nextHtml) {
-      const fragment = document.createRange().createContextualFragment(nextHtml);
-      grid.appendChild(fragment);
-    }
-    cursor += batchSize;
-    if (cursor < accounts.length) {
-      accountRenderFrame = window.requestAnimationFrame(appendNextBatch);
-      return;
-    }
-    accountRenderFrame = undefined;
-  };
-
-  appendNextBatch();
-
+  renderAccountAssetsGrid(accounts, {
+    fallbackMarkup,
+    getAccountRefreshError,
+    isQuotaSnapshotStale,
+  });
   updateAccountToolbarState();
+}
+
+type AccountAssetGroup = ReturnType<typeof getAccountGroups>["groups"][number];
+
+function renderAccountAssetsGrid(
+  accounts: AccountAssetGroup[],
+  options: {
+    fallbackMarkup: string;
+    getAccountRefreshError: (account: AccountAssetGroup) => string | undefined;
+    isQuotaSnapshotStale: (
+      account: AccountAssetGroup,
+      refreshErrorMessage?: string,
+    ) => boolean;
+  },
+): void {
+  renderGridTable({
+    id: "codex-accounts-grid",
+    columns: [
+      { name: "选择", width: "76px", sort: false },
+      { name: "账号", width: "260px" },
+      { name: "来源 / 所有权", width: "260px" },
+      { name: "调用", width: "230px" },
+      { name: "额度", width: "220px" },
+      { name: "操作", width: "190px", sort: false },
+    ],
+    data: accounts.map((account) => {
+      const title = getSessionTitle(account.representative);
+      const avatarTone = getAvatarToneIndex(account.representative.id);
+      const refreshErrorMessage = options.getAccountRefreshError(account);
+      const quotaIsStale = options.isQuotaSnapshotStale(
+        account,
+        refreshErrorMessage,
+      );
+      const quotaPercentage = quotaIsStale
+        ? undefined
+        : getQuotaPercentage(account.representative);
+      const quotaScope = formatQuotaWindowLabel(account.representative);
+      const quotaToneClass = getQuotaToneClass(quotaPercentage).replace(
+        "quota-",
+        "",
+      );
+      const activity = account.representative.activity;
+      const requestCount = activity?.requestCount ?? 0;
+      const recentCallLabel = formatRecentCall(activity?.lastRequestAt);
+      const clientTagBadges = renderClientTagBadges(activity?.byClientTag ?? []);
+      const recentClientTagBadges = renderRecentClientTagBadges(
+        activity?.recentByClientTag5m ?? [],
+        activity?.recentRequestCount5m ?? 0,
+      );
+      const isLive =
+        typeof activity?.lastRequestAt === "number" &&
+        Date.now() - activity.lastRequestAt <= 90_000;
+      const isPinned = isPinnedAccountSession(account.representative.id);
+      const selected = selectedAccountKeys.has(account.key);
+      const refreshMode =
+        account.representative.credentialRefreshMode ??
+        (account.representative.sourceKind === "local-import"
+          ? "external-readonly"
+          : undefined);
+      const sourceBadge =
+        account.representative.sourceKind === "local-import"
+          ? account.representative.sourceLabel ?? "本地账号副本"
+          : account.representative.sourceLabel ?? "OpenClaw 授权源";
+      const ownershipBadge =
+        refreshMode === "managed"
+          ? "本项目可刷新"
+          : "外部只读";
+      const quotaUpdatedAt = account.representative.quota?.updatedAt
+        ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
+        : "尚未同步";
+      return [
+        gridHtml(`
+          <label class="account-card-select" data-account-select-control="true" title="选择此账号用于批量操作">
+            <input
+              type="checkbox"
+              data-field="account-card-selector"
+              data-account-key="${escapeHtml(account.key)}"
+              aria-label="选择账号 ${escapeHtml(title)}"
+              ${selected ? "checked" : ""}
+            />
+          </label>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack account-grid-main">
+            <div class="account-grid-title">
+              <div class="acc-avatar" data-avatar-tone="${avatarTone}">${escapeHtml(title.charAt(0).toUpperCase())}</div>
+              <div>
+                <strong>${escapeHtml(title)}</strong>
+                <span>${escapeHtml(account.representative.accountId ?? account.representative.profileId ?? "无 ID")}</span>
+              </div>
+            </div>
+            <div class="gateway-grid-token-parts">
+              <span>${escapeHtml(statusLabel(account.representative.status))}</span>
+              ${isPinned ? "<span>已置顶</span>" : ""}
+              ${isLive ? "<span>活跃调用</span>" : ""}
+              ${refreshErrorMessage ? `<span>${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
+            </div>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(sourceBadge)}</strong>
+            <span>${escapeHtml(ownershipBadge)}</span>
+            <span>${escapeHtml(account.representative.sourcePath)}</span>
+            <span>套餐 ${escapeHtml(account.representative.planType ?? "待同步")} · 到期 ${escapeHtml(formatDate(account.representative.expiresAt))}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${isLive ? "活跃调用" : "最近调用"}：${escapeHtml(recentCallLabel)}</strong>
+            <span>累计 ${escapeHtml(formatCompactCount(requestCount))} 次 · 近1小时 ${escapeHtml(formatCompactCount(activity?.recentRequestCount1h ?? 0))} · 近24小时 ${escapeHtml(formatCompactCount(activity?.recentRequestCount24h ?? 0))}</span>
+            <span class="client-tag-list">${clientTagBadges}</span>
+            <span class="client-tag-list">${recentClientTagBadges}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <div class="account-row-quota compact">
+              <div class="account-row-split">
+                <span>${escapeHtml(quotaScope)}</span>
+                <strong>${quotaPercentage !== undefined ? `${quotaPercentage}%` : "待接入"}</strong>
+              </div>
+              <div class="acc-quota-bar">
+                <div class="acc-quota-fill ${quotaToneClass}" style="width: ${quotaPercentage ?? 0}%;"></div>
+              </div>
+            </div>
+            <span>重置 ${escapeHtml(formatCountdown(account.representative.quota?.resetAt))}</span>
+            <span>${escapeHtml(quotaUpdatedAt)}</span>
+            ${refreshErrorMessage ? `<span>${quotaIsStale ? "最近同步失败，旧额度已不再作为实时值展示。" : `最近同步失败：${escapeHtml(refreshErrorMessage)}`}</span>` : ""}
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-actions account-grid-actions">
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="activate"
+              data-tone="${account.isActive ? "active" : "activate"}"
+              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
+              type="button"
+            >
+              ${renderActionIcon(account.isActive ? "active" : "activate")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="toggle-pin-session"
+              data-tone="${isPinned ? "pin-active" : "pin"}"
+              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${isPinned ? "取消置顶" : "置顶账号"}"
+              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
+              type="button"
+            >
+              ${renderActionIcon(isPinned ? "unpin" : "pin")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="refresh-session-usage"
+              data-tone="refresh"
+              data-tooltip="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
+              aria-label="${refreshMode === "external-readonly" ? "同步额度，不刷新 refresh token" : "同步额度"}"
+              type="button"
+            >
+              ${renderActionIcon("refresh")}
+            </button>
+            <button
+              class="icon-btn"
+              data-icon-only="true"
+              data-action="delete-codex-account"
+              data-tone="delete"
+              data-tooltip="删除本地副本"
+              data-session-id="${escapeHtml(account.representative.id)}"
+              title="删除本地副本"
+              aria-label="删除本地副本"
+              type="button"
+            >
+              ${renderActionIcon("delete")}
+            </button>
+          </div>
+        `),
+      ];
+    }),
+    emptyMessage: "当前还没有导入任何桌面端 Codex 账号。",
+    fallbackMarkup: options.fallbackMarkup,
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function renderProviderRegistry(): void {
