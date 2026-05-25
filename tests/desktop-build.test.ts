@@ -1112,6 +1112,11 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageAnalyticsRequest");
     expect(rendererSource).toContain("refreshUsageAnalyticsOnly");
     expect(rendererSource).toContain("state.usageAnalytics.summary");
+    expect(rendererSource).toContain("getOverviewUsageWindowSummary");
+    expect(rendererSource).toContain("const summary = getOverviewUsageWindowSummary();");
+    expect(rendererSource).not.toContain(
+      "function renderDashboardPhaseTwoOverview(): void {\n  const health = state.health;\n  const summary = getActiveUsageWindowSummary();",
+    );
     expect(rendererSource).toContain("syncUsageAnalysisFilterControls");
     expect(rendererSource).toContain("usageOutcomeFilter");
     expect(preloadSource).toContain("getUsageAnalytics");

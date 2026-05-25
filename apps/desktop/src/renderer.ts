@@ -1958,6 +1958,23 @@ function normalizeAccessAlertEvents(
   return normalizeUsageArray<AccessAlertEvent>(value?.data?.events);
 }
 
+function getOverviewUsageWindowSummary(): UsageWindowSummary | undefined {
+  const summary = state.usageSummary;
+  if (!summary) {
+    return undefined;
+  }
+  if (state.usageObserveWindow === "history") {
+    return summary.history;
+  }
+  if (state.usageObserveWindow === "weekly") {
+    return summary.weekly;
+  }
+  if (state.usageObserveWindow === "monthly") {
+    return summary.monthly;
+  }
+  return summary.daily;
+}
+
 function getActiveUsageWindowSummary(): UsageWindowSummary | undefined {
   const summary = state.usageSummary;
   if (!summary) {
@@ -3569,7 +3586,7 @@ function renderOverview(): void {
 
 function renderDashboardPhaseTwoOverview(): void {
   const health = state.health;
-  const summary = getActiveUsageWindowSummary();
+  const summary = getOverviewUsageWindowSummary();
   const usage = summary?.totals;
   const baseUrl = health?.openclaw?.baseUrl ?? "http://127.0.0.1:8787/v1";
   const authEnabled = Boolean(
