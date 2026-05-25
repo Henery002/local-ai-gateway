@@ -4022,7 +4022,7 @@ button, input, select {
 
 .notification-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: start;
   padding: 14px 16px;
@@ -4063,6 +4063,18 @@ button, input, select {
 
 .notification-actions {
   justify-items: end;
+}
+
+.notification-type-badge {
+  height: auto;
+  justify-content: center;
+  line-height: 1.35;
+  max-width: 100%;
+  min-height: 24px;
+  overflow-wrap: anywhere;
+  padding: 3px 8px;
+  text-align: center;
+  white-space: normal;
 }
 
 .notification-title {

@@ -8090,10 +8090,6 @@ function buildNotificationListFallbackMarkup(items: NotificationItem[]): string 
               <span>${escapeHtml(item.source === "access-alert" ? "访问告警" : "系统")}</span>
             </div>
           </div>
-          <div class="notification-actions">
-            ${item.read ? "" : `<button class="btn secondary mini" data-action="mark-notification-read" data-notification-id="${escapeHtml(item.id)}">标为已读</button>`}
-            ${item.alert?.id && !item.alert.acknowledgedAt ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(item.alert.id))}">确认告警</button>` : ""}
-          </div>
         </div>
       `,
     )
@@ -8104,18 +8100,17 @@ function renderNotificationGrid(items: NotificationItem[]): void {
   renderGridTable({
     id: "notification-list",
     columns: [
-      { name: "时间", width: "145px" },
-      { name: "状态", width: "90px" },
-      { name: "类型", width: "120px" },
-      { name: "成员", width: "170px" },
+      { name: "时间", width: "132px" },
+      { name: "状态", width: "82px" },
+      { name: "类型", width: "150px" },
+      { name: "成员", width: "210px" },
       { name: "消息内容" },
-      { name: "级别", width: "88px" },
-      { name: "操作", width: "160px", sort: false },
+      { name: "级别", width: "82px" },
     ],
     data: items.map((item) => [
       gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatDate(item.timestamp))}</span>`),
       gridHtml(`<span class="badge ${item.read ? "active" : "warning"}">${item.read ? "已读" : "未读"}</span>`),
-      gridHtml(`<span class="badge neutral">${escapeHtml(item.typeLabel)}</span>`),
+      gridHtml(`<span class="badge neutral notification-type-badge">${escapeHtml(item.typeLabel)}</span>`),
       gridHtml(`
         <div class="gateway-grid-stack">
           <strong>${escapeHtml(item.consumerLabel ?? "未关联成员")}</strong>
@@ -8130,18 +8125,12 @@ function renderNotificationGrid(items: NotificationItem[]): void {
         </div>
       `),
       gridHtml(`<span class="badge ${escapeHtml(accessAlertSeverityTone(item.severity))}">${escapeHtml(formatAccessAlertSeverityLabel(item.severity))}</span>`),
-      gridHtml(`
-        <div class="gateway-grid-actions">
-          ${item.read ? "" : `<button class="btn secondary mini" data-action="mark-notification-read" data-notification-id="${escapeHtml(item.id)}" type="button">标为已读</button>`}
-          ${item.alert?.id && !item.alert.acknowledgedAt ? `<button class="btn secondary mini" data-action="ack-access-alert" data-alert-id="${escapeHtml(String(item.alert.id))}" type="button">确认告警</button>` : ""}
-        </div>
-      `),
     ]),
     emptyMessage: "当前筛选下暂无通知消息。",
     fallbackMarkup: buildNotificationListFallbackMarkup(items),
     pageSize: 20,
     search: true,
-    minWidth: "1110px",
+    minWidth: "980px",
   });
 }
 
