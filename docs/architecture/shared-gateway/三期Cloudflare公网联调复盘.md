@@ -6,15 +6,17 @@
 
 ## 1. 结论快照
 
-截至 2026-05-21，三期公网共享链路已完成首轮基础打通：
+截至 2026-05-25，三期公网共享链路已完成基础打通并进入 Trae / Codex 等第三方客户端公网试运行排障阶段：
 
 - 外部域名 `gateway.henery.top` 已通过 Cloudflare Tunnel 回源到本机 `Local AI Gateway`。
 - Cloudflare 路由已收紧到 `^/v1`，当前只转发 OpenAI-compatible 推理面。
 - `/healthz` 和 `/` 外部访问返回 `404`，不再暴露本机健康诊断。
 - `/v1/models` 无 Key 返回网关侧 `401 gateway_api_key_required`，说明公网请求已到达网关鉴权层。
 - 本地系统已启用公网配置，并存在启用中的 `public-user`、独立公网成员 Key、`public-ready` 号池和额度策略。
+- 网关公网面已支持 `/v1/models`、`/v1/models/:model`、`/v1/chat/completions`、`/v1/responses`、成员余额查询和 Codex / Cockpit 风格额度兼容查询。
+- 2026-05-25 晚间 Trae 公网试运行暴露出两类运维问题：健康检查误重启会打断公网流式请求；额度预警告警混入请求审计会造成“失败请求”假象。两者均已在代码层补强并纳入回归测试。
 
-当前剩余验收是：从其他 Agent 客户端使用公网成员 API Key 跑通 `/v1/models`、非流式对话和 `stream: true`。
+当前剩余重点是：继续用 Trae / Codex / CC Switch 等真实客户端做公网长时间试运行，观察 Cloudflare Tunnel、桌面健康检查、本地网关常驻服务和号池调度在长流式请求下的稳定性。
 
 ## 2. 关键配置总览
 
@@ -218,18 +220,99 @@ curl https://gateway.henery.top/v1/chat/completions \
 - 公网成员默认单请求输入估算上限为 `1050000`、输出上限为 `128000`；成员策略可进一步配置 `maxInputTokens / maxOutputTokens`。
 - 同一上游账号按 `accountId / email / sessionId` 聚合并发和近 60 秒准入次数，默认公网成员单账号并发为 `16`、近 60 秒准入为 `240`；多把公网成员 Key 仍不会绕过该账号级高水位保险丝。
 - 不启用 Cloudflare Access / SSO 保护 `/v1/*`，避免 Agent 客户端无法处理浏览器登录跳转。
+
+## 5. 2026-05-25 Trae 公网试运行排障记录
+
+### 5.1 22:33 前后 Trae 请求瞬断
+
+现象：
+
+- 用户在 Trae 公网 Provider 环境下继续使用本网关，约 `2026-05-25 22:33` 前后出现请求失败。
+- Cloudflare / 本地日志中可见 origin `EOF`、`Unexpected end of JSON input` 与网关 `SIGTERM` / `gateway_started` 接近同时出现。
+
+关键证据：
+
+- `inference_usage_events` 中 `22:33:07`、`22:33:16`、`22:33:49`、`22:33:59` 多条 `codex-5.5` 请求均为 `ok=1`，说明上游模型和号池账号当时不是整体不可用。
+- `event_logs` 中 `22:33:36.991` 出现 `Unexpected end of JSON input`。
+- 紧接着 `22:33:37.063` 和 `22:33:37.775` 网关收到 `SIGTERM` 并重启。
+- `request_content_audit_events` 中 `22:34:13` 有请求内容审计记录，但缺少对应完整 usage 完成记录，符合请求进入网关后被重启打断的特征。
+
+结论：
+
+- 本次不是上游模型集中限流，也不是成员 Key 本身失效。
+- 根因更接近本地网关在公网请求过程中被管理 / 健康检查 / 自动接管逻辑重启，导致 Trae 端看到 EOF、连接中断或 JSON 解析失败。
+
+已落地修复：
+
+- `/admin/service/restart` 增加活跃推理保护：存在进行中推理时默认返回 `409 service_restart_inference_active` 与 `Retry-After`，不再立即 `process.exit(75)`。
+- 桌面端“重启服务”、运维页网关操作、托盘“重启本地网关”均接入同一层保护。
+- 请求失败日志补充 `requestPath`、`requestMethod`、`clientTag`、`userAgent`、`contentLength` 等排障字段。
+- 对应提交：`899137d 增强网关重启请求保护`。
+
+### 5.2 23:22 前后请求审计红框“失败”误报
+
+现象：
+
+- 用户在“请求审计明细”中看到同一时间附近出现一条 `access_policy_total_quota_warning`，状态显示为失败，账号显示“未归因账号”，Token 和延迟均为 0。
+- 该条记录容易被误判为 Trae 推理失败。
+
+关键证据：
+
+- 同一秒 `2026-05-25 23:22:18` 的真实 `inference_usage_events` 存在一条成功请求：成员 `weifanguang`，模型 `codex-5.5`，stream，号池 `pool-mpf47s1p-w7fyiq`，上游账号 `1831552107@qq.com`，Token 约 `24.4K`，延迟约 `9682ms`，`ok=1`。
+- 红框记录实际来自 `access_alert_events` 中的 `access_policy_total_quota_warning`，details 显示总额度上限 `100000000`、已用 `30387432`、比例约 `30.4%`。
+
+结论：
+
+- 红框不是一次真实失败推理，而是“成员总额度接近阈值”的预警告警。
+- 早期拒绝审计为了补全未进入上游的失败请求，会把 `access_alert_events` 合并到请求审计；但 `*_warning` 预警类告警不应被当成失败请求展示。
+
+已落地修复：
+
+- 请求审计查询排除 `type LIKE '%_warning'` 的访问告警，只保留真正阻断 / 失败类告警作为失败审计补充。
+- 新增回归测试，覆盖额度预警不进入请求审计失败明细。
+- 对应提交：`64cb24e 修复请求审计误报与健康检查误重启`。
+
+### 5.3 23:23 / 23:24 健康检查误重启
+
+现象：
+
+- 继续观察时发现 `23:23:41`、`23:24:21` 附近仍有本地网关 `SIGTERM` / `gateway_started`。
+- 日志显示触发前是桌面端 / 本机 `node` 对 `/healthz` 的请求出现 `Unexpected end of JSON input` 或 `Unterminated string in JSON`。
+
+关键证据：
+
+- `event_logs` 中 `2026-05-25T15:23:41Z`：`requestPath=/healthz`，`userAgent=node`，错误 `Unexpected end of JSON input`，随后 `gateway_shutting_down` 和 `gateway_started`。
+- `event_logs` 中 `2026-05-25T15:24:21Z`：`requestPath=/healthz`，`userAgent=node`，错误 `Unterminated string in JSON at position 8192`，随后再次 `gateway_shutting_down` 和 `gateway_started`。
+- 手动连续 `curl http://127.0.0.1:8787/healthz` 多次均返回 `200`，说明 `/healthz` 不是永久不可用，而是健康检查链路的瞬时读取 / 解析异常被过度处理。
+
+结论：
+
+- 公网间歇报错的另一条主线是桌面端健康检查把一次瞬时 `/healthz` 异常误判为网关不可用，并自动接管 / 重启监听中的本网关进程。
+- 对公网流式请求而言，这类“误重启”比单次健康检查失败更危险，会直接打断 Trae / Codex 客户端的长请求。
+
+已落地修复：
+
+- 桌面端 `ensureRunning()` 在 `/healthz` 不健康但端口仍有本网关进程监听时，不再杀掉该进程并重启，而是保留现有进程，避免误伤公网请求。
+- 对应提交：`64cb24e 修复请求审计误报与健康检查误重启`。
+
+### 5.4 当前操作建议
+
+- 开发环境要加载上述修复，需要在没有 Trae / Codex 活跃请求时重启当前 dev 桌面端 / 网关进程。
+- 不要在公网成员正在流式请求时点击“重启服务”“一键修复”“重启 Tunnel”或直接 `Ctrl+C` 终端。
+- 如果必须重启，先让客户端请求结束，再停旧进程并重新 `yarn dev:desktop`。
+- 后续如继续出现 Trae 端报错，应优先对齐三个时间源：Trae 错误时间、`event_logs` 中 `request_failed` / `gateway_shutting_down`、`inference_usage_events` 中同时间是否有 `ok=0` 或缺失 completion 的 request audit。
 - 本机睡眠、网络切换、`cloudflared` 退出都会影响公网可用性。
 
-## 5. 常见问题与经验
+## 6. 常见问题与经验
 
-### 5.1 为什么 Cloudflare Service URL 不写 `/v1`
+### 6.1 为什么 Cloudflare Service URL 不写 `/v1`
 
 Tunnel 的 Service URL 表示回源服务根地址，本机网关服务根是 `http://127.0.0.1:8787`。客户端请求路径会原样带到回源服务，Cloudflare Path `^/v1` 负责匹配允许转发的路径。因此：
 
 - 正确：Service `http://127.0.0.1:8787` + Path `^/v1`
 - 错误：Service `http://127.0.0.1:8787/v1`
 
-### 5.2 为什么不能空 Path
+### 6.2 为什么不能空 Path
 
 空 Path 表示该 hostname 下所有路径都转发到本机服务。实际观测中，空 Path 会让：
 
@@ -239,7 +322,7 @@ https://gateway.henery.top/healthz
 
 直接返回本机健康诊断。这不符合公网只暴露推理面的边界。
 
-### 5.3 为什么公网成员必须是 `public-user`
+### 6.3 为什么公网成员必须是 `public-user`
 
 服务端执行层会区分成员类型：
 
@@ -250,7 +333,7 @@ https://gateway.henery.top/healthz
 
 因此，仅把成员命名为 `public-user` 不够，实际 `type` 必须保存为 `public-user`。
 
-### 5.4 重启后为什么要注册 LaunchAgent
+### 6.4 重启后为什么要注册 LaunchAgent
 
 2026-05-21 晚间重启后，公网测试出现 Cloudflare `1033` / `502`。本地排查结论：
 
@@ -283,7 +366,7 @@ https://gateway.henery.top/healthz
 
 桌面端新增“运维与日志”页，用于查看网关常驻、Cloudflare Tunnel、公网 `/v1/models` 探测和日志 tail，并提供网关 / Tunnel 重启入口。
 
-## 6. 后续建议
+## 7. 后续建议
 
 短期：
 

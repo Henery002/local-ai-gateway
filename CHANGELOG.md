@@ -9,6 +9,41 @@
 - 同一天内的内容收敛到同一个时间戳条目下
 - 每条记录尽量简短，只保留便于回溯的关键信息
 
+## [2026-05-25 23:35 CST]
+
+### 修复
+
+- 修复 Trae 公网试运行期间的请求审计误报：`access_policy_*_warning` 这类额度预警不再合并进“请求审计明细”的失败请求列表，避免同一秒成功推理旁边又出现 0 Token / 0ms 的“失败”假象。
+- 修复桌面端健康检查误重启：当 `/healthz` 偶发 JSON 解析异常但端口上仍有本网关进程监听时，桌面端不再自动杀掉并重启该进程，降低公网流式请求被健康检查误伤的概率。
+
+### 排障结论
+
+- `2026-05-25 23:22:18` 截图中的 `access_policy_total_quota_warning` 是成员总额度接近阈值告警，不是真实推理失败；同一秒真实 `codex-5.5` stream 请求成功，Token 约 `24.4K`，延迟约 `9682ms`。
+- `2026-05-25 23:23:41`、`23:24:21` 日志中的 `/healthz` JSON 解析异常后紧跟 `SIGTERM` / `gateway_started`，说明公网间歇报错的主要风险点是桌面端健康检查误判触发网关重启，而不是上游账号或模型本身不可用。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖额度预警不进入请求审计失败明细。
+- 回归通过 `npm test -- tests/gateway-app.test.ts`、`npm test -- tests/desktop-build.test.ts`、`npm run build` 和 `git diff --check`。
+
+## [2026-05-25 22:55 CST]
+
+### 修复
+
+- 增强网关重启保护：`/admin/service/restart` 在存在活跃推理请求时默认返回 `409 service_restart_inference_active` 与 `Retry-After`，不再立即 `process.exit(75)` 打断 Trae / Codex 等客户端请求。
+- 桌面端“重启服务”、运维页网关服务操作和托盘“重启本地网关”入口统一接入活跃推理保护，避免管理端操作误伤公网流式请求。
+- 请求失败日志补充 `requestPath`、`requestMethod`、`clientTag`、`userAgent`、`contentLength` 等上下文，便于后续区分 Trae / Codex / 探活请求 / 无 Key 探测。
+
+### 排障结论
+
+- `2026-05-25 22:33` 前后 Trae 公网故障并非模型限流或号池账号集中失败；同时间窗多条 `codex-5.5` 推理记录 `ok=1`。
+- 真正异常是 `Unexpected end of JSON input` 后紧跟网关 `SIGTERM` / `gateway_started`，并在 Cloudflare 侧出现 origin `EOF`，属于本地网关重启导致的请求链路瞬断。
+
+### 测试
+
+- 新增 gateway 回归测试，覆盖活跃推理时拒绝服务重启、畸形 JSON 请求失败日志保留排障上下文。
+- 回归通过 `npm test -- tests/gateway-app.test.ts`、`npm test -- tests/desktop-build.test.ts`、`npm run typecheck`、`npm run build` 和 `git diff --check`。
+
 ## [2026-05-25 14:00 CST]
 
 ### 调整
