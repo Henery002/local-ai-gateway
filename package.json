@@ -45,6 +45,7 @@
     "better-sqlite3": "^12.4.1",
     "echarts": "^6.1.0",
     "fastify": "^5.6.1",
+    "gridjs": "^6.2.0",
     "zod": "^4.1.11"
   },
   "devDependencies": {
