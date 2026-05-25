@@ -463,11 +463,18 @@ function readProcessCommand(pid: number): string {
   }
 }
 
-function terminateStaleDevDesktopMainProcesses(): void {
-  if (app.isPackaged) {
-    return;
-  }
+function looksLikeRelayGateDesktopMainCommand(command: string): boolean {
+  return (
+    (
+      command.includes("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron") &&
+      command.includes("apps/desktop/dist/main.js")
+    ) ||
+    command.includes("Local AI Gateway.app/Contents/MacOS/Local AI Gateway") ||
+    command.includes("RelayGate.app/Contents/MacOS/RelayGate")
+  );
+}
 
+function terminateStaleDesktopMainProcesses(): void {
   let output = "";
   try {
     output = execFileSync("ps", ["-axo", "pid=,command="], {
@@ -491,8 +498,7 @@ function terminateStaleDevDesktopMainProcesses(): void {
       !Number.isFinite(pid) ||
       pid === currentPid ||
       pid === parentPid ||
-      !command.includes("node_modules/electron/dist/Electron.app/Contents/MacOS/Electron") ||
-      !command.includes("apps/desktop/dist/main.js")
+      !looksLikeRelayGateDesktopMainCommand(command)
     ) {
       continue;
     }
@@ -500,12 +506,12 @@ function terminateStaleDevDesktopMainProcesses(): void {
     try {
       process.kill(pid, "SIGTERM");
       appendDesktopMainLog("info", [
-        "terminated_stale_dev_desktop_process",
+        "terminated_stale_desktop_process",
         { pid, command },
       ]);
     } catch (error) {
       appendDesktopMainLog("warn", [
-        "failed_to_terminate_stale_dev_desktop_process",
+        "failed_to_terminate_stale_desktop_process",
         { pid, error: toErrorMessage(error) },
       ]);
     }
@@ -3820,7 +3826,7 @@ ipcMain.handle("gateway:save-system-settings", async (_event, payload: DesktopSy
 });
 
 app.whenReady().then(() => {
-  terminateStaleDevDesktopMainProcesses();
+  terminateStaleDesktopMainProcesses();
   const launchedAtLogin =
     canApplyLoginItemSetting() && app.getLoginItemSettings().wasOpenedAtLogin;
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
