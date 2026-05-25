@@ -6137,6 +6137,133 @@ button, input, select {
   color: var(--text-secondary);
 }
 
+.gateway-grid-shell {
+  --gridjs-border-color: var(--border-light);
+  --gridjs-head-background: color-mix(in oklab, var(--bg-surface) 82%, var(--color-accent-soft));
+  --gridjs-td-border-color: var(--border-light);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-subtle);
+  overflow: hidden;
+  width: 100%;
+}
+
+.gateway-grid-shell .gridjs-wrapper {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.gateway-grid-shell .gridjs-search {
+  margin: 0 0 10px;
+  width: 100%;
+}
+
+.gateway-grid-shell .gridjs-search-input {
+  background: var(--bg-main);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 10px;
+  width: min(360px, 100%);
+}
+
+.gateway-grid-table {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.45;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.gateway-grid-th,
+.gateway-grid-td {
+  border-color: var(--border-light) !important;
+  padding: 10px 12px !important;
+  vertical-align: middle;
+}
+
+.gateway-grid-th {
+  background: color-mix(in oklab, var(--bg-surface) 88%, var(--color-accent-soft)) !important;
+  color: var(--text-secondary) !important;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.gateway-grid-td {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+}
+
+.gateway-grid-body tr:hover .gateway-grid-td {
+  background: color-mix(in oklab, var(--color-accent-soft) 28%, var(--bg-surface)) !important;
+}
+
+.gateway-grid-footer {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-light) !important;
+  box-shadow: none !important;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 10px 12px !important;
+}
+
+.gateway-grid-pagination .gridjs-pages button {
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.gateway-grid-pagination .gridjs-pages button:hover,
+.gateway-grid-pagination .gridjs-pages button[aria-current="true"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.gateway-grid-stack {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.gateway-grid-stack strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.gateway-grid-stack span,
+.gateway-grid-muted {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gateway-grid-wrap {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.gateway-grid-token-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gateway-grid-token-parts span {
+  background: var(--bg-main);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
 .client-tag-chip {
   display: inline-flex;
   align-items: center;

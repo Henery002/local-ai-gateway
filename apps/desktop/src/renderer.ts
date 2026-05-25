@@ -54,6 +54,15 @@ const STALE_QUOTA_AFTER_REFRESH_ERROR_MS = 15 * 60_000;
 declare global {
   interface Window {
     echarts?: EChartsNamespace;
+    gridjs?: {
+      Grid: new (config: Record<string, unknown>) => {
+        render: (container: Element) => unknown;
+        updateConfig?: (config: Record<string, unknown>) => unknown;
+        forceRender?: () => unknown;
+        destroy?: () => void;
+      };
+      html?: (content: string) => unknown;
+    };
     localAIGateway?: {
       getHealth: () => Promise<DashboardHealth>;
       getProviders: () => Promise<DashboardProviders>;
@@ -1456,6 +1465,93 @@ let usageTooltipElement: HTMLDivElement | undefined;
 let usageTooltipInteractionsBound = false;
 const usageChartInstances = new Map<string, EChartsInstance>();
 let usageChartResizeBound = false;
+const gridTableInstances = new Map<string, { destroy?: () => void }>();
+
+function disposeGridTable(id: string): void {
+  const existing = gridTableInstances.get(id);
+  if (!existing) {
+    return;
+  }
+  try {
+    existing.destroy?.();
+  } catch (error) {
+    console.warn("销毁 Grid.js 表格失败", id, error);
+  }
+  gridTableInstances.delete(id);
+}
+
+function gridHtml(markup: string): unknown {
+  return window.gridjs?.html ? window.gridjs.html(markup) : markup;
+}
+
+function renderGridTable(options: {
+  id: string;
+  columns: Array<string | Record<string, unknown>>;
+  data: unknown[][];
+  emptyMessage: string;
+  fallbackMarkup: string;
+  pageSize?: number;
+  search?: boolean;
+}): void {
+  const container = document.getElementById(options.id);
+  if (!container) {
+    return;
+  }
+  disposeGridTable(options.id);
+  if (!options.data.length) {
+    container.innerHTML = `<div class="empty-card">${escapeHtml(options.emptyMessage)}</div>`;
+    return;
+  }
+  const Grid = window.gridjs?.Grid;
+  if (!Grid) {
+    container.innerHTML = options.fallbackMarkup;
+    return;
+  }
+  container.innerHTML = "";
+  const pageSize = options.pageSize ?? 10;
+  const grid = new Grid({
+    columns: options.columns,
+    data: options.data,
+    autoWidth: false,
+    fixedHeader: true,
+    height: options.data.length > pageSize ? "520px" : "auto",
+    search: options.search ?? false,
+    sort: true,
+    pagination:
+      options.data.length > pageSize
+        ? {
+            limit: pageSize,
+            summary: true,
+          }
+        : false,
+    className: {
+      container: "gateway-grid-shell",
+      table: "gateway-grid-table",
+      thead: "gateway-grid-head",
+      th: "gateway-grid-th",
+      tbody: "gateway-grid-body",
+      td: "gateway-grid-td",
+      footer: "gateway-grid-footer",
+      pagination: "gateway-grid-pagination",
+    },
+    language: {
+      search: { placeholder: "搜索当前明细..." },
+      pagination: {
+        previous: "上一页",
+        next: "下一页",
+        showing: "显示",
+        results: () => "条",
+        of: " / ",
+        to: "到",
+      },
+      loading: "加载中...",
+      noRecordsFound: options.emptyMessage,
+      error: "表格渲染失败",
+    },
+  });
+  grid.render(container);
+  gridTableInstances.set(options.id, grid);
+}
 
 function getGatewayApi() {
   const api = window.localAIGateway;
@@ -8149,6 +8245,7 @@ function renderRequestAudit(): void {
     }
     summaryNode.innerHTML = "";
     previewNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
+    disposeGridTable("request-audit-list");
     listNode.innerHTML = "<div class='empty-card'>正在读取请求审计数据。</div>";
     return;
   }
@@ -8159,6 +8256,7 @@ function renderRequestAudit(): void {
     }
     summaryNode.innerHTML = "";
     previewNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
+    disposeGridTable("request-audit-list");
     listNode.innerHTML = "<div class='empty-card'>等待请求审计数据。</div>";
     return;
   }
@@ -8181,6 +8279,7 @@ function renderRequestAudit(): void {
   `;
   if (audit.items.length === 0) {
     previewNode.innerHTML = "<div class='empty-card'>当前筛选下暂无请求记录。</div>";
+    disposeGridTable("request-audit-list");
     listNode.innerHTML = "<div class='empty-card'>当前筛选下暂无请求记录。</div>";
     return;
   }
@@ -8195,7 +8294,11 @@ function renderRequestAudit(): void {
       <button class="btn secondary mini" data-action="open-request-audit-modal" type="button">查看 ${escapeHtml(formatCompactCount(audit.items.length))} 条明细</button>
     </div>
   `;
-  listNode.innerHTML = audit.items
+  renderRequestAuditGrid(audit.items);
+}
+
+function buildRequestAuditListMarkup(items: RequestAuditEntry[]): string {
+  return items
     .map((item) => {
       const title = `${item.modelAlias} · ${item.success ? "成功" : "失败"} · ${item.stream ? "stream" : "non-stream"}`;
       const account = formatAuditAccountLabel(item.accountId || item.sessionId, item.email);
@@ -8221,6 +8324,63 @@ function renderRequestAudit(): void {
       `;
     })
     .join("");
+}
+
+function renderRequestAuditGrid(items: RequestAuditEntry[]): void {
+  renderGridTable({
+    id: "request-audit-list",
+    columns: [
+      { name: "时间", width: "150px" },
+      { name: "成员 / Key", width: "220px" },
+      { name: "模型 / 号池" },
+      { name: "账号", width: "220px" },
+      { name: "状态", width: "110px" },
+      { name: "Token", width: "100px" },
+      { name: "延迟", width: "90px" },
+      { name: "操作", width: "110px", sort: false },
+    ],
+    data: items.map((item) => {
+      const account = formatAuditAccountLabel(item.accountId || item.sessionId, item.email);
+      const consumer = formatAuditConsumerLabel(item.consumerId, item.clientTag);
+      const accessKey = formatAuditAccessKeyLabel(item.accessKeyId, item.consumerId);
+      const errorText = item.errorCode
+        ? `<span class="gateway-grid-muted">${escapeHtml(item.errorCode)}${item.statusCode ? ` (${escapeHtml(String(item.statusCode))})` : ""}</span>`
+        : "";
+      return [
+        gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatDate(item.timestamp))}</span>`),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(consumer)}</strong>
+            <span>Key ${escapeHtml(accessKey)}</span>
+          </div>
+        `),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <strong>${escapeHtml(item.modelAlias)}</strong>
+            <span>${item.stream ? "stream" : "non-stream"} · 号池 ${escapeHtml(item.poolId || "-")}</span>
+          </div>
+        `),
+        gridHtml(`<span class="gateway-grid-wrap">${escapeHtml(account)}</span>`),
+        gridHtml(`
+          <div class="gateway-grid-stack">
+            <span class="badge ${item.success ? "active" : "warning"}">${item.success ? "成功" : "失败"}</span>
+            ${errorText}
+          </div>
+        `),
+        `${formatCompactCount(item.totalTokens)}`,
+        `${formatCompactCount(item.latencyMs)} ms`,
+        gridHtml(
+          item.contentAvailable && item.sourceEventKey
+            ? `<button class="btn secondary mini" data-action="open-request-audit-content" data-source-event-key="${escapeHtml(item.sourceEventKey)}" type="button">查看内容</button>`
+            : `<span class="gateway-grid-muted">-</span>`,
+        ),
+      ];
+    }),
+    emptyMessage: "当前筛选下暂无请求记录。",
+    fallbackMarkup: buildRequestAuditListMarkup(items),
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function renderRequestAuditContentModal(): void {
@@ -8779,15 +8939,54 @@ function buildAccountUsageRankingListMarkup(): string {
 }
 
 function openAccountUsageRankingModal(): void {
-  const list = document.getElementById("account-usage-ranking-list");
-  if (list) {
-    list.innerHTML = buildAccountUsageRankingListMarkup();
-  }
+  renderAccountUsageRankingGrid();
   setModalVisibility("account-usage-ranking-modal", true);
 }
 
 function closeAccountUsageRankingModal(): void {
   setModalVisibility("account-usage-ranking-modal", false);
+}
+
+function renderAccountUsageRankingGrid(): void {
+  const summary = getActiveUsageWindowSummary();
+  const rows = summary?.accounts ?? [];
+  renderGridTable({
+    id: "account-usage-ranking-list",
+    columns: [
+      { name: "排名", width: "80px" },
+      { name: "账号", width: "260px" },
+      { name: "请求", width: "100px" },
+      { name: "Token", width: "120px" },
+      { name: "成功率", width: "100px" },
+      { name: "平均延迟", width: "110px" },
+      { name: "Token 构成", sort: false },
+    ],
+    data: rows.map((row, index) => [
+      `#${index + 1}`,
+      gridHtml(`
+        <div class="gateway-grid-stack">
+          <strong>${escapeHtml(row.email ?? row.accountId)}</strong>
+          <span>${escapeHtml(row.accountId)}</span>
+        </div>
+      `),
+      formatCompactCount(row.usage.requestCount),
+      gridHtml(`<span class="badge neutral">${escapeHtml(formatCompactCount(row.usage.totalTokens))}</span>`),
+      formatUsageSuccessRate(row.usage),
+      formatUsageLatency(row.usage),
+      gridHtml(`
+        <div class="gateway-grid-token-parts">
+          <span>输入 ${escapeHtml(formatCompactCount(row.usage.inputTokens))}</span>
+          <span>输出 ${escapeHtml(formatCompactCount(row.usage.outputTokens))}</span>
+          <span>缓存 ${escapeHtml(formatCompactCount(row.usage.cachedTokens))}</span>
+          <span>思考 ${escapeHtml(formatCompactCount(row.usage.reasoningTokens))}</span>
+        </div>
+      `),
+    ]),
+    emptyMessage: "当前窗口暂无账号级 Token 用量记录。",
+    fallbackMarkup: buildAccountUsageRankingListMarkup(),
+    pageSize: 10,
+    search: true,
+  });
 }
 
 function buildAccountUsageRankingChartOption(
@@ -8876,7 +9075,7 @@ function renderAccountUsageRankingPanel(): void {
   renderAccountUsageRankingEChart();
   const list = document.getElementById("account-usage-ranking-list");
   if (list) {
-    list.innerHTML = buildAccountUsageRankingListMarkup();
+    renderAccountUsageRankingGrid();
   }
 }
 
@@ -9000,7 +9199,7 @@ function renderRoutingObservability(): void {
     if (recentContainer) {
       recentContainer.innerHTML =
         "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>";
-      renderRoutingObserveModalList(recentContainer.innerHTML);
+      renderRoutingObserveModalList([]);
     }
     return;
   }
@@ -9074,7 +9273,7 @@ function renderRoutingObservability(): void {
       state.routingClientFilter === "all"
         ? "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>"
         : "<div class='empty-state'>当前筛选客户端暂无命中记录。</div>";
-    renderRoutingObserveModalList(recentContainer.innerHTML);
+    renderRoutingObserveModalList([]);
     return;
   }
 
@@ -9085,7 +9284,7 @@ function renderRoutingObservability(): void {
     </div>
     ${buildRoutingObserveRecentMarkup(filteredRecent.slice(0, 2))}
   `;
-  renderRoutingObserveModalList(recentMarkup);
+  renderRoutingObserveModalList(filteredRecent, recentMarkup);
 }
 
 type RoutingRecentEvent = NonNullable<
@@ -9119,12 +9318,46 @@ function buildRoutingObserveRecentMarkup(events: RoutingRecentEvent[]): string {
     .join("");
 }
 
-function renderRoutingObserveModalList(markup?: string): void {
-  const list = document.getElementById("routing-observe-modal-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = markup ?? list.innerHTML;
+function renderRoutingObserveModalList(
+  events: RoutingRecentEvent[],
+  fallbackMarkup = buildRoutingObserveRecentMarkup(events),
+): void {
+  renderGridTable({
+    id: "routing-observe-modal-list",
+    columns: [
+      { name: "时间", width: "150px" },
+      { name: "规则", width: "220px" },
+      { name: "客户端", width: "140px" },
+      { name: "模型映射" },
+      { name: "会话", width: "180px" },
+      { name: "告警", width: "120px", sort: false },
+    ],
+    data: events.map((event) => [
+      gridHtml(`<span class="gateway-grid-muted">${escapeHtml(formatRecentCall(event.timestamp))}</span>`),
+      gridHtml(`<strong>${escapeHtml(event.matchedRuleName)}</strong>`),
+      normalizeClientTagLabel(event.clientTag ?? "unknown"),
+      gridHtml(`
+        <div class="gateway-grid-stack">
+          <span>${escapeHtml(event.requestedModelAlias)}</span>
+          <span>→ ${escapeHtml(event.resolvedModelAlias)}</span>
+        </div>
+      `),
+      gridHtml(
+        event.sessionApplied && event.resolvedSessionId
+          ? `<span class="badge active">${escapeHtml(event.resolvedSessionId)}</span>`
+          : `<span class="gateway-grid-muted">未切换</span>`,
+      ),
+      gridHtml(
+        event.warnings?.length
+          ? `<span class="badge incomplete">回退告警 ${escapeHtml(String(event.warnings.length))}</span>`
+          : `<span class="badge neutral">正常</span>`,
+      ),
+    ]),
+    emptyMessage: "当前没有路由命中记录。",
+    fallbackMarkup,
+    pageSize: 12,
+    search: true,
+  });
 }
 
 function openRoutingObserveModal(): void {
@@ -10310,6 +10543,7 @@ function renderErrors(): void {
   if (!errors.length && !refreshErrors.length) {
     container.innerHTML = "<div class='empty-card'>最近没有新的错误记录</div>";
     if (modalList) {
+      disposeGridTable("recent-errors-modal-list");
       modalList.innerHTML = container.innerHTML;
     }
     return;
@@ -10327,7 +10561,7 @@ function renderErrors(): void {
     ${buildRecentErrorsMarkup(refreshErrors.slice(0, 1), errors.slice(0, 2))}
   `;
   if (modalList) {
-    modalList.innerHTML = buildRecentErrorsMarkup(refreshErrors, errors);
+    renderRecentErrorsGrid(refreshErrors, errors);
   }
 }
 
@@ -10370,6 +10604,59 @@ function buildRecentErrorsMarkup(
   return parts
     .map((part) => `<div class="diagnostic-card detail-drawer-panel recent-error-card">${part}</div>`)
     .join("");
+}
+
+function renderRecentErrorsGrid(
+  refreshErrors: Array<{ sessionId: string; message: string }>,
+  errors: Array<{ level: string; message: string; createdAt: number | string }>,
+): void {
+  type RecentErrorRow = {
+    time: string;
+    source: string;
+    type: string;
+    message: string;
+    status: string;
+    severity: "error" | "warning";
+  };
+  const rows: RecentErrorRow[] = [
+    ...refreshErrors.map((item) => ({
+      time: "最近刷新",
+      source: item.sessionId,
+      type: "额度刷新失败",
+      message: item.message,
+      status: "需处理",
+      severity: "warning" as const,
+    })),
+    ...errors.map((item) => ({
+      time: new Date(item.createdAt).toLocaleString("zh-CN"),
+      source: "运行日志",
+      type: item.level.toUpperCase(),
+      message: item.message,
+      status: item.level === "error" ? "错误" : "日志",
+      severity: item.level === "error" ? ("error" as const) : ("warning" as const),
+    })),
+  ];
+  renderGridTable({
+    id: "recent-errors-modal-list",
+    columns: [
+      { name: "时间", width: "150px" },
+      { name: "来源", width: "220px" },
+      { name: "类型", width: "140px" },
+      { name: "内容" },
+      { name: "状态", width: "110px" },
+    ],
+    data: rows.map((row) => [
+      gridHtml(`<span class="gateway-grid-muted">${escapeHtml(row.time)}</span>`),
+      gridHtml(`<span class="gateway-grid-wrap">${escapeHtml(row.source)}</span>`),
+      row.type,
+      gridHtml(`<span class="gateway-grid-wrap">${escapeHtml(row.message)}</span>`),
+      gridHtml(`<span class="badge ${row.severity === "error" ? "disabled" : "incomplete"}">${escapeHtml(row.status)}</span>`),
+    ]),
+    emptyMessage: "最近没有新的错误记录。",
+    fallbackMarkup: buildRecentErrorsMarkup(refreshErrors, errors),
+    pageSize: 10,
+    search: true,
+  });
 }
 
 function openRecentErrorsModal(): void {
