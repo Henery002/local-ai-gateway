@@ -4613,6 +4613,11 @@ function renderDashboardTokenChart(
     return;
   }
 
+  const chart = renderDashboardTokenEChart(summary);
+  if (chart) {
+    return;
+  }
+
   const values = [
     summary.totals.inputTokens,
     summary.totals.outputTokens,
@@ -4630,6 +4635,88 @@ function renderDashboardTokenChart(
       return `<div class="dashboard-token-bar" data-muted="${index > 3 ? "true" : "false"}" style="height: ${height}px;" title="${escapeHtml(formatCompactCount(value))} Token"></div>`;
     })
     .join("");
+}
+
+function buildDashboardTokenChartOption(
+  summary: UsageWindowSummary,
+): Record<string, unknown> {
+  const rows = [
+    { label: "输入", value: Math.max(0, summary.totals.inputTokens) },
+    { label: "输出", value: Math.max(0, summary.totals.outputTokens) },
+    { label: "缓存", value: Math.max(0, summary.totals.cachedTokens) },
+    { label: "思考", value: Math.max(0, summary.totals.reasoningTokens) },
+    ...summary.clients.slice(0, 4).map((client) => ({
+      label: normalizeUsageClientTagLabel(client.clientTag),
+      value: Math.max(0, client.usage.totalTokens),
+    })),
+  ].filter((item) => item.value > 0);
+  const labels = rows.map((row) => row.label);
+  const values = rows.map((row) => row.value);
+  return {
+    color: getUsageChartPalette(),
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+      valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+    },
+    grid: { left: 44, right: 16, top: 18, bottom: 38 },
+    xAxis: {
+      type: "category",
+      data: labels,
+      axisLabel: { color: "#64748b", interval: 0, width: 72, overflow: "truncate" },
+      axisLine: { lineStyle: { color: "#cbd5e1" } },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      name: "Token",
+      nameTextStyle: { color: "#64748b" },
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    series: [
+      {
+        name: "Token",
+        type: "bar",
+        barMaxWidth: 24,
+        itemStyle: {
+          borderRadius: [8, 8, 2, 2],
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "#2563eb" },
+              { offset: 1, color: "#93c5fd" },
+            ],
+          },
+        },
+        data: values,
+      },
+    ],
+  };
+}
+
+function renderDashboardTokenEChart(
+  summary: UsageWindowSummary,
+): EChartsInstance | undefined {
+  if (!usageChartInstances.has("dashboard-token-chart")) {
+    const node = document.getElementById("dashboard-token-chart");
+    if (node) {
+      node.innerHTML = "";
+    }
+  }
+  const chart = getUsageChartInstance("dashboard-token-chart");
+  if (!chart) {
+    return undefined;
+  }
+  chart.setOption(buildDashboardTokenChartOption(summary), true);
+  return chart;
 }
 
 function renderDashboardSharedSummary(
@@ -5725,6 +5812,128 @@ function buildUsageRankingChartOption(summary: UsageWindowSummary): Record<strin
   };
 }
 
+function buildUsageOutcomeChartOption(summary: UsageWindowSummary): Record<string, unknown> {
+  const success = Math.max(0, summary.totals.successCount);
+  const failure = Math.max(0, summary.totals.failureCount);
+  const total = success + failure;
+  const successRate = total > 0 ? Math.round((success / total) * 100) : 0;
+  const data = [
+    { name: "成功", value: success, itemStyle: { color: "#10b981" } },
+    { name: "失败", value: failure, itemStyle: { color: "#ef4444" } },
+  ].filter((item) => item.value > 0);
+  return {
+    tooltip: {
+      trigger: "item",
+      formatter: "{b}<br/>{c} 次 ({d}%)",
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+    },
+    legend: {
+      bottom: 0,
+      left: "center",
+      textStyle: { color: "#64748b", fontSize: 11 },
+    },
+    series: [
+      {
+        name: "请求结果",
+        type: "pie",
+        radius: ["58%", "78%"],
+        center: ["50%", "43%"],
+        avoidLabelOverlap: true,
+        label: { formatter: "{b}\n{d}%", color: "#334155" },
+        data,
+      },
+    ],
+    graphic:
+      total > 0
+        ? {
+            type: "text",
+            left: "center",
+            top: "40%",
+            style: {
+              text: `${successRate}%`,
+              fill: successRate >= 95 ? "#047857" : successRate >= 80 ? "#b45309" : "#b91c1c",
+              fontSize: 24,
+              fontWeight: 800,
+              textAlign: "center",
+            },
+          }
+        : buildUsageChartEmptyGraphic("当前视角暂无请求结果"),
+  };
+}
+
+function buildUsageLatencyChartOption(summary: UsageWindowSummary): Record<string, unknown> {
+  const averageLatency =
+    summary.totals.successCount > 0
+      ? Math.round(summary.totals.totalLatencyMs / summary.totals.successCount)
+      : 0;
+  const failureRate =
+    summary.totals.requestCount > 0
+      ? Math.round((summary.totals.failureCount / summary.totals.requestCount) * 100)
+      : 0;
+  const hasData = summary.totals.requestCount > 0;
+  return {
+    color: ["#2563eb", "#f59e0b", "#ef4444"],
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+    },
+    grid: { left: 80, right: 22, top: 18, bottom: 28 },
+    xAxis: {
+      type: "value",
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    yAxis: {
+      type: "category",
+      data: ["请求数", "平均延迟", "失败率"],
+      axisLabel: { color: "#334155" },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: "稳定性",
+        type: "bar",
+        barMaxWidth: 18,
+        label: {
+          show: true,
+          position: "right",
+          color: "#334155",
+          formatter: (params: { dataIndex?: number; value?: number }) => {
+            const value = Number(params.value ?? 0);
+            if (params.dataIndex === 1) {
+              return `${formatCompactCount(value)} ms`;
+            }
+            if (params.dataIndex === 2) {
+              return `${value}%`;
+            }
+            return `${formatCompactCount(value)} 次`;
+          },
+        },
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: (params: { dataIndex?: number }) => {
+            if (params.dataIndex === 1) {
+              return "#f59e0b";
+            }
+            if (params.dataIndex === 2) {
+              return failureRate >= 10 ? "#ef4444" : "#10b981";
+            }
+            return "#2563eb";
+          },
+        },
+        data: [summary.totals.requestCount, averageLatency, failureRate],
+      },
+    ],
+    graphic: hasData ? undefined : buildUsageChartEmptyGraphic("当前视角暂无延迟与稳定性数据"),
+  };
+}
+
 function renderUsageEChartsDashboard(summary: UsageWindowSummary): void {
   const echarts = getUsageECharts();
   if (!echarts) {
@@ -5740,6 +5949,14 @@ function renderUsageEChartsDashboard(summary: UsageWindowSummary): void {
   );
   getUsageChartInstance("usage-echart-ranking")?.setOption(
     buildUsageRankingChartOption(summary),
+    true,
+  );
+  getUsageChartInstance("usage-echart-outcome")?.setOption(
+    buildUsageOutcomeChartOption(summary),
+    true,
+  );
+  getUsageChartInstance("usage-echart-latency")?.setOption(
+    buildUsageLatencyChartOption(summary),
     true,
   );
 }
@@ -5897,12 +6114,15 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   if (!consumerId) {
     return `
       <div class="usage-member-health-card tone-neutral">
-        <div>
-          <span class="badge neutral">成员健康度</span>
+        <div class="usage-member-health-main">
+          <span class="usage-health-badge tone-neutral">成员健康度</span>
           <strong>等待成员请求</strong>
           <p>公网成员产生请求后，这里会优先展示最近调用成员的访问健康度。</p>
         </div>
-        <div class="usage-member-health-score">--</div>
+        <div class="usage-member-health-score tone-neutral">
+          <strong>--</strong>
+          <span>待观察</span>
+        </div>
       </div>
     `;
   }
@@ -5937,7 +6157,7 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   return `
     <div class="usage-member-health-card tone-${escapeHtml(tone)}">
       <div class="usage-member-health-main">
-        <span class="badge ${escapeHtml(tone)}">成员健康度</span>
+        <span class="usage-health-badge tone-${escapeHtml(tone)}">成员健康度</span>
         <strong>${escapeHtml(getUsageConsumerDisplayLabel(consumerId))}</strong>
         <p>${escapeHtml(reasons.join(" · "))}</p>
         <div class="usage-member-health-metrics">
@@ -5946,7 +6166,7 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
           <span>告警 ${escapeHtml(formatCompactCount(recentAlerts.length))}</span>
         </div>
       </div>
-      <div class="usage-member-health-score">
+      <div class="usage-member-health-score tone-${escapeHtml(tone)}">
         <strong>${escapeHtml(String(score))}</strong>
         <span>${escapeHtml(label)}</span>
       </div>
@@ -6072,10 +6292,32 @@ function renderUsageOperationsDashboard(summary: UsageWindowSummary): string {
         </div>
       </div>
       <div class="usage-operations-card">
-        ${renderUsageOutcomeBars(summary)}
+        <div class="usage-echart-card">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>请求结果</strong>
+              <span>成功 / 失败请求占比，用于快速定位异常窗口</span>
+            </div>
+            <span class="badge neutral">Donut</span>
+          </div>
+          <div id="usage-echart-outcome" class="usage-echart usage-echart-outcome">
+            ${renderUsageOutcomeBars(summary)}
+          </div>
+        </div>
       </div>
       <div class="usage-operations-card">
-        ${renderUsageLatencySnapshot(summary)}
+        <div class="usage-echart-card">
+          <div class="usage-chart-section-header">
+            <div>
+              <strong>延迟与稳定性</strong>
+              <span>平均延迟、请求量和失败压力的组合观察</span>
+            </div>
+            <span class="badge neutral">Bar</span>
+          </div>
+          <div id="usage-echart-latency" class="usage-echart usage-echart-latency">
+            ${renderUsageLatencySnapshot(summary)}
+          </div>
+        </div>
       </div>
       <div class="usage-operations-wide">
         ${renderUsageScopeMatrix(summary)}
@@ -8502,7 +8744,14 @@ function buildAccountUsageRankingMarkup(): string {
           <strong>${escapeHtml(summary.importedEventCount > 0 ? `${formatCompactCount(summary.importedEventCount)} 条` : "无")}</strong>
         </div>
       </div>
-      <div class="usage-details-list">
+      <div id="account-usage-ranking-chart" class="account-usage-ranking-chart">
+        ${
+          rows.length > 0
+            ? "<div class='empty-card'>正在加载账号用量排行图。</div>"
+            : "<div class='empty-card'>当前窗口暂无账号级 Token 用量记录。</div>"
+        }
+      </div>
+      <div class="usage-details-list compact">
         ${
           rows.length > 0
             ? rows
@@ -8529,12 +8778,90 @@ function buildAccountUsageRankingMarkup(): string {
   `;
 }
 
+function buildAccountUsageRankingChartOption(
+  summary: UsageWindowSummary,
+): Record<string, unknown> {
+  const rows = summary.accounts
+    .filter((row) => row.usage.totalTokens > 0 || row.usage.requestCount > 0)
+    .slice(0, 8)
+    .reverse();
+  return {
+    color: ["#10b981"],
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      backgroundColor: "rgba(15, 23, 42, 0.92)",
+      borderWidth: 0,
+      textStyle: { color: "#f8fafc" },
+      valueFormatter: (value: number) => `${formatCompactCount(value)} Token`,
+    },
+    grid: { left: 136, right: 24, top: 18, bottom: 28 },
+    xAxis: {
+      type: "value",
+      name: "Token",
+      nameTextStyle: { color: "#64748b" },
+      axisLabel: { color: "#64748b" },
+      splitLine: { lineStyle: { color: "#e2e8f0", type: "dashed" } },
+    },
+    yAxis: {
+      type: "category",
+      data: rows.map((row) => row.email ?? row.accountId),
+      axisLabel: { color: "#334155", width: 128, overflow: "truncate" },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [
+      {
+        name: "账号 Token",
+        type: "bar",
+        barMaxWidth: 18,
+        itemStyle: {
+          borderRadius: [0, 8, 8, 0],
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: "#6ee7b7" },
+              { offset: 1, color: "#10b981" },
+            ],
+          },
+        },
+        data: rows.map((row) => row.usage.totalTokens),
+      },
+    ],
+    graphic:
+      rows.length > 0
+        ? undefined
+        : buildUsageChartEmptyGraphic("当前窗口暂无账号用量排行"),
+  };
+}
+
+function renderAccountUsageRankingEChart(summary = getActiveUsageWindowSummary()): void {
+  if (!summary) {
+    return;
+  }
+  if (!usageChartInstances.has("account-usage-ranking-chart")) {
+    const node = document.getElementById("account-usage-ranking-chart");
+    if (node) {
+      node.innerHTML = "";
+    }
+  }
+  getUsageChartInstance("account-usage-ranking-chart")?.setOption(
+    buildAccountUsageRankingChartOption(summary),
+    true,
+  );
+}
+
 function renderAccountUsageRankingPanel(): void {
   const panel = document.getElementById("account-usage-ranking-panel");
   if (!panel) {
     return;
   }
   panel.innerHTML = buildAccountUsageRankingMarkup();
+  renderAccountUsageRankingEChart();
 }
 
 function renderUsagePanelsForWindowChange(): void {
@@ -9074,6 +9401,7 @@ function renderCodexAccounts(): void {
         <p>置顶账号固定显示在最前且不参与排序；“活跃调用”表示最近 90 秒内有请求命中；来源分布现已支持累计、近 5 分钟、近 1 小时与近 24 小时的窗口观察。</p>
       </div>
       `;
+    renderAccountUsageRankingEChart();
   }
   if (accounts.length === 0) {
     selectedAccountKeys.clear();

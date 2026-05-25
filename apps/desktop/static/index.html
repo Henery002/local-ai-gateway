@@ -672,58 +672,62 @@
                       <p class="card-description">默认按成员观测 Token 消耗，可切换模型、Key / 号池或总览视角查看趋势、排行和构成。</p>
                     </div>
                     <div class="usage-chart-header-actions">
-                      <div id="usage-observe-mode" class="usage-observe-mode">
-                        <span>观测方式</span>
-                        <div id="usage-trend-dimension" class="usage-window-group usage-trend-dimension-group" role="tablist" aria-label="用量观测方式">
-                          <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="members" data-active="true">成员观测</button>
-                          <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="models" data-active="false">模型观测</button>
-                          <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="attribution" data-active="false">Key / 号池</button>
-                          <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="false">总览</button>
+                      <div class="usage-chart-mode-row">
+                        <div id="usage-observe-mode" class="usage-observe-mode">
+                          <span>观测方式</span>
+                          <div id="usage-trend-dimension" class="usage-window-group usage-trend-dimension-group" role="tablist" aria-label="用量观测方式">
+                            <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="members" data-active="true">成员观测</button>
+                            <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="models" data-active="false">模型观测</button>
+                            <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="attribution" data-active="false">Key / 号池</button>
+                            <button class="usage-window-chip" data-action="usage-trend-dimension" data-usage-trend-dimension="all" data-active="false">总览</button>
+                          </div>
                         </div>
                       </div>
-                      <label class="usage-analysis-filter">
-                        <span>成员</span>
-                        <select id="usage-consumer-filter" class="input-field">
-                          <option value="all">全部成员</option>
-                        </select>
-                      </label>
-                      <label class="usage-analysis-filter">
-                        <span>模型</span>
-                        <select id="usage-model-filter" class="input-field">
-                          <option value="all">全部模型</option>
-                        </select>
-                      </label>
-                      <label class="usage-analysis-filter">
-                        <span>Key</span>
-                        <select id="usage-key-filter" class="input-field">
-                          <option value="all">全部 Key</option>
-                        </select>
-                      </label>
-                      <label class="usage-analysis-filter">
-                        <span>号池</span>
-                        <select id="usage-pool-filter" class="input-field">
-                          <option value="all">全部号池</option>
-                        </select>
-                      </label>
-                      <label class="usage-analysis-filter compact">
-                        <span>结果</span>
-                        <select id="usage-outcome-filter" class="input-field">
-                          <option value="all">全部</option>
-                          <option value="success">成功</option>
-                          <option value="failure">失败</option>
-                        </select>
-                      </label>
-                      <label class="usage-analysis-filter compact">
-                        <span>指标</span>
-                        <select id="usage-metric-filter" class="input-field">
-                          <option value="tokens">Token</option>
-                          <option value="requests">请求数</option>
-                          <option value="failures">失败数</option>
-                          <option value="failureRate">失败率</option>
-                          <option value="latency">平均延迟</option>
-                        </select>
-                      </label>
-                      <span class="badge active">真实统计</span>
+                      <div class="usage-chart-filter-row">
+                        <label class="usage-analysis-filter">
+                          <span>成员</span>
+                          <select id="usage-consumer-filter" class="input-field">
+                            <option value="all">全部成员</option>
+                          </select>
+                        </label>
+                        <label class="usage-analysis-filter">
+                          <span>模型</span>
+                          <select id="usage-model-filter" class="input-field">
+                            <option value="all">全部模型</option>
+                          </select>
+                        </label>
+                        <label class="usage-analysis-filter">
+                          <span>Key</span>
+                          <select id="usage-key-filter" class="input-field">
+                            <option value="all">全部 Key</option>
+                          </select>
+                        </label>
+                        <label class="usage-analysis-filter">
+                          <span>号池</span>
+                          <select id="usage-pool-filter" class="input-field">
+                            <option value="all">全部号池</option>
+                          </select>
+                        </label>
+                        <label class="usage-analysis-filter compact">
+                          <span>结果</span>
+                          <select id="usage-outcome-filter" class="input-field">
+                            <option value="all">全部</option>
+                            <option value="success">成功</option>
+                            <option value="failure">失败</option>
+                          </select>
+                        </label>
+                        <label class="usage-analysis-filter compact">
+                          <span>指标</span>
+                          <select id="usage-metric-filter" class="input-field">
+                            <option value="tokens">Token</option>
+                            <option value="requests">请求数</option>
+                            <option value="failures">失败数</option>
+                            <option value="failureRate">失败率</option>
+                            <option value="latency">平均延迟</option>
+                          </select>
+                        </label>
+                        <span class="badge active">真实统计</span>
+                      </div>
                     </div>
                   </div>
                   <div id="usage-trend-chart" class="usage-chart-frame" aria-label="用量趋势结构">

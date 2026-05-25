@@ -10,6 +10,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
     );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
     const styles = readFileSync(
       resolve(process.cwd(), "apps/desktop/static/styles.css"),
       "utf8",
@@ -188,6 +192,10 @@ describe("desktop build output", () => {
       resolve(process.cwd(), "apps/desktop/static/index.html"),
       "utf8",
     );
+    const rendererSource = readFileSync(
+      resolve(process.cwd(), "apps/desktop/src/renderer.ts"),
+      "utf8",
+    );
 
     const overview = indexHtml.match(
       /<div class="view" data-view="overview">([\s\S]*?)<!-- View: Access & Keys -->/,
@@ -200,6 +208,8 @@ describe("desktop build output", () => {
     expect(overview).toContain("id=\"dashboard-token-chart\"");
     expect(overview).toContain("id=\"dashboard-shared-summary\"");
     expect(overview).toContain("id=\"dashboard-alert-summary\"");
+    expect(rendererSource).toContain("buildDashboardTokenChartOption");
+    expect(rendererSource).toContain("renderDashboardTokenEChart");
   });
 
   it("renders the phase two access and keys skeleton", () => {
@@ -954,6 +964,8 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"notification-pagination\"");
     expect(indexHtml).toContain("echarts/dist/echarts.min.js");
     expect(indexHtml).toContain("id=\"usage-consumer-filter\"");
+    expect(indexHtml).toContain("class=\"usage-chart-mode-row\"");
+    expect(indexHtml).toContain("class=\"usage-chart-filter-row\"");
     expect(indexHtml).toContain("id=\"usage-model-filter\"");
     expect(indexHtml).toContain("id=\"usage-key-filter\"");
     expect(indexHtml).toContain("id=\"usage-pool-filter\"");
@@ -988,6 +1000,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("buildUsageRankingChartOption");
     expect(rendererSource).toContain("applyUsageConsumerFilter");
     expect(rendererSource).toContain("renderUsageMemberHealthCard");
+    expect(rendererSource).toContain("usage-health-badge");
+    expect(rendererSource).toContain("usage-member-health-score tone-");
     expect(rendererSource).toContain("renderUsageMemberHealthMatrix");
     expect(rendererSource).toContain("buildUsageMemberHealthRows");
     expect(rendererSource).toContain("focus-usage-consumer");
@@ -1004,8 +1018,12 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("renderUsageTokenTrendLine");
     expect(rendererSource).toContain("renderUsageRankingBars");
     expect(rendererSource).toContain("renderUsageTokenMixDonut");
-    expect(rendererSource).toContain("renderUsageOutcomeBars");
-    expect(rendererSource).toContain("renderUsageLatencySnapshot");
+    expect(rendererSource).toContain("buildAccountUsageRankingChartOption");
+    expect(rendererSource).toContain("renderAccountUsageRankingEChart");
+    expect(rendererSource).toContain("buildUsageOutcomeChartOption");
+    expect(rendererSource).toContain("buildUsageLatencyChartOption");
+    expect(rendererSource).toContain("usage-echart-outcome");
+    expect(rendererSource).toContain("usage-echart-latency");
     expect(rendererSource).toContain("renderUsageScopeMatrix");
     expect(rendererSource).toContain("renderUsageAlertSummaryPreview");
     expect(rendererSource).toContain("openUsageAlertsModal");
@@ -1043,6 +1061,8 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("usage-tooltip-popover");
     expect(styles).toContain(".usage-tooltip-popover");
     expect(styles).toContain(".usage-member-health-matrix");
+    expect(styles).toContain(".usage-health-badge");
+    expect(styles).toContain(".usage-member-health-score.tone-success");
     expect(styles).toContain(".usage-health-score-pill");
     expect(styles).toContain(".usage-filter-context-bar");
     expect(styles).toContain(".usage-data-hint");
@@ -1106,8 +1126,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".usage-line-chart {");
     expect(styles).toContain(".usage-ranking-chart {");
     expect(styles).toContain(".usage-donut-chart {");
-    expect(styles).toContain(".usage-outcome-chart {");
-    expect(styles).toContain(".usage-latency-chart {");
+    expect(styles).toContain(".usage-echart-outcome");
+    expect(styles).toContain(".usage-echart-latency");
     expect(styles).toContain(".usage-scope-matrix {");
     expect(styles).toContain("height: 8px;");
     expect(styles).toContain(".usage-alert-modal,");

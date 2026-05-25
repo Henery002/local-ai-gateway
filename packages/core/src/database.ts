@@ -1049,6 +1049,12 @@ export class GatewayDatabase {
         if (right.timestamp !== left.timestamp) {
           return right.timestamp - left.timestamp;
         }
+        if (left.contentAvailable !== right.contentAvailable) {
+          return left.contentAvailable ? -1 : 1;
+        }
+        if (left.sourceKind !== right.sourceKind) {
+          return left.sourceKind === "access-alert" ? 1 : -1;
+        }
         return Math.abs(right.id) - Math.abs(left.id);
       })
       .slice(0, limit);
