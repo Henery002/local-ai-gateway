@@ -2263,13 +2263,17 @@ button, input, select {
   gap: 12px;
 }
 
+.system-action-grid-compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .system-action-card {
   appearance: none;
   display: grid;
   gap: 8px;
   min-width: 0;
-  min-height: 126px;
-  padding: 16px;
+  min-height: 96px;
+  padding: 14px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-md);
   background: var(--card-surface-strong);
@@ -2361,7 +2365,7 @@ button, input, select {
 
 .troubleshooting-guide-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -2435,6 +2439,33 @@ button, input, select {
 .diagnostics-card-list {
   display: grid;
   gap: 12px;
+}
+
+.diagnostics-summary-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in oklab, var(--danger) 18%, var(--color-border-subtle));
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--danger) 6%, white);
+}
+
+.diagnostics-summary-card > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.diagnostics-summary-card strong {
+  color: color-mix(in oklab, var(--danger) 72%, black);
+  font-size: 20px;
+}
+
+.diagnostics-summary-card span {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .diagnostic-card {
@@ -2566,7 +2597,10 @@ button, input, select {
 
 .usage-chart-header,
 .usage-alert-header {
+  display: grid;
+  grid-template-columns: 1fr;
   align-items: flex-start;
+  gap: 14px;
 }
 
 .usage-chart-header > div,
@@ -2602,11 +2636,11 @@ button, input, select {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 180px;
+  min-width: 0;
 }
 
 .usage-analysis-filter.compact {
-  min-width: 128px;
+  min-width: 0;
 }
 
 .usage-analysis-filter span {
@@ -2616,6 +2650,8 @@ button, input, select {
 }
 
 .usage-analysis-filter .input-field {
+  width: 100%;
+  min-width: 0;
   min-height: 32px;
   padding-block: 5px;
 }
@@ -2688,7 +2724,7 @@ button, input, select {
 
 .usage-operations-dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 0.8fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   min-width: 0;
 }
@@ -2710,6 +2746,10 @@ button, input, select {
 
 .usage-operations-card {
   min-width: 0;
+}
+
+.usage-operations-main {
+  grid-column: 1 / -1;
 }
 
 .usage-member-health-card {
@@ -4264,6 +4304,22 @@ button, input, select {
   max-width: min(1120px, calc(100vw - 40px));
 }
 
+.system-diagnostics-modal .lan-access-template > .diagnostic-card,
+.system-diagnostics-modal .runtime-troubleshooting-guide > .diagnostic-card {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.system-diagnostics-modal .lan-access-template-card {
+  gap: 16px;
+}
+
+.system-diagnostics-modal .diagnostic-fact-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .modal-content.confirm-modal {
   max-width: 416px;
 }
@@ -5754,6 +5810,28 @@ button, input, select {
   color: var(--text-secondary);
 }
 
+.routing-observe-panel-head,
+.routing-observe-preview-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.routing-observe-panel-head {
+  margin-bottom: 12px;
+}
+
+.routing-observe-preview-strip {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .source-window-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5819,7 +5897,8 @@ button, input, select {
   display: grid;
   justify-items: stretch;
   gap: 10px;
-  min-width: min(760px, 100%);
+  width: 100%;
+  min-width: 0;
 }
 
 .usage-chart-mode-row {
@@ -5831,12 +5910,12 @@ button, input, select {
 .usage-chart-filter-row {
   display: grid;
   grid-template-columns:
-    minmax(220px, 1.25fr)
-    minmax(160px, 0.9fr)
-    minmax(160px, 0.9fr)
-    minmax(160px, 0.9fr)
-    minmax(112px, 0.58fr)
-    minmax(128px, 0.64fr)
+    minmax(0, 1.25fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 0.72fr)
+    minmax(0, 0.82fr)
     auto;
   align-items: center;
   gap: 10px;

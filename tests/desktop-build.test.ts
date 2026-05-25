@@ -425,7 +425,7 @@ describe("desktop build output", () => {
     expect(operationsView).toBeTruthy();
     expect(operationsView).toContain('data-action="gateway-service-restart"');
     expect(operationsView).toContain('data-action="cloudflare-service-restart"');
-    expect(operationsView).toContain('data-action="copy-public-snippet"');
+    expect(operationsView).not.toContain('data-action="copy-public-snippet"');
     expect(operationsView).toContain("高级服务控制");
     const advancedControlPanel = operationsView?.match(
       /<div class="card ops-control-panel">([\s\S]*?)<\/div>\s*<div id="ops-control-result"/,
@@ -691,6 +691,7 @@ describe("desktop build output", () => {
     expect(operationsView).toContain("data-action=\"gateway-service-restart\"");
     expect(operationsView).toContain("data-action=\"repair-public-gateway\"");
     expect(operationsView).toContain("data-action=\"cloudflare-service-restart\"");
+    expect(operationsView).not.toContain("data-action=\"copy-public-snippet\"");
     expect(rendererSource).toContain("type OperationsStatus");
     expect(rendererSource).toContain("renderOperations");
     expect(rendererSource).toContain("refreshOperationsStatus");
@@ -830,17 +831,19 @@ describe("desktop build output", () => {
     expect(systemView).toContain("class=\"system-config-layout\"");
     expect(systemView).toContain("class=\"system-config-fieldset\"");
     expect(systemView).toContain("class=\"system-status-strip\"");
-    expect(systemView).toContain("class=\"system-action-grid\"");
+    expect(systemView).toContain("class=\"system-action-grid system-action-grid-compact\"");
     expect(systemView).toContain("class=\"diagnostics-shell table-container-lite\"");
     expect(systemView).toContain("id=\"service-diagnostics\"");
     expect(systemView).toContain("id=\"provider-diagnostics\"");
     expect(systemView).toContain("id=\"recent-errors\"");
+    expect(systemView).toContain("data-action=\"open-recent-errors-modal\"");
     expect(systemView).toContain("data-action=\"open-system-modal\"");
     expect(systemView).not.toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-lan-template-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-public-template-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-public-validation-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("id=\"system-troubleshooting-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"recent-errors-modal\" class=\"modal-overlay\"");
     expect(indexHtml).toContain("class=\"modal-content figma-modal system-diagnostics-modal\"");
     expect(indexHtml).toContain("data-action=\"close-system-modal\"");
     expect(systemView).toContain("id=\"gateway-public-access-enabled\"");
@@ -966,6 +969,7 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("id=\"usage-consumer-filter\"");
     expect(indexHtml).toContain("class=\"usage-chart-mode-row\"");
     expect(indexHtml).toContain("class=\"usage-chart-filter-row\"");
+    expect(styles).toContain("width: 100%;");
     expect(indexHtml).toContain("id=\"usage-model-filter\"");
     expect(indexHtml).toContain("id=\"usage-key-filter\"");
     expect(indexHtml).toContain("id=\"usage-pool-filter\"");

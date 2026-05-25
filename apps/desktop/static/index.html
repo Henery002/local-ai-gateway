@@ -313,13 +313,14 @@
               </div>
 
               <div class="card routing-observe-panel mt-4">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div class="routing-observe-panel-head">
                   <div>
                     <strong style="font-size: 16px;">路由命中观测</strong>
                     <div style="font-size: 14px; color: var(--text-secondary);">用于观察策略路由是否被真实第三方请求命中。</div>
                   </div>
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span class="badge active">实时观测</span>
+                    <button class="btn secondary mini" data-action="open-routing-observe-modal" type="button">查看命中明细</button>
                   </div>
                 </div>
                 <div class="routing-observe-grid">
@@ -974,7 +975,6 @@
                   <button class="btn primary" data-action="repair-public-gateway" type="button">一键修复公网链路</button>
                   <button class="btn secondary" data-action="gateway-service-restart" type="button">重启网关</button>
                   <button class="btn secondary" data-action="cloudflare-service-restart" type="button">重启 Tunnel</button>
-                  <button class="btn secondary" data-action="copy-public-snippet" type="button">复制接入片段</button>
                   <button class="btn secondary" data-action="ops-refresh" type="button">刷新</button>
                 </div>
               </div>
@@ -1008,14 +1008,13 @@
                   <div class="card-header">
                     <div>
                       <span class="card-title">高级服务控制</span>
-                      <p class="card-description">用于安装常驻、手动启停和打开日志目录；日常修复与重启请使用页面顶部操作。</p>
+                      <p class="card-description">只保留低频常驻安装和手动启停；日常修复、重启和刷新使用页面顶部操作。</p>
                     </div>
                   </div>
                   <div class="ops-control-grid">
                     <button class="btn primary" data-action="gateway-service-install" type="button">安装并启动网关常驻</button>
                     <button class="btn secondary" data-action="gateway-service-start" type="button">启动网关</button>
                     <button class="btn ghost" data-action="gateway-service-stop" type="button">停止网关</button>
-                    <button class="btn ghost" data-action="open-logs" type="button">打开日志目录</button>
                   </div>
                   <div id="ops-control-result" class="ops-control-result"></div>
                 </div>
@@ -1332,8 +1331,11 @@
                       <span class="card-title">运行诊断与日志</span>
                       <p class="card-description">查看服务分层、Provider 初始化状态和最近错误，优先辅助定位共享网关接入问题。</p>
                     </div>
+                    <div class="card-actions">
+                      <button class="btn secondary" data-action="open-recent-errors-modal" type="button">查看错误明细</button>
+                    </div>
                   </div>
-                  <div class="system-action-grid">
+                  <div class="system-action-grid system-action-grid-compact">
                     <button class="system-action-card" data-action="open-system-modal" data-system-modal-id="system-lan-template-modal" type="button">
                       <span class="badge neutral">LAN</span>
                       <strong>LAN 成员接入模板</strong>
@@ -1812,6 +1814,53 @@
           <button id="close-usage-details-modal" class="btn ghost mini" type="button">关闭</button>
         </div>
         <div id="usage-details-modal-body" class="modal-body"></div>
+      </div>
+    </div>
+
+    <div id="account-usage-ranking-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>账号级 Token 用量明细</h3>
+            <p>查看当前窗口内各账号的请求、Token、成功率和延迟。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-account-usage-ranking-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="account-usage-ranking-list" class="usage-details-list compact">
+            <div class="empty-card">等待账号用量统计。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="routing-observe-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>路由命中明细</h3>
+            <p>查看当前筛选客户端下最近策略命中、模型映射、会话切换和回退告警。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-routing-observe-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="routing-observe-modal-list" class="routing-observe-recent"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="recent-errors-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal system-diagnostics-modal">
+        <div class="modal-header">
+          <div>
+            <h3>最近错误日志</h3>
+            <p>集中查看额度刷新失败和网关最近错误记录。</p>
+          </div>
+          <button class="btn ghost mini" data-action="close-recent-errors-modal" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="recent-errors-modal-list" class="diagnostics-card-list"></div>
+        </div>
       </div>
     </div>
 

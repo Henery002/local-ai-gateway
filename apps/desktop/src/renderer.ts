@@ -8710,6 +8710,7 @@ function buildAccountUsageRankingMarkup(): string {
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <span class="badge neutral">${escapeHtml(usageClientFilterLabel(state.usageClientFilter))}</span>
+          <button class="btn secondary mini" data-action="open-account-usage-ranking-modal" type="button">查看账号明细</button>
           <div class="usage-window-group" role="tablist" aria-label="账号级 Token 用量窗口">
             ${(["daily", "weekly", "monthly", "history"] as UsageObserveWindow[])
               .map(
@@ -8751,31 +8752,44 @@ function buildAccountUsageRankingMarkup(): string {
             : "<div class='empty-card'>当前窗口暂无账号级 Token 用量记录。</div>"
         }
       </div>
-      <div class="usage-details-list compact">
-        ${
-          rows.length > 0
-            ? rows
-                .map(
-                  (row, index) => `
-                    <div class="usage-details-item">
-                      <div class="usage-details-item-head">
-                        <div style="display: grid; gap: 2px;">
-                          <strong>#${index + 1} ${escapeHtml(row.email ?? row.accountId)}</strong>
-                          <small>${escapeHtml(row.accountId)}</small>
-                        </div>
-                        <span class="badge neutral">${escapeHtml(formatCompactCount(row.usage.totalTokens))} Token</span>
-                      </div>
-                      <span>请求 ${escapeHtml(formatCompactCount(row.usage.requestCount))} · 成功率 ${escapeHtml(formatUsageSuccessRate(row.usage))} · 平均延迟 ${escapeHtml(formatUsageLatency(row.usage))}</span>
-                      <span>输入 ${escapeHtml(formatCompactCount(row.usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(row.usage.outputTokens))} / 缓存 ${escapeHtml(formatCompactCount(row.usage.cachedTokens))} / 思考 ${escapeHtml(formatCompactCount(row.usage.reasoningTokens))}</span>
-                    </div>
-                  `,
-                )
-                .join("")
-            : "<div class='empty-card'>当前窗口暂无账号级 Token 用量记录。</div>"
-        }
-      </div>
     </div>
   `;
+}
+
+function buildAccountUsageRankingListMarkup(): string {
+  const summary = getActiveUsageWindowSummary();
+  if (!summary || summary.accounts.length === 0) {
+    return "<div class='empty-card'>当前窗口暂无账号级 Token 用量记录。</div>";
+  }
+  return summary.accounts
+    .map(
+      (row, index) => `
+        <div class="usage-details-item">
+          <div class="usage-details-item-head">
+            <div style="display: grid; gap: 2px;">
+              <strong>#${index + 1} ${escapeHtml(row.email ?? row.accountId)}</strong>
+              <small>${escapeHtml(row.accountId)}</small>
+            </div>
+            <span class="badge neutral">${escapeHtml(formatCompactCount(row.usage.totalTokens))} Token</span>
+          </div>
+          <span>请求 ${escapeHtml(formatCompactCount(row.usage.requestCount))} · 成功率 ${escapeHtml(formatUsageSuccessRate(row.usage))} · 平均延迟 ${escapeHtml(formatUsageLatency(row.usage))}</span>
+          <span>输入 ${escapeHtml(formatCompactCount(row.usage.inputTokens))} / 输出 ${escapeHtml(formatCompactCount(row.usage.outputTokens))} / 缓存 ${escapeHtml(formatCompactCount(row.usage.cachedTokens))} / 思考 ${escapeHtml(formatCompactCount(row.usage.reasoningTokens))}</span>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function openAccountUsageRankingModal(): void {
+  const list = document.getElementById("account-usage-ranking-list");
+  if (list) {
+    list.innerHTML = buildAccountUsageRankingListMarkup();
+  }
+  setModalVisibility("account-usage-ranking-modal", true);
+}
+
+function closeAccountUsageRankingModal(): void {
+  setModalVisibility("account-usage-ranking-modal", false);
 }
 
 function buildAccountUsageRankingChartOption(
@@ -8862,6 +8876,10 @@ function renderAccountUsageRankingPanel(): void {
   }
   panel.innerHTML = buildAccountUsageRankingMarkup();
   renderAccountUsageRankingEChart();
+  const list = document.getElementById("account-usage-ranking-list");
+  if (list) {
+    list.innerHTML = buildAccountUsageRankingListMarkup();
+  }
 }
 
 function renderUsagePanelsForWindowChange(): void {
@@ -8984,6 +9002,7 @@ function renderRoutingObservability(): void {
     if (recentContainer) {
       recentContainer.innerHTML =
         "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>";
+      renderRoutingObserveModalList(recentContainer.innerHTML);
     }
     return;
   }
@@ -9051,15 +9070,35 @@ function renderRoutingObservability(): void {
     return;
   }
 
+  const recentMarkup = buildRoutingObserveRecentMarkup(filteredRecent);
   if (!filteredRecent.length) {
     recentContainer.innerHTML =
       state.routingClientFilter === "all"
         ? "<div class='empty-state'>当前没有路由命中记录。启用规则并有真实请求经过后会在这里显示。</div>"
         : "<div class='empty-state'>当前筛选客户端暂无命中记录。</div>";
+    renderRoutingObserveModalList(recentContainer.innerHTML);
     return;
   }
 
-  recentContainer.innerHTML = filteredRecent
+  recentContainer.innerHTML = `
+    <div class="routing-observe-preview-strip">
+      <span>最近 ${escapeHtml(formatCompactCount(filteredRecent.length))} 条命中记录</span>
+      <button class="btn secondary mini" data-action="open-routing-observe-modal" type="button">查看明细</button>
+    </div>
+    ${buildRoutingObserveRecentMarkup(filteredRecent.slice(0, 2))}
+  `;
+  renderRoutingObserveModalList(recentMarkup);
+}
+
+type RoutingRecentEvent = NonNullable<
+  NonNullable<DashboardHealth["routingObservability"]>["recent"]
+>[number];
+
+function buildRoutingObserveRecentMarkup(events: RoutingRecentEvent[]): string {
+  if (!events.length) {
+    return "<div class='empty-state'>当前没有路由命中记录。</div>";
+  }
+  return events
     .map((event) => {
       const warnings = event.warnings?.length
         ? `<span class="badge incomplete">回退告警 ${event.warnings.length}</span>`
@@ -9080,6 +9119,23 @@ function renderRoutingObservability(): void {
       `;
     })
     .join("");
+}
+
+function renderRoutingObserveModalList(markup?: string): void {
+  const list = document.getElementById("routing-observe-modal-list");
+  if (!list) {
+    return;
+  }
+  list.innerHTML = markup ?? list.innerHTML;
+}
+
+function openRoutingObserveModal(): void {
+  renderRoutingObservability();
+  setModalVisibility("routing-observe-modal", true);
+}
+
+function closeRoutingObserveModal(): void {
+  setModalVisibility("routing-observe-modal", false);
 }
 
 function renderCodexAccounts(): void {
@@ -10252,16 +10308,38 @@ function renderErrors(): void {
 
   const refreshErrors = state.lastUsageRefresh?.errors ?? [];
   const errors = state.health?.recentErrors ?? [];
+  const modalList = document.getElementById("recent-errors-modal-list");
   if (!errors.length && !refreshErrors.length) {
     container.innerHTML = "<div class='empty-card'>最近没有新的错误记录</div>";
+    if (modalList) {
+      modalList.innerHTML = container.innerHTML;
+    }
     return;
   }
 
-  container.innerHTML = "";
-  for (const item of refreshErrors.slice(0, 6)) {
-    const card = document.createElement("div");
-    card.className = "diagnostic-card detail-drawer-panel recent-error-card";
-    card.innerHTML = `
+  const totalCount = refreshErrors.length + errors.length;
+  container.innerHTML = `
+    <div class="diagnostics-summary-card">
+      <div>
+        <strong>${escapeHtml(formatCompactCount(totalCount))}</strong>
+        <span>条最近错误 / 刷新失败</span>
+      </div>
+      <button class="btn secondary mini" data-action="open-recent-errors-modal" type="button">查看明细</button>
+    </div>
+    ${buildRecentErrorsMarkup(refreshErrors.slice(0, 1), errors.slice(0, 2))}
+  `;
+  if (modalList) {
+    modalList.innerHTML = buildRecentErrorsMarkup(refreshErrors, errors);
+  }
+}
+
+function buildRecentErrorsMarkup(
+  refreshErrors: Array<{ sessionId: string; message: string }>,
+  errors: Array<{ level: string; message: string; createdAt: number | string }>,
+): string {
+  const parts: string[] = [];
+  for (const item of refreshErrors) {
+    parts.push(`
       <div class="diagnostic-card-header">
         <div>
           <strong>额度刷新失败</strong>
@@ -10273,14 +10351,11 @@ function renderErrors(): void {
         <strong>原因</strong>
         ${escapeHtml(item.message)}
       </div>
-    `;
-    container.appendChild(card);
+    `);
   }
 
-  for (const item of errors.slice(0, 6)) {
-    const card = document.createElement("div");
-    card.className = "diagnostic-card detail-drawer-panel recent-error-card";
-    card.innerHTML = `
+  for (const item of errors) {
+    parts.push(`
       <div class="diagnostic-card-header">
         <div>
           <strong>${escapeHtml(item.level.toUpperCase())}</strong>
@@ -10292,9 +10367,20 @@ function renderErrors(): void {
         <strong>内容</strong>
         ${escapeHtml(item.message)}
       </div>
-    `;
-    container.appendChild(card);
+    `);
   }
+  return parts
+    .map((part) => `<div class="diagnostic-card detail-drawer-panel recent-error-card">${part}</div>`)
+    .join("");
+}
+
+function openRecentErrorsModal(): void {
+  renderErrors();
+  setModalVisibility("recent-errors-modal", true);
+}
+
+function closeRecentErrorsModal(): void {
+  setModalVisibility("recent-errors-modal", false);
 }
 
 function applySettingsToForm(): void {
@@ -16528,6 +16614,36 @@ function bindActions(): void {
 
     if (action === "close-system-modal") {
       closeSystemDiagnosticsModal(button.dataset.systemModalId);
+      return;
+    }
+
+    if (action === "open-account-usage-ranking-modal") {
+      openAccountUsageRankingModal();
+      return;
+    }
+
+    if (action === "close-account-usage-ranking-modal") {
+      closeAccountUsageRankingModal();
+      return;
+    }
+
+    if (action === "open-routing-observe-modal") {
+      openRoutingObserveModal();
+      return;
+    }
+
+    if (action === "close-routing-observe-modal") {
+      closeRoutingObserveModal();
+      return;
+    }
+
+    if (action === "open-recent-errors-modal") {
+      openRecentErrorsModal();
+      return;
+    }
+
+    if (action === "close-recent-errors-modal") {
+      closeRecentErrorsModal();
       return;
     }
 
