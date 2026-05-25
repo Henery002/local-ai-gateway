@@ -28,6 +28,8 @@ import {
   net,
   Notification,
   shell,
+  type MessageBoxOptions,
+  type MenuItemConstructorOptions,
 } from "electron";
 import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { ImportedCodexAccountStore, OpenClawSessionSource } from "@local-ai-gateway/openclaw-session";
@@ -176,6 +178,11 @@ let lastTrayUsageRefreshAt = 0;
 let trayMenuIsOpen = false;
 let trayStickyContext: TrayStickyContext = {};
 let allowAppQuit = false;
+
+function quitControlConsole(): void {
+  allowAppQuit = true;
+  app.quit();
+}
 let hasShownMainProcessFatalDialog = false;
 
 function appendDesktopMainLog(level: string, args: unknown[]): void {
@@ -2678,6 +2685,47 @@ function hideMainWindowToTray(): void {
   }
 }
 
+async function stopPublicLinkAndQuit(): Promise<void> {
+  const options: MessageBoxOptions = {
+    type: "warning",
+    title: "停止公网链路并退出",
+    message: "确定要停止 RelayGate 公网链路吗？",
+    detail:
+      "这会停止本机网关服务和 Cloudflare Tunnel，公网 Provider 会立即不可用，正在运行的 Trae/Codex 请求也可能被中断。仅退出控制台不需要执行此操作。",
+    buttons: ["停止公网链路并退出", "取消"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  };
+  const response =
+    mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+
+  if (response.response !== 0) {
+    return;
+  }
+
+  try {
+    await assertNoActiveInferenceBeforeGatewayInterruption("停止公网链路");
+    if (existsSync(cloudflaredPlistPath)) {
+      await controlCloudflareService("stop");
+    }
+    if (gatewayServiceManager.isInstalled()) {
+      await gatewayServiceManager.stop();
+    } else {
+      await gatewayManager.stopManaged();
+    }
+    quitControlConsole();
+  } catch (error) {
+    dialog.showErrorBox(
+      "停止公网链路失败",
+      `公网链路未完全停止。\n\n原因：${toErrorMessage(error)}`,
+    );
+    void refreshTrayStatus();
+  }
+}
+
 async function refreshTrayStatus(showMenu = false): Promise<void> {
   if (!statusTray) {
     return;
@@ -2822,10 +2870,15 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: "退出并停止网关",
+        label: "退出控制台（公网链路继续运行）",
         click: () => {
-          allowAppQuit = true;
-          app.quit();
+          quitControlConsole();
+        },
+      },
+      {
+        label: "停止公网链路并退出...",
+        click: () => {
+          void stopPublicLinkAndQuit();
         },
       },
     ]);
@@ -2867,6 +2920,85 @@ function setupStatusTray(): void {
   trayRefreshTimer = setInterval(() => {
     void refreshTrayStatus();
   }, TRAY_REFRESH_INTERVAL_MS);
+}
+
+function setupApplicationMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: APP_NAME,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        {
+          label: "显示控制台",
+          click: () => {
+            void showMainWindow();
+          },
+        },
+        {
+          label: "隐藏到菜单栏",
+          click: () => {
+            hideMainWindowToTray();
+          },
+        },
+        { type: "separator" },
+        {
+          label: "重启本机网关服务",
+          click: () => {
+            void assertNoActiveInferenceBeforeGatewayInterruption("重启网关")
+              .then(() => gatewayManager.restartManaged())
+              .catch((error) => {
+                dialog.showErrorBox("重启网关失败", toErrorMessage(error));
+              })
+              .finally(() => {
+                void refreshTrayStatus();
+              });
+          },
+        },
+        { type: "separator" },
+        {
+          label: "退出控制台（公网链路继续运行）",
+          accelerator: "Command+Q",
+          click: () => {
+            quitControlConsole();
+          },
+        },
+        {
+          label: "停止公网链路并退出...",
+          click: () => {
+            void stopPublicLinkAndQuit();
+          },
+        },
+      ],
+    },
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "窗口",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { type: "separator" },
+        {
+          label: "显示控制台",
+          click: () => {
+            void showMainWindow();
+          },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function pruneBackupStoreDir(): void {
@@ -3842,6 +3974,7 @@ app.whenReady().then(() => {
     canApplyLoginItemSetting() && app.getLoginItemSettings().wasOpenedAtLogin;
   applyLoginItemSetting(getStoredDesktopSystemSettings().launchAtLogin ?? false);
   pruneBackupStoreDir();
+  setupApplicationMenu();
   setupStatusTray();
   if (launchedAtLogin) {
     if (process.platform === "darwin") {
