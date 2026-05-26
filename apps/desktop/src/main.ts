@@ -27,7 +27,6 @@ import {
   nativeTheme,
   net,
   Notification,
-  screen,
   shell,
   type MessageBoxOptions,
   type MenuItemConstructorOptions,
@@ -119,13 +118,11 @@ const DESKTOP_UI_ZOOM_LEVEL = -1;
 const BACKUP_STORE_MAX_FILES = 20;
 const BACKUP_STORE_RETAIN_DAYS = 30;
 const ACTIVE_TRAY_FRAME_COUNT = 12;
-const STATUS_TRAY_GUID = "8f5db91d-c52f-4f7c-b3cb-43c870ad1d9a";
 const ACTIVE_TRAY_FRAME_INTERVAL_MS = 180;
 const TRAY_REFRESH_INTERVAL_MS = 15_000;
 const TRAY_ACTIVE_WINDOW_MS = 3_000;
 const TRAY_RECENT_FINISH_GRACE_MS = 1_200;
 const TRAY_USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
-const TRAY_FALLBACK_VISIBILITY_CHECK_MS = 1_500;
 const GATEWAY_HEALTH_PROBE_TIMEOUT_MS = 1_500;
 const IGNORABLE_STDIO_ERROR_CODES = new Set(["EIO", "EPIPE", "ENXIO"]);
 const GATEWAY_HEALTH_WAIT_TIMEOUT_MS = 45_000;
@@ -148,6 +145,8 @@ type TraySnapshot = {
   usage30mRequestCount?: number;
   usage30mTopClientLabel?: string;
   lastActivityAt?: number;
+  publicAccessEnabled?: boolean;
+  publicBaseUrl?: string;
 };
 
 type TrayStickyContext = {
@@ -175,16 +174,13 @@ let pendingCodexOAuthFlow: PendingCodexOAuthFlow | undefined;
 let codexOAuthInProgress = false;
 let mainWindow: BrowserWindow | undefined;
 let statusTray: Tray | undefined;
-let trayFallbackWindow: BrowserWindow | undefined;
 let trayRefreshTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationTimer: ReturnType<typeof setInterval> | undefined;
 let trayUsageRefreshTimer: ReturnType<typeof setInterval> | undefined;
-let trayFallbackVisibilityTimer: ReturnType<typeof setInterval> | undefined;
 let trayAnimationFrame = 0;
 let trayVisualState: TrayVisualState = "idle";
 let trayUsageRefreshInFlight: Promise<void> | undefined;
 let lastTrayUsageRefreshAt = 0;
-let lastTrayVisibilityState: boolean | undefined;
 let trayMenuIsOpen = false;
 let trayStickyContext: TrayStickyContext = {};
 let allowAppQuit = false;
@@ -2322,6 +2318,14 @@ function formatClientTagBadgeLabel(clientTag?: string): string | undefined {
   return `◉ ${label}`;
 }
 
+function formatPublicBaseUrl(publicBaseUrl?: string): string | undefined {
+  const normalized = publicBaseUrl?.trim().replace(/\/+$/, "");
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized;
+}
+
 function getTrayUsageSummary30m() {
   const sinceTimestamp = Date.now() - 30 * 60_000;
   const database = new BetterSqlite3(gatewayPaths.dbPath);
@@ -2513,177 +2517,6 @@ function applyTrayImage(state: TrayVisualState): void {
   if (icon) {
     statusTray.setImage(icon);
   }
-  statusTray.setTitle("RG");
-}
-
-function getTrayBoundsSnapshot() {
-  try {
-    return statusTray?.getBounds();
-  } catch {
-    return undefined;
-  }
-}
-
-function isTrayVisibleInMenuBar(): boolean {
-  const bounds = getTrayBoundsSnapshot();
-  return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
-}
-
-function getTrayFallbackHtml(): string {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      html,
-      body {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        overflow: hidden;
-        background: transparent;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-app-region: drag;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-      }
-      button {
-        width: 100%;
-        height: 100%;
-        border: 0;
-        border-radius: 14px;
-        color: #f8fafc;
-        background: linear-gradient(135deg, #111827 0%, #2563eb 100%);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0;
-        cursor: pointer;
-        -webkit-app-region: no-drag;
-      }
-      button:active {
-        transform: translateY(1px);
-      }
-    </style>
-  </head>
-  <body>
-    <button title="RelayGate 控制台">RG</button>
-    <script>
-      document.body.addEventListener("click", () => {
-        window.location.href = "relaygate://show";
-      });
-      document.body.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        window.location.href = "relaygate://show";
-      });
-    </script>
-  </body>
-</html>`;
-}
-
-function positionTrayFallbackWindow(): void {
-  if (!trayFallbackWindow || trayFallbackWindow.isDestroyed()) {
-    return;
-  }
-  const display = screen.getPrimaryDisplay();
-  const { workArea, bounds } = display;
-  const width = 52;
-  const height = 28;
-  const x = Math.round(workArea.x + workArea.width - width - 14);
-  const y = Math.round(Math.max(bounds.y + 6, workArea.y - height - 2));
-  trayFallbackWindow.setBounds({ x, y, width, height }, false);
-}
-
-function ensureTrayFallbackWindow(reason: string): void {
-  if (process.platform !== "darwin") {
-    return;
-  }
-  if (trayFallbackWindow && !trayFallbackWindow.isDestroyed()) {
-    positionTrayFallbackWindow();
-    if (!trayFallbackWindow.isVisible()) {
-      trayFallbackWindow.showInactive();
-    }
-    return;
-  }
-
-  trayFallbackWindow = new BrowserWindow({
-    width: 52,
-    height: 28,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    movable: true,
-    skipTaskbar: true,
-    show: false,
-    alwaysOnTop: true,
-    hasShadow: false,
-    title: "RelayGate",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  trayFallbackWindow.setAlwaysOnTop(true, "floating");
-  trayFallbackWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  trayFallbackWindow.webContents.on("will-navigate", (event, targetUrl) => {
-    if (targetUrl.startsWith("relaygate://show")) {
-      event.preventDefault();
-      void showMainWindow();
-    }
-  });
-  trayFallbackWindow.on("closed", () => {
-    trayFallbackWindow = undefined;
-  });
-  positionTrayFallbackWindow();
-  void trayFallbackWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(getTrayFallbackHtml())}`,
-  );
-  trayFallbackWindow.once("ready-to-show", () => {
-    trayFallbackWindow?.showInactive();
-  });
-  appendDesktopMainLog("info", [
-    "tray_fallback_window_created",
-    {
-      reason,
-      trayBounds: getTrayBoundsSnapshot(),
-      windowBounds: trayFallbackWindow.getBounds(),
-    },
-  ]);
-}
-
-function hideTrayFallbackWindow(reason: string): void {
-  if (!trayFallbackWindow || trayFallbackWindow.isDestroyed()) {
-    return;
-  }
-  if (!trayFallbackWindow.isVisible()) {
-    return;
-  }
-  trayFallbackWindow.hide();
-  appendDesktopMainLog("info", ["tray_fallback_window_hidden", { reason }]);
-}
-
-function syncTrayFallbackVisibility(reason: string): void {
-  if (process.platform !== "darwin" || !statusTray) {
-    return;
-  }
-  const bounds = getTrayBoundsSnapshot();
-  const visible = isTrayVisibleInMenuBar();
-  if (lastTrayVisibilityState !== visible || reason !== "interval") {
-    appendDesktopMainLog("info", [
-      "tray_visibility_checked",
-      { reason, visible, bounds, guid: statusTray.getGUID() },
-    ]);
-  }
-  lastTrayVisibilityState = visible;
-  if (visible) {
-    hideTrayFallbackWindow(reason);
-    return;
-  }
-  ensureTrayFallbackWindow(reason);
 }
 
 function ensureTrayAnimation(): void {
@@ -2708,6 +2541,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
     const [healthPayload, sessionPayload, poolSettingsPayload] = await Promise.all([
       callAdmin("/admin/health") as Promise<{
         activeSessionId?: string;
+        inferenceAuth?: GatewayInferenceAuthPublicSettings;
         inferenceObservability?: GatewayInferenceObservability;
         routingObservability?: {
           lastMatchedAt?: number;
@@ -2727,6 +2561,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
 
     const activeSessionId = healthPayload.activeSessionId ?? sessionPayload.activeSessionId;
     const inference = healthPayload.inferenceObservability;
+    const publicAccess = healthPayload.inferenceAuth?.publicAccess;
     const routing = healthPayload.routingObservability;
     const lastMatchedAt = routing?.lastMatchedAt;
     const matchedLast5m = routing?.matchedLast5m ?? 0;
@@ -2805,6 +2640,8 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         label: "授权异常",
         detail: "当前没有可用活动账号",
         activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
+        publicAccessEnabled: Boolean(publicAccess?.enabled),
+        publicBaseUrl: publicAccess?.publicBaseUrl,
       };
     }
 
@@ -2832,6 +2669,8 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         usage30mRequestCount: usage30m.requestCount,
         usage30mTopClientLabel,
         lastActivityAt: inference?.lastFinishedAt ?? lastMatchedAt,
+        publicAccessEnabled: Boolean(publicAccess?.enabled),
+        publicBaseUrl: publicAccess?.publicBaseUrl,
       };
     }
 
@@ -2857,6 +2696,8 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
       usage30mRequestCount: usage30m.requestCount,
       usage30mTopClientLabel,
       lastActivityAt: inference?.lastFinishedAt ?? lastMatchedAt,
+      publicAccessEnabled: Boolean(publicAccess?.enabled),
+      publicBaseUrl: publicAccess?.publicBaseUrl,
     };
   } catch (error) {
     return {
@@ -2975,26 +2816,46 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ? `${snapshot.activePoolName} · 阈值 ${snapshot.activePoolThreshold}%`
       : snapshot.activePoolName
     : undefined;
+  const publicBaseUrl = formatPublicBaseUrl(snapshot.publicBaseUrl);
+  const publicLinkLine = snapshot.publicAccessEnabled
+    ? publicBaseUrl
+      ? `公网入口 · ${publicBaseUrl}`
+      : "公网入口 · 已启用，待配置域名"
+    : "公网入口 · 未启用";
+  const activityLine =
+    snapshot.state === "active"
+      ? snapshot.detail
+      : lastActivityLine
+        ? `最近活动 · ${lastActivityLine}`
+        : undefined;
   const menu = Menu.buildFromTemplate([
       {
-        label: APP_NAME,
+        label: "RelayGate 公网中转",
         enabled: false,
       },
       {
         type: "separator",
       },
       {
-        label: `状态 · ${snapshot.label}`,
+        label: `链路状态 · ${snapshot.label}`,
         enabled: false,
       },
       {
-        label: `活动 · ${lastActivityLine}`,
+        label: publicLinkLine,
         enabled: false,
       },
+      ...(activityLine
+        ? [
+            {
+              label: activityLine,
+              enabled: false,
+            },
+          ]
+        : []),
       ...(typeof snapshot.inFlightCount === "number" && snapshot.inFlightCount > 0
         ? [
             {
-              label: `并发 · ${snapshot.inFlightCount} 个请求`,
+              label: `实时并发 · ${snapshot.inFlightCount} 个请求`,
               enabled: false,
             },
           ]
@@ -3002,7 +2863,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(clientTagLine
         ? [
             {
-              label: `客户端 · ${clientTagLine}`,
+              label: `访问成员 · ${clientTagLine}`,
               enabled: false,
             },
           ]
@@ -3010,15 +2871,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(snapshot.modelAlias
         ? [
             {
-              label: `模型 · ${modelLine}`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(snapshot.activeSessionLabel
-        ? [
-            {
-              label: `账号 · ${snapshot.activeSessionLabel}`,
+              label: `请求模型 · ${modelLine}`,
               enabled: false,
             },
           ]
@@ -3026,7 +2879,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(poolLine
         ? [
             {
-              label: `号池 · ${poolLine}`,
+              label: `调度号池 · ${poolLine}`,
               enabled: false,
             },
           ]
@@ -3034,7 +2887,15 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(usage30mLine
         ? [
             {
-              label: `30 分钟消耗 · ${usage30mLine}`,
+              label: `近 30 分钟 · ${usage30mLine}`,
+              enabled: false,
+            },
+          ]
+        : []),
+      ...(snapshot.activeSessionLabel
+        ? [
+            {
+              label: `当前上游 · ${snapshot.activeSessionLabel}`,
               enabled: false,
             },
           ]
@@ -3042,7 +2903,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(quotaLine
         ? [
             {
-              label: `额度 · ${quotaLine}`,
+              label: `上游额度 · ${quotaLine}`,
               enabled: false,
             },
           ]
@@ -3050,7 +2911,7 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
       ...(snapshot.activeSessionResetAt
         ? [
             {
-              label: `重置 · ${formatRelativeDuration(snapshot.activeSessionResetAt) ?? "待同步"}`,
+              label: `额度重置 · ${formatRelativeDuration(snapshot.activeSessionResetAt) ?? "待同步"}`,
               enabled: false,
             },
           ]
@@ -3067,7 +2928,23 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: "重启本地网关",
+        label: "打开控制台",
+        click: () => {
+          void showMainWindow();
+        },
+      },
+      ...(publicBaseUrl
+        ? [
+            {
+              label: "复制公网 Provider 地址",
+              click: () => {
+                clipboard.writeText(publicBaseUrl);
+              },
+            },
+          ]
+        : []),
+      {
+        label: "重启公网网关",
         click: () => {
           void assertNoActiveInferenceBeforeGatewayInterruption("重启网关")
             .then(() => gatewayManager.restartManaged())
@@ -3116,17 +2993,7 @@ function setupStatusTray(): void {
     return;
   }
 
-  statusTray = new Tray(icon, STATUS_TRAY_GUID);
-  statusTray.setTitle("RG");
-  appendDesktopMainLog("info", [
-    "tray_created",
-    {
-      title: "RG",
-      icon: getTrayIconBaseName("idle"),
-      guid: statusTray.getGUID(),
-      bounds: statusTray.getBounds(),
-    },
-  ]);
+  statusTray = new Tray(icon);
   statusTray.on("click", () => {
     void refreshTrayStatus(true);
   });
@@ -3137,18 +3004,8 @@ function setupStatusTray(): void {
     trayAnimationFrame = 0;
     void refreshTrayStatus();
   });
-  screen.on("display-metrics-changed", () => {
-    positionTrayFallbackWindow();
-    syncTrayFallbackVisibility("display-metrics-changed");
-  });
   configureTrayUsageRefreshTimer();
   void refreshTrayStatus();
-  setTimeout(() => {
-    syncTrayFallbackVisibility("initial-delay");
-  }, 800);
-  trayFallbackVisibilityTimer = setInterval(() => {
-    syncTrayFallbackVisibility("interval");
-  }, TRAY_FALLBACK_VISIBILITY_CHECK_MS);
   trayRefreshTimer = setInterval(() => {
     void refreshTrayStatus();
   }, TRAY_REFRESH_INTERVAL_MS);
@@ -3176,7 +3033,7 @@ function setupApplicationMenu(): void {
         },
         { type: "separator" },
         {
-          label: "重启本机网关服务",
+          label: "重启公网网关服务",
           click: () => {
             void assertNoActiveInferenceBeforeGatewayInterruption("重启网关")
               .then(() => gatewayManager.restartManaged())
@@ -4240,13 +4097,7 @@ app.on("before-quit", (event) => {
     clearInterval(trayUsageRefreshTimer);
     trayUsageRefreshTimer = undefined;
   }
-  if (trayFallbackVisibilityTimer) {
-    clearInterval(trayFallbackVisibilityTimer);
-    trayFallbackVisibilityTimer = undefined;
-  }
   stopTrayAnimation();
-  trayFallbackWindow?.destroy();
-  trayFallbackWindow = undefined;
   statusTray?.destroy();
   statusTray = undefined;
 });
