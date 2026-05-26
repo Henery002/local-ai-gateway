@@ -132,6 +132,7 @@ type TraySnapshot = {
   state: TrayVisualState;
   label: string;
   detail: string;
+  gatewayHealthLabel?: string;
   clientLabel?: string;
   modelAlias?: string;
   activePoolName?: string;
@@ -2191,7 +2192,9 @@ async function controlCloudflareService(action: CloudflareServiceAction) {
 }
 
 function getTrayAppearance(): "dark" | "light" {
-  return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  // The `dark` tray assets are white glyphs. Keep using them in both macOS
+  // appearances so the menu bar icon stays visually stable on light desktops.
+  return "dark";
 }
 
 function formatClientTagLabel(clientTag?: string): string | undefined {
@@ -2639,6 +2642,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         state: "error",
         label: "授权异常",
         detail: "当前没有可用活动账号",
+        gatewayHealthLabel: "正常",
         activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
         publicAccessEnabled: Boolean(publicAccess?.enabled),
         publicBaseUrl: publicAccess?.publicBaseUrl,
@@ -2652,6 +2656,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         detail: isActivelyBridging
           ? `正在桥接 ${clientLabel ?? "第三方客户端"} 请求`
           : "请求已完成，正在回落为空闲态",
+        gatewayHealthLabel: "正常",
         clientLabel,
         modelAlias,
         activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
@@ -2681,6 +2686,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
         matchedLast5m > 0
           ? `最近 5 分钟累计命中 ${matchedLast5m} 次`
           : "网关已就绪，当前没有新请求",
+      gatewayHealthLabel: "正常",
       clientLabel,
       modelAlias,
       activePoolName: currentPool?.poolName ?? trayStickyContext.poolName,
@@ -2704,6 +2710,7 @@ async function resolveTraySnapshot(): Promise<TraySnapshot> {
       state: "error",
       label: "服务异常",
       detail: toErrorMessage(error),
+      gatewayHealthLabel: "异常",
     };
   }
 }
@@ -2804,30 +2811,30 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
   const clientTagLine = formatClientTagBadgeLabel(
     snapshot.clientLabel ?? snapshot.usage30mTopClientLabel,
   );
-  const modelLine = snapshot.modelAlias ?? "codex-default";
   const usage30mLine =
     typeof snapshot.usage30mTotalTokens === "number"
       ? `${formatCompactNumber(snapshot.usage30mTotalTokens) ?? "0"} Token · ${formatCompactNumber(snapshot.usage30mRequestCount) ?? "0"} 请求`
       : undefined;
   const lastActivityLine =
-    formatRelativePast(snapshot.lastActivityAt) ?? snapshot.detail;
-  const poolLine = snapshot.activePoolName
-    ? typeof snapshot.activePoolThreshold === "number"
-      ? `${snapshot.activePoolName} · 阈值 ${snapshot.activePoolThreshold}%`
-      : snapshot.activePoolName
-    : undefined;
+    formatRelativePast(snapshot.lastActivityAt) ?? snapshot.detail ?? "暂无新请求";
   const publicBaseUrl = formatPublicBaseUrl(snapshot.publicBaseUrl);
   const publicLinkLine = snapshot.publicAccessEnabled
     ? publicBaseUrl
       ? `公网入口 · ${publicBaseUrl}`
       : "公网入口 · 已启用，待配置域名"
     : "公网入口 · 未启用";
-  const activityLine =
+  const activeClientLine = clientTagLine ? ` · ${clientTagLine}` : "";
+  const modelLine = snapshot.modelAlias ? ` · ${snapshot.modelAlias}` : "";
+  const trafficLine =
     snapshot.state === "active"
-      ? snapshot.detail
-      : lastActivityLine
-        ? `最近活动 · ${lastActivityLine}`
-        : undefined;
+      ? `实时请求 · ${snapshot.inFlightCount ?? 1} 路${activeClientLine}${modelLine}`
+      : `最近活动 · ${lastActivityLine}`;
+  const poolAndQuotaLine = [
+    snapshot.activePoolName ? `号池 ${snapshot.activePoolName}` : undefined,
+    quotaLine ? `额度 ${quotaLine}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const menu = Menu.buildFromTemplate([
       {
         label: "RelayGate 公网中转",
@@ -2837,53 +2844,21 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: `链路状态 · ${snapshot.label}`,
+        label: `网关健康 · ${snapshot.gatewayHealthLabel ?? snapshot.label}`,
+        enabled: false,
+      },
+      {
+        label: `运行状态 · ${snapshot.label}`,
         enabled: false,
       },
       {
         label: publicLinkLine,
         enabled: false,
       },
-      ...(activityLine
-        ? [
-            {
-              label: activityLine,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(typeof snapshot.inFlightCount === "number" && snapshot.inFlightCount > 0
-        ? [
-            {
-              label: `实时并发 · ${snapshot.inFlightCount} 个请求`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(clientTagLine
-        ? [
-            {
-              label: `访问成员 · ${clientTagLine}`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(snapshot.modelAlias
-        ? [
-            {
-              label: `请求模型 · ${modelLine}`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(poolLine
-        ? [
-            {
-              label: `调度号池 · ${poolLine}`,
-              enabled: false,
-            },
-          ]
-        : []),
+      {
+        label: trafficLine,
+        enabled: false,
+      },
       ...(usage30mLine
         ? [
             {
@@ -2892,18 +2867,10 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
             },
           ]
         : []),
-      ...(snapshot.activeSessionLabel
+      ...(poolAndQuotaLine
         ? [
             {
-              label: `当前上游 · ${snapshot.activeSessionLabel}`,
-              enabled: false,
-            },
-          ]
-        : []),
-      ...(quotaLine
-        ? [
-            {
-              label: `上游额度 · ${quotaLine}`,
+              label: poolAndQuotaLine,
               enabled: false,
             },
           ]
@@ -2928,23 +2895,13 @@ async function refreshTrayStatus(showMenu = false): Promise<void> {
         type: "separator",
       },
       {
-        label: "打开控制台",
+        label: "打开 RelayGate 控制台",
         click: () => {
           void showMainWindow();
         },
       },
-      ...(publicBaseUrl
-        ? [
-            {
-              label: "复制公网 Provider 地址",
-              click: () => {
-                clipboard.writeText(publicBaseUrl);
-              },
-            },
-          ]
-        : []),
       {
-        label: "重启公网网关",
+        label: "重启网关服务",
         click: () => {
           void assertNoActiveInferenceBeforeGatewayInterruption("重启网关")
             .then(() => gatewayManager.restartManaged())
