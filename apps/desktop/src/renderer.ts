@@ -2498,6 +2498,30 @@ function setText(id: string, value: string): void {
   }
 }
 
+function scrollActiveViewToTop(): void {
+  const stack = document.querySelector<HTMLElement>(".view-stack");
+  if (stack) {
+    stack.scrollTop = 0;
+  }
+  window.scrollTo(0, 0);
+}
+
+function scrollModalToTop(id: string): void {
+  const modal = document.getElementById(id);
+  if (!modal) {
+    return;
+  }
+  const scrollTargets = [
+    modal,
+    ...Array.from(
+      modal.querySelectorAll<HTMLElement>(".modal-content, .modal-body"),
+    ),
+  ];
+  for (const target of scrollTargets) {
+    target.scrollTop = 0;
+  }
+}
+
 type BadgeTone = "active" | "neutral" | "warning" | "error";
 
 function setModeCardStatus(
@@ -2944,6 +2968,7 @@ function setActiveView(view: DashboardView): void {
   )) {
     node.hidden = node.dataset.view !== view;
   }
+  scrollActiveViewToTop();
 
   if (hasHydratedDashboardState()) {
     cancelVisibleRefreshFrame();
@@ -3142,6 +3167,10 @@ function renderActiveViewContent(options?: { liveOnly?: boolean }): void {
   }
 
   if (state.activeView === "accounts") {
+    if (liveOnly) {
+      renderAccountUsageRankingEChart();
+      return;
+    }
     renderCodexAccounts();
     return;
   }
@@ -3489,7 +3518,6 @@ function getVisibleLocalImportAccountGroups(): ReturnType<
       search: state.accountSearch,
       sortKey: state.accountSortKey,
       sortDirection: state.accountSortDirection,
-      pinnedSessionId: state.systemSettings?.pinnedSessionId,
     },
   );
 }
@@ -3543,8 +3571,40 @@ function buildAccountBulkToolbarMarkup(
   `;
 }
 
-function isPinnedAccountSession(sessionId: string): boolean {
-  return state.systemSettings?.pinnedSessionId === sessionId;
+function syncAccountBulkSelectionUi(): void {
+  const accounts = getVisibleLocalImportAccountGroups();
+  reconcileSelectedAccountKeys(accounts);
+  const toolbar = document.querySelector<HTMLElement>(".account-bulk-toolbar");
+  if (toolbar) {
+    toolbar.outerHTML = buildAccountBulkToolbarMarkup(accounts);
+  }
+
+  const allSelected =
+    accounts.length > 0 && selectedAccountKeys.size === accounts.length;
+  const partiallySelected =
+    selectedAccountKeys.size > 0 && selectedAccountKeys.size < accounts.length;
+  const selectAll = document.querySelector<HTMLInputElement>(
+    '[data-field="account-bulk-select-all"]',
+  );
+  if (selectAll) {
+    selectAll.checked = allSelected;
+    selectAll.indeterminate = partiallySelected;
+  }
+
+  for (const checkbox of Array.from(
+    document.querySelectorAll<HTMLInputElement>(
+      '[data-field="account-card-selector"]',
+    ),
+  )) {
+    const selected = checkbox.dataset.accountKey
+      ? selectedAccountKeys.has(checkbox.dataset.accountKey)
+      : false;
+    checkbox.checked = selected;
+    const row = checkbox.closest<HTMLElement>(
+      "[data-account-key], .gridjs-tr, tr",
+    );
+    row?.setAttribute("data-selected", selected ? "true" : "false");
+  }
 }
 
 function updateAccountToolbarState(): void {
@@ -6976,6 +7036,10 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
   const latestAlert = [...recentAlerts].sort(
     (left, right) => right.timestamp - left.timestamp,
   )[0];
+  const latestActiveAt = Math.max(
+    0,
+    ...consumerRows.map((item) => item.updatedAt ?? 0),
+  );
   const reasons = [
     usage.requestCount > 0
       ? `请求 ${formatCompactCount(usage.requestCount)} 次`
@@ -6997,6 +7061,7 @@ function renderUsageMemberHealthCard(summary: UsageWindowSummary): string {
         <div class="usage-member-health-metrics">
           <span>Token ${escapeHtml(formatCompactCount(usage.totalTokens))}</span>
           <span>平均延迟 ${escapeHtml(formatUsageLatency(usage))}</span>
+          <span title="${escapeHtml(latestActiveAt ? formatDate(latestActiveAt) : "暂无活跃")}">最近活跃 ${escapeHtml(latestActiveAt ? formatRecentCall(latestActiveAt) : "暂无")}</span>
           <span>告警 ${escapeHtml(formatCompactCount(recentAlerts.length))}</span>
         </div>
       </div>
@@ -7968,10 +8033,17 @@ function renderUsageAlertEventsPreview(): void {
       : "暂无正式告警事件。";
 }
 
-function setModalVisibility(id: string, visible: boolean): void {
+function setModalVisibility(
+  id: string,
+  visible: boolean,
+  options: { preserveScroll?: boolean } = {},
+): void {
   const modal = document.getElementById(id);
   if (modal) {
     modal.hidden = !visible;
+    if (visible && !options.preserveScroll) {
+      scrollModalToTop(id);
+    }
   }
 }
 
@@ -9244,6 +9316,7 @@ async function openRequestAuditContent(sourceEventKey: string): Promise<void> {
   state.requestAuditContentView = "prompt";
   state.requestAuditContentPretty = true;
   renderRequestAuditContentModal();
+  scrollModalToTop("request-audit-content-modal");
   try {
     const response = await api.getRequestAuditContent(sourceEventKey);
     state.requestAuditContent = response.data;
@@ -9306,6 +9379,12 @@ function formatAccountHealthQuota(value?: number): string {
     : "未知";
 }
 
+function formatOpsQuotaTone(
+  tone: ReturnType<typeof getQuotaAggregateTone>,
+): "success" | "warning" | "danger" | "neutral" | "info" {
+  return tone === "active" ? "info" : tone;
+}
+
 function renderAccountHealth(): void {
   const summaryNode = document.getElementById("account-health-summary");
   const previewNode = document.getElementById("account-health-preview");
@@ -9334,14 +9413,26 @@ function renderAccountHealth(): void {
     return;
   }
 
-  summaryNode.innerHTML = `
-    <div class="ops-audit-kpi tone-neutral"><small>账号</small><strong>${escapeHtml(formatCompactCount(health.summary.accountCount))}</strong></div>
-    <div class="ops-audit-kpi tone-success"><small>可用</small><strong>${escapeHtml(formatCompactCount(health.summary.availableCount))}</strong></div>
-    <div class="ops-audit-kpi ${health.summary.cooldownCount > 0 ? "tone-warning" : "tone-neutral"}"><small>冷却</small><strong>${escapeHtml(formatCompactCount(health.summary.cooldownCount))}</strong></div>
-    <div class="ops-audit-kpi ${health.summary.unhealthyCount > 0 ? "tone-danger" : "tone-success"}"><small>异常</small><strong>${escapeHtml(formatCompactCount(health.summary.unhealthyCount))}</strong></div>
-    <div class="ops-audit-kpi tone-info"><small>已选中</small><strong>${escapeHtml(formatCompactCount(health.summary.selectedCount))}</strong></div>
-  `;
   const riskAccounts = health.accounts.filter((account) => account.status !== "available");
+  const lowQuotaCount = health.accounts.filter(
+    (account) => account.status === "quota-low" || account.status === "unknown-quota",
+  ).length;
+  const quotaAggregate = summarizeAccountQuotaAggregate();
+  const quotaTone = formatOpsQuotaTone(
+    getQuotaAggregateTone(quotaAggregate.totalPercentage),
+  );
+  summaryNode.innerHTML = `
+    <div class="ops-audit-kpi ops-account-quota-kpi tone-${escapeHtml(quotaTone)}" data-quota-tone="${escapeHtml(quotaTone)}">
+      <small>剩余总额度</small>
+      <strong>${escapeHtml(formatQuotaAggregateValue(quotaAggregate))}</strong>
+      <span>${escapeHtml(quotaAggregate.countedCount > 0 ? `${formatCompactCount(quotaAggregate.countedCount)} 个可用账号已同步额度` : "等待账号资产同步额度")}</span>
+    </div>
+    <div class="ops-audit-kpi tone-success"><small>可用账号</small><strong>${escapeHtml(formatCompactCount(health.summary.availableCount))}</strong><span>共 ${escapeHtml(formatCompactCount(health.summary.accountCount))} 个账号</span></div>
+    <div class="ops-audit-kpi ${health.summary.cooldownCount > 0 ? "tone-warning" : "tone-neutral"}"><small>冷却账号</small><strong>${escapeHtml(formatCompactCount(health.summary.cooldownCount))}</strong><span>影响短时路由</span></div>
+    <div class="ops-audit-kpi ${health.summary.unhealthyCount > 0 ? "tone-danger" : "tone-success"}"><small>异常账号</small><strong>${escapeHtml(formatCompactCount(health.summary.unhealthyCount))}</strong><span>${escapeHtml(riskAccounts.length > 0 ? "需查看失败原因" : "当前稳定")}</span></div>
+    <div class="ops-audit-kpi ${lowQuotaCount > 0 ? "tone-warning" : "tone-neutral"}"><small>额度风险</small><strong>${escapeHtml(formatCompactCount(lowQuotaCount))}</strong><span>${escapeHtml(quotaAggregate.unknownCount > 0 ? `${formatCompactCount(quotaAggregate.unknownCount)} 个未知额度` : "无未知额度")}</span></div>
+    <div class="ops-audit-kpi tone-info"><small>号池覆盖</small><strong>${escapeHtml(formatCompactCount(health.pools.length))}</strong><span>当前选中 ${escapeHtml(formatCompactCount(health.summary.selectedCount))}</span></div>
+  `;
   const selectedAccount = health.accounts.find((account) => account.selected);
   previewNode.innerHTML = `
     <div class="ops-preview-line">
@@ -10263,7 +10354,6 @@ function renderCodexAccounts(): void {
     const isLive =
       typeof activity?.lastRequestAt === "number" &&
       Date.now() - activity.lastRequestAt <= 90_000;
-    const isPinned = isPinnedAccountSession(account.representative.id);
     const selected = selectedAccountKeys.has(account.key);
     const refreshMode =
       account.representative.credentialRefreshMode ??
@@ -10282,7 +10372,7 @@ function renderCodexAccounts(): void {
       ? `${quotaIsStale ? "上次成功同步于" : "同步于"} ${new Date(account.representative.quota.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
       : "尚未同步";
     return `
-      <div class="figma-table-row account-item account-assets-table-row${account.isActive ? " active" : ""}${isLive ? " live" : ""}${isPinned ? " pinned" : ""}${isPinned && isLive ? " pinned-live" : ""}" role="row" data-account-key="${escapeHtml(account.key)}" data-selected="${selected ? "true" : "false"}">
+      <div class="figma-table-row account-item account-assets-table-row${account.isActive ? " active" : ""}${isLive ? " live" : ""}" role="row" data-account-key="${escapeHtml(account.key)}" data-selected="${selected ? "true" : "false"}">
         <div class="figma-table-cell account-assets-main-cell">
           <div class="acc-header">
             <div class="acc-title-group">
@@ -10309,8 +10399,6 @@ function renderCodexAccounts(): void {
           <div class="acc-status-group">
             <span class="badge neutral">${escapeHtml(sourceBadge)}</span>
             <span class="badge ${refreshMode === "managed" ? "active" : "warning"}">${escapeHtml(ownershipBadge)}</span>
-            ${isPinned && isLive ? `<span class="badge featured">优先账号</span>` : ""}
-            ${isPinned ? `<span class="badge neutral">已置顶</span>` : ""}
             ${isLive ? `<span class="badge active">活跃调用</span>` : ""}
             ${refreshErrorMessage ? `<span class="badge incomplete">${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
             <span class="badge ${account.representative.status}">${statusLabel(account.representative.status)}</span>
@@ -10367,56 +10455,37 @@ function renderCodexAccounts(): void {
         <div class="figma-table-cell account-assets-actions-cell">
           <div class="acc-actions">
             <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn secondary mini account-action-btn"
               data-action="activate"
               data-tone="${account.isActive ? "active" : "activate"}"
-              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               type="button"
             >
-              ${renderActionIcon(account.isActive ? "active" : "activate")}
+              ${account.isActive ? "当前活动" : "设为活动"}
             </button>
             <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="toggle-pin-session"
-              data-tone="${isPinned ? "pin-active" : "pin"}"
-              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="${isPinned ? "取消置顶" : "置顶账号"}"
-              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
-              type="button"
-            >
-              ${renderActionIcon(isPinned ? "unpin" : "pin")}
-            </button>
-            <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn secondary mini account-action-btn"
               data-action="refresh-session-usage"
               data-tone="refresh"
-              data-tooltip="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
               aria-label="${refreshMode === "external-readonly" ? "同步额度，不刷新 refresh token" : "同步额度"}"
               type="button"
             >
-              ${renderActionIcon("refresh")}
+              同步额度
             </button>
             <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn danger-ghost mini account-action-btn"
               data-action="delete-codex-account"
               data-tone="delete"
-              data-tooltip="删除本地副本"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="删除本地副本"
               aria-label="删除本地副本"
               type="button"
             >
-              ${renderActionIcon("delete")}
+              删除副本
             </button>
           </div>
         </div>
@@ -10581,7 +10650,6 @@ function renderAccountAssetsGrid(
       const isLive =
         typeof activity?.lastRequestAt === "number" &&
         Date.now() - activity.lastRequestAt <= 90_000;
-      const isPinned = isPinnedAccountSession(account.representative.id);
       const selected = selectedAccountKeys.has(account.key);
       const refreshMode =
         account.representative.credentialRefreshMode ??
@@ -10622,7 +10690,6 @@ function renderAccountAssetsGrid(
             </div>
             <div class="gateway-grid-token-parts">
               <span>${escapeHtml(statusLabel(account.representative.status))}</span>
-              ${isPinned ? "<span>已置顶</span>" : ""}
               ${isLive ? "<span>活跃调用</span>" : ""}
               ${refreshErrorMessage ? `<span>${quotaIsStale ? "额度已过期" : "额度同步失败"}</span>` : ""}
             </div>
@@ -10663,56 +10730,37 @@ function renderAccountAssetsGrid(
         gridHtml(`
           <div class="gateway-grid-actions account-grid-actions">
             <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn secondary mini account-action-btn"
               data-action="activate"
               data-tone="${account.isActive ? "active" : "activate"}"
-              data-tooltip="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               aria-label="${account.isActive ? "当前活动账号" : "设为活动账号"}"
               type="button"
             >
-              ${renderActionIcon(account.isActive ? "active" : "activate")}
+              ${account.isActive ? "当前活动" : "设为活动"}
             </button>
             <button
-              class="icon-btn"
-              data-icon-only="true"
-              data-action="toggle-pin-session"
-              data-tone="${isPinned ? "pin-active" : "pin"}"
-              data-tooltip="${isPinned ? "取消置顶" : "置顶账号"}"
-              data-session-id="${escapeHtml(account.representative.id)}"
-              title="${isPinned ? "取消置顶" : "置顶账号"}"
-              aria-label="${isPinned ? "取消置顶" : "置顶账号"}"
-              type="button"
-            >
-              ${renderActionIcon(isPinned ? "unpin" : "pin")}
-            </button>
-            <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn secondary mini account-action-btn"
               data-action="refresh-session-usage"
               data-tone="refresh"
-              data-tooltip="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="${refreshMode === "external-readonly" ? "同步额度（不刷新 refresh token）" : "同步额度"}"
               aria-label="${refreshMode === "external-readonly" ? "同步额度，不刷新 refresh token" : "同步额度"}"
               type="button"
             >
-              ${renderActionIcon("refresh")}
+              同步额度
             </button>
             <button
-              class="icon-btn"
-              data-icon-only="true"
+              class="btn danger-ghost mini account-action-btn"
               data-action="delete-codex-account"
               data-tone="delete"
-              data-tooltip="删除本地副本"
               data-session-id="${escapeHtml(account.representative.id)}"
               title="删除本地副本"
               aria-label="删除本地副本"
               type="button"
             >
-              ${renderActionIcon("delete")}
+              删除副本
             </button>
           </div>
         `),
@@ -12015,6 +12063,39 @@ function buildPoolBulkToolbarMarkup(pools: PoolDefinition[]): string {
   `;
 }
 
+function syncPoolBulkSelectionUi(): void {
+  const pools = state.poolSettings?.pools ?? [];
+  reconcileSelectedPoolIds(pools);
+  const toolbar = document.querySelector<HTMLElement>(".pool-bulk-toolbar");
+  if (toolbar) {
+    toolbar.outerHTML = buildPoolBulkToolbarMarkup(pools);
+  }
+
+  const allSelected = pools.length > 0 && selectedPoolIds.size === pools.length;
+  const partiallySelected =
+    selectedPoolIds.size > 0 && selectedPoolIds.size < pools.length;
+  const selectAll = document.querySelector<HTMLInputElement>(
+    '[data-field="pool-bulk-select-all"]',
+  );
+  if (selectAll) {
+    selectAll.checked = allSelected;
+    selectAll.indeterminate = partiallySelected;
+  }
+
+  for (const checkbox of Array.from(
+    document.querySelectorAll<HTMLInputElement>(
+      '[data-field="pool-card-selector"]',
+    ),
+  )) {
+    const selected = checkbox.dataset.poolId
+      ? selectedPoolIds.has(checkbox.dataset.poolId)
+      : false;
+    checkbox.checked = selected;
+    const row = checkbox.closest<HTMLElement>(".gridjs-tr, tr");
+    row?.setAttribute("data-selected", selected ? "true" : "false");
+  }
+}
+
 function formatPoolEnabledLabel(pool: PoolDefinition): string {
   return pool.enabled === false ? "未启用" : "已启用";
 }
@@ -12173,6 +12254,7 @@ function openPoolConfigModal(poolId?: string): void {
   state.activePoolConfigModalMode = existing ? "edit" : "create";
   renderPoolConfigModalDraft();
   modal.hidden = false;
+  scrollModalToTop("pool-config-modal");
 }
 
 function closePoolConfigModal(): void {
@@ -14523,24 +14605,6 @@ async function saveSystemSettings(): Promise<void> {
   configureAutoRefreshTimer();
 }
 
-async function togglePinnedSession(sessionId: string): Promise<void> {
-  const api = getGatewayApi();
-  const nextPinnedSessionId = isPinnedAccountSession(sessionId)
-    ? undefined
-    : sessionId;
-  const response = await api.saveSystemSettings({
-    pinnedSessionId: nextPinnedSessionId,
-  });
-  state.systemSettings = response.data;
-  renderCodexAccounts();
-  setBanner(
-    nextPinnedSessionId
-      ? "账号已置顶，后续排序将固定显示在最前。"
-      : "已取消账号置顶。",
-    "success",
-  );
-}
-
 async function saveSecuritySettings(): Promise<SecuritySettings> {
   const api = getGatewayApi();
   const mode =
@@ -14814,6 +14878,7 @@ function openAccountModal(tab = "import"): void {
     return;
   }
   modal.hidden = false;
+  scrollModalToTop("account-modal");
   setAccountTab(tab);
 }
 
@@ -14834,6 +14899,7 @@ function openPoolEventsModal(poolId: string): void {
   const modal = document.getElementById("pool-events-modal");
   if (modal) {
     modal.hidden = false;
+    scrollModalToTop("pool-events-modal");
   }
 }
 
@@ -14884,6 +14950,7 @@ function openUsageDetailsModal(): void {
   const modal = document.getElementById("usage-details-modal");
   if (modal) {
     modal.hidden = false;
+    scrollModalToTop("usage-details-modal");
   }
 }
 
@@ -15884,6 +15951,9 @@ function openAccessMemberModal(
   state.editingAccessConsumerId = consumerId;
   state.selectedAccessConsumerId = consumerId;
   modal.hidden = false;
+  if (!options.preserveScroll) {
+    scrollModalToTop("access-create-member-modal");
+  }
   const accessControl = state.securitySettings?.accessControl;
   const consumer = accessControl?.consumers.find((item) => item.id === consumerId);
   const policy = accessControl?.policies.find((item) => item.consumerId === consumerId);
@@ -17591,7 +17661,7 @@ function bindActions(): void {
           selectedAccountKeys.add(account.key);
         }
       }
-      renderCodexAccounts();
+      syncAccountBulkSelectionUi();
       return;
     }
 
@@ -17607,7 +17677,7 @@ function bindActions(): void {
           selectedAccountKeys.delete(accountKey);
         }
       }
-      renderCodexAccounts();
+      syncAccountBulkSelectionUi();
       return;
     }
 
@@ -17621,7 +17691,7 @@ function bindActions(): void {
           selectedPoolIds.add(pool.id);
         }
       }
-      renderPoolCards();
+      syncPoolBulkSelectionUi();
       return;
     }
 
@@ -17637,7 +17707,7 @@ function bindActions(): void {
           selectedPoolIds.delete(poolId);
         }
       }
-      renderPoolCards();
+      syncPoolBulkSelectionUi();
       return;
     }
 
@@ -17745,22 +17815,6 @@ function bindActions(): void {
   }
 
   document
-    .getElementById("account-modal")
-    ?.addEventListener("click", (event) => {
-      if (event.target === event.currentTarget) {
-        closeAccountModal();
-      }
-    });
-
-  document
-    .getElementById("access-create-member-modal")
-    ?.addEventListener("click", (event) => {
-      if (event.target === event.currentTarget) {
-        closeAccessMemberModal();
-      }
-    });
-
-  document
     .getElementById("pool-events-modal")
     ?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -17769,26 +17823,10 @@ function bindActions(): void {
     });
 
   document
-    .getElementById("pool-config-modal")
-    ?.addEventListener("click", (event) => {
-      if (event.target === event.currentTarget) {
-        closePoolConfigModal();
-      }
-    });
-
-  document
     .getElementById("usage-details-modal")
     ?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
         closeUsageDetailsModal();
-      }
-    });
-
-  document
-    .getElementById("usage-alerts-modal")
-    ?.addEventListener("click", (event) => {
-      if (event.target === event.currentTarget) {
-        closeUsageAlertsModal();
       }
     });
 
@@ -17836,6 +17874,30 @@ function bindActions(): void {
       }
     });
   }
+
+  document
+    .getElementById("account-usage-ranking-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeAccountUsageRankingModal();
+      }
+    });
+
+  document
+    .getElementById("routing-observe-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeRoutingObserveModal();
+      }
+    });
+
+  document
+    .getElementById("recent-errors-modal")
+    ?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        closeRecentErrorsModal();
+      }
+    });
 
   document
     .getElementById("close-pool-events-modal")
@@ -18090,6 +18152,20 @@ function bindActions(): void {
       return;
     }
 
+    if (action === "usage-refresh") {
+      const refreshButton = button as HTMLButtonElement;
+      try {
+        setButtonLoading(refreshButton, true, "刷新中");
+        await refreshUsageSummaryOnly();
+        setBanner("用量、告警和图表已刷新。", "success");
+      } catch (error) {
+        setBanner(`刷新用量失败：${normalizeErrorMessage(error)}`, "error");
+      } finally {
+        setButtonLoading(refreshButton, false);
+      }
+      return;
+    }
+
     if (action === "open-usage-details") {
       openUsageDetailsModal();
       return;
@@ -18209,6 +18285,7 @@ function bindActions(): void {
     if (action === "open-account-health-modal") {
       state.accountHealthModalOpen = true;
       renderAccountHealth();
+      scrollModalToTop("account-health-modal");
       return;
     }
 
@@ -18221,6 +18298,7 @@ function bindActions(): void {
     if (action === "open-request-audit-modal") {
       state.requestAuditModalOpen = true;
       renderRequestAudit();
+      scrollModalToTop("request-audit-modal");
       return;
     }
 
@@ -18541,24 +18619,6 @@ function bindActions(): void {
       }
     }
 
-    if (action === "toggle-pin-session" && button.dataset.sessionId) {
-      const pinButton = button as HTMLButtonElement;
-      try {
-        setButtonLoading(
-          pinButton,
-          true,
-          isPinnedAccountSession(button.dataset.sessionId)
-            ? "取消中"
-            : "置顶中",
-        );
-        await togglePinnedSession(button.dataset.sessionId);
-      } catch (error) {
-        setBanner(`置顶操作失败：${String(error)}`, "error");
-      } finally {
-        setButtonLoading(pinButton, false);
-      }
-    }
-
     if (action === "copy-snippet") {
       try {
         await copySnippetWithFeedback();
@@ -18631,7 +18691,7 @@ function bindActions(): void {
 
     if (action === "account-clear-selection") {
       selectedAccountKeys.clear();
-      renderCodexAccounts();
+      syncAccountBulkSelectionUi();
       setBanner("已清空账号批量选择。", "info");
       return;
     }
@@ -18644,7 +18704,7 @@ function bindActions(): void {
       );
       if (targets.length === 0) {
         selectedAccountKeys.clear();
-        renderCodexAccounts();
+        syncAccountBulkSelectionUi();
         setBanner("当前没有可删除的已选本地账号。", "info");
         return;
       }
@@ -18773,7 +18833,7 @@ function bindActions(): void {
 
     if (action === "pool-clear-selection") {
       selectedPoolIds.clear();
-      renderPoolCards();
+      syncPoolBulkSelectionUi();
       setBanner("已清空号池批量选择。", "info");
       return;
     }
@@ -18784,7 +18844,7 @@ function bindActions(): void {
       const result = deleteSelectedPools(settings.pools ?? [], selectedPoolIds);
       if (result.deletedPools.length === 0) {
         selectedPoolIds.clear();
-        renderPoolCards();
+        syncPoolBulkSelectionUi();
         setBanner("当前没有可删除的已选号池。", "info");
         return;
       }
@@ -19374,22 +19434,11 @@ async function triggerBackgroundLiveUsageRefresh(
         failedOnlyMessage: "控制台已就绪，但后台额度暂未同步成功。",
       });
       setBanner(banner.message, banner.tone);
-    } else if (summary) {
-      if (summary.refreshed > 0) {
-        setBanner("自动刷新完成。", "success");
-      } else if (summary.failed > 0) {
-        setBanner(
-          "自动刷新已结束，但当前没有账号成功同步到最新额度。",
-          "error",
-        );
-      }
     }
     return summary;
   } catch (error) {
     if (source === "init") {
       setBanner(`控制台已就绪，但后台额度同步失败：${String(error)}`, "error");
-    } else {
-      setBanner(`自动刷新失败：${String(error)}`, "error");
     }
     return undefined;
   } finally {

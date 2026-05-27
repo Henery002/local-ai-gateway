@@ -441,6 +441,8 @@
                   <select id="account-sort-key" class="input-field" style="width: auto;">
                     <option value="quota">按剩余额度</option>
                     <option value="resetAt">按重置时间</option>
+                    <option value="recentActivity">按最近活跃</option>
+                    <option value="requestCount">按请求数</option>
                     <option value="name">按名称</option>
                   </select>
                   <button class="btn secondary" id="account-sort-direction" title="切换升降序">降序</button>
@@ -617,6 +619,7 @@
                   <h2>用量与告警</h2>
                   <p>集中观察 Token 消耗、成员归因、账号/模型/号池排行和告警事件。</p>
                 </div>
+                <button class="btn secondary" data-action="usage-refresh" type="button">刷新用量</button>
               </div>
 
               <div class="usage-alerts-workbench">
@@ -927,10 +930,9 @@
                   <h2>运维日志</h2>
                   <p>查看网关常驻服务、Cloudflare Tunnel 和本机日志。</p>
                 </div>
-                <div class="section-actions">
+                <div class="section-actions ops-page-actions">
                   <button class="btn primary" data-action="repair-public-gateway" type="button">一键修复公网链路</button>
-                  <button class="btn secondary" data-action="gateway-service-restart" type="button">重启网关</button>
-                  <button class="btn secondary" data-action="cloudflare-service-restart" type="button">重启 Tunnel</button>
+                  <button class="btn primary" data-action="gateway-service-install" type="button">安装并启动常驻</button>
                   <button class="btn secondary" data-action="ops-refresh" type="button">刷新</button>
                 </div>
               </div>
@@ -943,6 +945,11 @@
                       <span class="badge neutral" id="ops-gateway-badge">加载中</span>
                     </div>
                     <div class="ops-status-facts" id="ops-gateway-facts"></div>
+                    <div class="ops-status-card-actions">
+                      <button class="btn secondary mini" data-action="gateway-service-start" type="button">启动</button>
+                      <button class="btn secondary mini" data-action="gateway-service-restart" type="button">重启</button>
+                      <button class="btn ghost mini" data-action="gateway-service-stop" type="button">停止</button>
+                    </div>
                   </div>
                   <div class="card ops-status-card" id="ops-cloudflare-status">
                     <div class="ops-status-card-head">
@@ -950,6 +957,9 @@
                       <span class="badge neutral" id="ops-cloudflare-badge">加载中</span>
                     </div>
                     <div class="ops-status-facts" id="ops-cloudflare-facts"></div>
+                    <div class="ops-status-card-actions">
+                      <button class="btn secondary mini" data-action="cloudflare-service-restart" type="button">重启 Tunnel</button>
+                    </div>
                   </div>
                   <div class="card ops-status-card" id="ops-public-probe">
                     <div class="ops-status-card-head">
@@ -958,21 +968,6 @@
                     </div>
                     <div class="ops-status-facts" id="ops-public-probe-facts"></div>
                   </div>
-                </div>
-
-                <div class="card ops-control-panel">
-                  <div class="card-header">
-                    <div>
-                      <span class="card-title">高级服务控制</span>
-                      <p class="card-description">只保留低频常驻安装和手动启停；日常修复、重启和刷新使用页面顶部操作。</p>
-                    </div>
-                  </div>
-                  <div class="ops-control-grid">
-                    <button class="btn primary" data-action="gateway-service-install" type="button">安装并启动网关常驻</button>
-                    <button class="btn secondary" data-action="gateway-service-start" type="button">启动网关</button>
-                    <button class="btn ghost" data-action="gateway-service-stop" type="button">停止网关</button>
-                  </div>
-                  <div id="ops-control-result" class="ops-control-result"></div>
                 </div>
 
                 <div class="card ops-account-health-panel">
@@ -1097,7 +1092,9 @@
                   </div>
 
                   <div class="system-config-layout">
-                    <fieldset class="system-config-fieldset">
+                    <div class="system-config-grid">
+                      <div class="system-config-column">
+                    <fieldset class="system-config-fieldset system-config-fieldset-featured">
                       <legend>推理鉴权</legend>
                       <p>控制 `/v1/models` 与 `/v1/chat/completions` 的访问策略；LAN / 公网共享建议必须使用成员 Key。</p>
                       <div class="system-config-form-grid">
@@ -1178,8 +1175,10 @@
                         </div>
                       </div>
                     </fieldset>
+                      </div>
 
-                    <fieldset class="system-config-fieldset">
+                      <div class="system-config-column">
+                    <fieldset class="system-config-fieldset system-config-fieldset-featured">
                       <legend>共享入口</legend>
                       <p>LAN 和公网只开放 OpenAI-compatible 推理面；管理面 `/admin/*` 始终保持本机访问。</p>
                       <div class="system-config-form-grid">
@@ -1278,6 +1277,8 @@
                       </div>
                       <div id="app-data-status"></div>
                     </fieldset>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

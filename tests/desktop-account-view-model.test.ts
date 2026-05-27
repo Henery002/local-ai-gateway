@@ -173,6 +173,44 @@ describe("desktop account view model", () => {
     ).toEqual(["acct-low", "acct-high", "acct-mid"]);
   });
 
+  it("sorts account groups by recent activity and request count", () => {
+    const groups = [
+      createGroup({
+        id: "acct-quiet",
+        profileId: "acct-quiet",
+        email: "quiet@example.com",
+        activity: { requestCount: 2, lastRequestAt: 100 },
+      }),
+      createGroup({
+        id: "acct-busy",
+        profileId: "acct-busy",
+        email: "busy@example.com",
+        activity: { requestCount: 80, lastRequestAt: 300 },
+      }),
+      createGroup({
+        id: "acct-idle",
+        profileId: "acct-idle",
+        email: "idle@example.com",
+      }),
+    ];
+
+    expect(
+      sortAccountGroups(groups, {
+        search: "",
+        sortKey: "recentActivity",
+        sortDirection: "desc",
+      }).map((group) => group.representative.id),
+    ).toEqual(["acct-busy", "acct-quiet", "acct-idle"]);
+
+    expect(
+      sortAccountGroups(groups, {
+        search: "",
+        sortKey: "requestCount",
+        sortDirection: "asc",
+      }).map((group) => group.representative.id),
+    ).toEqual(["acct-idle", "acct-quiet", "acct-busy"]);
+  });
+
   it("keeps avatar tone indices stable and bounded", () => {
     const first = getAvatarToneIndex("session_alpha");
     const second = getAvatarToneIndex("session_alpha");

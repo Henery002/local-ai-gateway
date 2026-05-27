@@ -34,7 +34,13 @@ export interface AccountSessionViewLike extends CodexAccountSessionLike {
   };
 }
 
-export type AccountSortKey = "default" | "name" | "quota" | "resetAt";
+export type AccountSortKey =
+  | "default"
+  | "name"
+  | "quota"
+  | "resetAt"
+  | "recentActivity"
+  | "requestCount";
 export type AccountSortDirection = "asc" | "desc";
 
 export interface AccountActivitySummary {
@@ -348,6 +354,23 @@ export function sortAccountGroups<TSession extends AccountSessionViewLike>(
         right.representative.quota?.resetAt,
         options.sortDirection,
       );
+    }
+
+    if (options.sortKey === "recentActivity") {
+      delta = compareOptionalNumbers(
+        left.representative.activity?.lastRequestAt,
+        right.representative.activity?.lastRequestAt,
+        options.sortDirection,
+      );
+    }
+
+    if (options.sortKey === "requestCount") {
+      const leftCount = left.representative.activity?.requestCount ?? 0;
+      const rightCount = right.representative.activity?.requestCount ?? 0;
+      delta =
+        options.sortDirection === "asc"
+          ? leftCount - rightCount
+          : rightCount - leftCount;
     }
 
     if (delta === 0) {

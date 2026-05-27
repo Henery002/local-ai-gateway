@@ -205,6 +205,12 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("account-assets-ownership-cell");
     expect(rendererSource).toContain("account-assets-usage-cell");
     expect(rendererSource).toContain("account-assets-actions-cell");
+    expect(rendererSource).toContain("account-action-btn");
+    expect(rendererSource).toContain("设为活动");
+    expect(rendererSource).toContain("同步额度");
+    expect(rendererSource).toContain("删除副本");
+    expect(rendererSource).not.toContain("data-action=\"toggle-pin-session\"");
+    expect(rendererSource).not.toContain("已置顶");
     expect(rendererSource).toContain("renderAccountAssetsGrid");
     expect(rendererSource).toContain('id: "codex-accounts-grid"');
     expect(rendererSource).toContain("同步额度（不刷新 refresh token）");
@@ -220,7 +226,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".account-assets-table-row > .figma-table-cell {");
     expect(rendererSource).toContain('minWidth: "1220px"');
     expect(styles).toContain(".account-grid-title");
-    expect(styles).toContain(".account-assets-actions-cell .icon-btn[data-tooltip]::after");
+    expect(styles).toContain(".account-action-btn");
     expect(styles).toContain(".access-consumer-table {");
     expect(styles).toContain("min-width: 1240px;");
     expect(styles).toContain(".access-consumer-actions-cell {");
@@ -484,17 +490,26 @@ describe("desktop build output", () => {
     )?.[1];
 
     expect(operationsView).toBeTruthy();
+    expect(operationsView).toContain('data-action="gateway-service-install"');
+    expect(operationsView).toContain('data-action="repair-public-gateway"');
+    expect(operationsView).toContain('data-action="ops-refresh"');
+    expect(operationsView).toContain('class="ops-status-card-actions"');
+    expect(operationsView).toContain('data-action="gateway-service-start"');
+    expect(operationsView).toContain('data-action="gateway-service-stop"');
     expect(operationsView).toContain('data-action="gateway-service-restart"');
     expect(operationsView).toContain('data-action="cloudflare-service-restart"');
+    expect(operationsView).not.toContain('id="ops-control-result"');
     expect(operationsView).not.toContain('data-action="copy-public-snippet"');
-    expect(operationsView).toContain("高级服务控制");
-    const advancedControlPanel = operationsView?.match(
-      /<div class="card ops-control-panel">([\s\S]*?)<\/div>\s*<div id="ops-control-result"/,
+    expect(operationsView).not.toContain("高级服务控制");
+    expect(operationsView).not.toContain("ops-control-panel");
+    const operationsHeader = operationsView?.match(
+      /<div class="section-head page-section-head">([\s\S]*?)<\/div>\s*<div class="operations-workbench">/,
     )?.[1];
-    expect(advancedControlPanel).toBeTruthy();
-    expect(advancedControlPanel).not.toContain('data-action="gateway-service-restart"');
-    expect(advancedControlPanel).not.toContain('data-action="cloudflare-service-restart"');
-    expect(advancedControlPanel).not.toContain('data-action="copy-public-snippet"');
+    expect(operationsHeader).toBeTruthy();
+    expect(operationsHeader).not.toContain('data-action="gateway-service-start"');
+    expect(operationsHeader).not.toContain('data-action="gateway-service-stop"');
+    expect(operationsHeader).not.toContain('data-action="gateway-service-restart"');
+    expect(operationsHeader).not.toContain('data-action="cloudflare-service-restart"');
     expect(requestAuditToolbar).toBeTruthy();
     expect(requestAuditToolbar?.indexOf('id="request-audit-consumer"')).toBeLessThan(
       requestAuditToolbar?.indexOf('id="request-audit-status"') ?? Number.MAX_SAFE_INTEGER,
@@ -506,6 +521,14 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("request-audit-consumer");
     expect(rendererSource).toContain("renderRequestAuditMemberFocus");
     expect(rendererSource).toContain("renderGridTable");
+    expect(rendererSource).toContain("syncAccountBulkSelectionUi");
+    expect(rendererSource).toContain("syncPoolBulkSelectionUi");
+    expect(rendererSource).toContain("summarizeAccountQuotaAggregate");
+    expect(rendererSource).toContain("ops-account-quota-kpi");
+    expect(styles).toContain(".ops-page-actions");
+    expect(styles).toContain(".ops-status-card-actions");
+    expect(styles).toContain(".ops-account-quota-kpi");
+    expect(rendererSource).toContain('action === "usage-refresh"');
     expect(rendererSource).toContain("renderRequestAuditGrid");
     expect(rendererSource).toContain("renderAccountUsageRankingGrid");
     expect(rendererSource).toContain("renderRecentErrorsGrid");
@@ -522,6 +545,7 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain('minWidth: "1220px"');
     expect(indexHtml).toContain("gridjs/dist/gridjs.umd.js");
     expect(indexHtml).toContain("gridjs/dist/theme/mermaid.min.css");
+    expect(indexHtml).toContain('data-action="usage-refresh"');
     expect(indexHtml).toContain('id="request-audit-list"');
     expect(indexHtml).toContain('id="routing-observe-modal-list"');
     expect(indexHtml).toContain('id="recent-errors-modal-list"');
@@ -681,6 +705,11 @@ describe("desktop build output", () => {
     expect(accountsView).toContain("data-account-source=\"managed\"");
     expect(accountsView).toContain("data-account-source=\"external-readonly\"");
     expect(accountsView).toContain("id=\"account-assets-table-shell\"");
+    expect(accountsView).toContain("id=\"account-sort-key\"");
+    expect(accountsView).toContain("value=\"quota\"");
+    expect(accountsView).toContain("value=\"resetAt\"");
+    expect(accountsView).toContain("value=\"recentActivity\"");
+    expect(accountsView).toContain("value=\"requestCount\"");
     expect(accountsView).toContain("id=\"account-detail-drawer\"");
     expect(accountsView).toContain("删除本地副本");
   });
@@ -890,6 +919,7 @@ describe("desktop build output", () => {
     expect(styles).toContain(".provider-panel-status-strip {");
     expect(styles).toContain(".provider-form-section {");
     expect(styles).toContain(".provider-extension-grid {");
+    expect(styles).toContain(".provider-extension-grid {\n  display: grid;\n  grid-template-columns: 1fr;");
     expect(styles).toContain(".provider-config-panel {");
     expect(styles).toContain(".provider-config-form-grid {");
     expect(styles).toContain(".provider-registry-summary-grid {");
@@ -939,6 +969,9 @@ describe("desktop build output", () => {
     expect(systemView).toContain("class=\"system-diagnostics-workbench\"");
     expect(systemView).toContain("class=\"card system-config-panel\"");
     expect(systemView).toContain("class=\"system-config-layout\"");
+    expect(systemView).toContain("class=\"system-config-grid\"");
+    expect(systemView).toContain("class=\"system-config-column\"");
+    expect(systemView).toContain("class=\"system-config-fieldset system-config-fieldset-featured\"");
     expect(systemView).toContain("class=\"system-config-fieldset\"");
     expect(systemView).toContain("class=\"system-status-strip\"");
     expect(systemView).toContain("class=\"system-action-grid system-action-grid-compact\"");
@@ -1012,6 +1045,8 @@ describe("desktop build output", () => {
     expect(styles).toContain(".system-diagnostics-workbench {");
     expect(styles).toContain(".system-config-panel {");
     expect(styles).toContain(".system-config-layout {");
+    expect(styles).toContain(".system-config-grid {");
+    expect(styles).toContain(".system-config-fieldset-featured {");
     expect(styles).toContain(".system-config-fieldset {");
     expect(styles).toContain(".system-status-strip {");
     expect(styles).toContain(".system-action-grid {");
@@ -1114,6 +1149,13 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("formatUsageTrendMetricValue");
     expect(rendererSource).toContain("valueFormatter");
     expect(rendererSource).toContain("renderUsageFilterContextBar");
+    expect(rendererSource).toContain("scrollActiveViewToTop");
+    expect(rendererSource).toContain("scrollModalToTop");
+    expect(rendererSource).toContain("最近活跃");
+    expect(rendererSource).not.toContain("closeUsageAlertsModal();\n      }\n    });");
+    expect(rendererSource).not.toContain("closeAccountModal();\n      }\n    });");
+    expect(rendererSource).not.toContain("closeAccessMemberModal();\n      }\n    });");
+    expect(rendererSource).not.toContain("closePoolConfigModal();\n      }\n    });");
     expect(rendererSource).toContain("buildUsageFilterContextItems");
     expect(rendererSource).toContain("renderUsageChartDataHint");
     expect(rendererSource).toContain("buildUsageChartEmptyGraphic");

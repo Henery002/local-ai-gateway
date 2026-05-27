@@ -2544,6 +2544,19 @@ button, input, select {
   gap: 16px;
 }
 
+.system-config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.system-config-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
 .system-config-fieldset {
   display: grid;
   gap: 14px;
@@ -2553,6 +2566,13 @@ button, input, select {
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-elevated);
+}
+
+.system-config-fieldset-featured {
+  border-color: color-mix(in oklab, var(--accent-color) 22%, var(--color-border-subtle));
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--accent-color) 6%, transparent), transparent 58%),
+    var(--color-bg-elevated);
 }
 
 .system-config-fieldset legend {
@@ -2571,13 +2591,23 @@ button, input, select {
 
 .system-config-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 14px 18px;
   align-items: start;
 }
 
 .system-config-form-grid.compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.system-config-form-grid > .form-field,
+.system-config-form-grid > .system-switch-card {
+  grid-column: span 6;
+}
+
+.system-config-form-grid.compact > .form-field,
+.system-config-form-grid.compact > .system-switch-card {
+  grid-column: span 4;
 }
 
 .system-config-form-grid .full {
@@ -2616,6 +2646,8 @@ button, input, select {
 }
 
 .system-inline-status {
+  display: grid;
+  gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
@@ -2631,6 +2663,7 @@ button, input, select {
   gap: 12px;
   align-items: start;
   min-width: 0;
+  min-height: 96px;
   margin: 0;
   padding: 14px;
   border: 1px solid var(--color-border-subtle);
@@ -2672,8 +2705,8 @@ button, input, select {
 }
 
 .system-backup-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   gap: 18px;
   padding: 14px;
@@ -5514,6 +5547,12 @@ button, input, select {
   border-top: none;
 }
 
+.account-action-btn {
+  min-width: 74px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 .account-row-meta,
 .account-row-source,
 .account-row-quota {
@@ -5723,7 +5762,7 @@ button, input, select {
 
 .provider-extension-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: var(--space-4);
 }
 
@@ -7805,22 +7844,31 @@ button, input, select {
   overflow-wrap: anywhere;
 }
 
-.ops-control-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.ops-control-grid {
+.ops-page-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  justify-content: flex-end;
+  max-width: 520px;
+}
+
+.ops-status-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
 }
 
 .ops-control-result {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-surface);
   color: var(--text-secondary);
   font-size: 13px;
   min-height: 18px;
+  padding: 10px 12px;
 }
 
 .ops-audit-panel {
@@ -7966,6 +8014,12 @@ button, input, select {
   font-weight: 700;
 }
 
+.ops-audit-kpi span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ops-account-health-panel {
   display: flex;
   flex-direction: column;
@@ -7975,7 +8029,32 @@ button, input, select {
 .ops-account-health-summary {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 1.35fr) repeat(5, minmax(0, 1fr));
+}
+
+.ops-account-quota-kpi {
+  min-height: 94px;
+}
+
+.ops-account-quota-kpi strong {
+  font-size: 34px;
+  letter-spacing: -0.04em;
+}
+
+.ops-account-quota-kpi[data-quota-tone="success"] strong {
+  color: var(--success);
+}
+
+.ops-account-quota-kpi[data-quota-tone="warning"] strong {
+  color: var(--warning);
+}
+
+.ops-account-quota-kpi[data-quota-tone="danger"] strong {
+  color: var(--danger);
+}
+
+.ops-account-quota-kpi[data-quota-tone="info"] strong {
+  color: var(--info);
 }
 
 .ops-account-health-layout {
@@ -8255,11 +8334,17 @@ button, input, select {
   .provider-config-form-grid { grid-template-columns: 1fr; }
   .provider-extension-panel .provider-config-form-grid { grid-template-columns: 1fr; }
   .provider-registry-summary-grid { grid-template-columns: 1fr; }
+  .system-config-grid { grid-template-columns: 1fr; }
   .system-config-form-grid { grid-template-columns: 1fr; }
   .system-config-form-grid.compact { grid-template-columns: 1fr; }
+  .system-config-form-grid > .form-field,
+  .system-config-form-grid > .system-switch-card,
+  .system-config-form-grid.compact > .form-field,
+  .system-config-form-grid.compact > .system-switch-card { grid-column: 1 / -1; }
   .system-status-strip,
   .system-action-grid,
   .ops-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-account-health-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ops-log-toolbar { grid-template-columns: 1fr 120px; }
   .diagnostics-grid { grid-template-columns: 1fr; }
   .diagnostics-grid.compact { grid-template-columns: 1fr; }
