@@ -14,6 +14,7 @@
   - [公网共享中转站技术可行性分析](./architecture/shared-gateway/%E5%85%AC%E7%BD%91%E5%85%B1%E4%BA%AB%E4%B8%AD%E8%BD%AC%E7%AB%99%E6%8A%80%E6%9C%AF%E5%8F%AF%E8%A1%8C%E6%80%A7%E5%88%86%E6%9E%90.md)
   - [最低可行公网共享方案 A / B 记录](./architecture/shared-gateway/%E6%9C%80%E4%BD%8E%E5%8F%AF%E8%A1%8C%E5%85%AC%E7%BD%91%E5%85%B1%E4%BA%AB%E6%96%B9%E6%A1%88A-B%E8%AE%B0%E5%BD%95.md)
   - [三期 Cloudflare 公网联调复盘](./architecture/shared-gateway/%E4%B8%89%E6%9C%9FCloudflare%E5%85%AC%E7%BD%91%E8%81%94%E8%B0%83%E5%A4%8D%E7%9B%98.md)
+  - [公网用户自助用量额度查询页技术方案](./architecture/shared-gateway/%E5%85%AC%E7%BD%91%E7%94%A8%E6%88%B7%E8%87%AA%E5%8A%A9%E7%94%A8%E9%87%8F%E9%A2%9D%E5%BA%A6%E6%9F%A5%E8%AF%A2%E9%A1%B5%E6%8A%80%E6%9C%AF%E6%96%B9%E6%A1%88.md)
   - [局域网小范围共享中转站技术实施方案](./architecture/shared-gateway/%E5%B1%80%E5%9F%9F%E7%BD%91%E5%B0%8F%E8%8C%83%E5%9B%B4%E5%85%B1%E4%BA%AB%E4%B8%AD%E8%BD%AC%E7%AB%99%E6%8A%80%E6%9C%AF%E5%AE%9E%E6%96%BD%E6%96%B9%E6%A1%88.md)
   - [API 中转站生态与风险评析](./architecture/shared-gateway/API%E4%B8%AD%E8%BD%AC%E7%AB%99%E7%94%9F%E6%80%81%E4%B8%8E%E9%A3%8E%E9%99%A9%E8%AF%84%E6%9E%90.md)
 - [OpenClaw 接入与运行说明（专项）](./operations/openclaw-%E6%8E%A5%E5%85%A5%E4%B8%8E%E8%BF%90%E8%A1%8C.md)
