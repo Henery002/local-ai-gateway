@@ -744,7 +744,12 @@ describe("desktop build output", () => {
     expect(indexHtml).toContain("class=\"modal-content figma-modal pool-config-modal\"");
     expect(indexHtml).toContain("id=\"pool-config-modal-title\"");
     expect(indexHtml).toContain("id=\"save-pool-config-modal\"");
+    expect(indexHtml).toContain("id=\"service-test-modal\" class=\"modal-overlay\"");
+    expect(indexHtml).toContain("id=\"service-test-result\"");
+    expect(indexHtml).toContain('data-action="test-gateway-service"');
     expect(indexHtml).toContain("直接保存到网关");
+    expect(rendererSource).toContain("openServiceTestModal");
+    expect(rendererSource).toContain("testGatewayService");
     expect(rendererSource).toContain("openPoolConfigModal");
     expect(rendererSource).toContain("closePoolConfigModal");
     expect(rendererSource).toContain("persistPoolSettingsFromState");
@@ -764,8 +769,13 @@ describe("desktop build output", () => {
     expect(rendererSource).toContain("pool-config-form-grid");
     expect(rendererSource).toContain("pool-member-table-shell");
     expect(rendererSource).toContain("pool-card-actions");
+    expect(rendererSource).toContain('value="single-drain"');
+    expect(rendererSource).toContain("单账号耗尽后切换");
+    expect(rendererSource).toContain('value="expiry-asc"');
+    expect(rendererSource).toContain("优先近到期");
     expect(rendererSource).toContain('data-field="pool-visibility"');
     expect(rendererSource).toContain('visibility: "private"');
+    expect(styles).toContain(".service-test-result-card");
     expect(styles).toContain(".pool-route-workbench {");
     expect(styles).toContain(".pool-control-panel {");
     expect(styles).toContain(".pool-list-shell {");
@@ -854,6 +864,8 @@ describe("desktop build output", () => {
     expect(mainSource).toContain("gateway:read-operations-log");
     expect(mainSource).toContain("gateway:control-gateway-service");
     expect(mainSource).toContain("gateway:control-cloudflare-service");
+    expect(mainSource).toContain("gateway:test-service");
+    expect(mainSource).toContain("/admin/service/test");
     expect(mainSource).toContain("gateway:repair-public-gateway");
     expect(styles).toContain(".operations-workbench {");
     expect(styles).toContain(".ops-status-grid {");

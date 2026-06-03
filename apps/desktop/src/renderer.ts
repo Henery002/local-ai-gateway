@@ -175,6 +175,7 @@ declare global {
       controlCloudflareService?: (
         action: "start" | "stop" | "restart",
       ) => Promise<{ ok: boolean; data: OperationsStatus["cloudflare"] }>;
+      testService?: () => Promise<ServiceTestResponse>;
       repairPublicGateway?: () => Promise<OperationsStatusResponse>;
       loginCodexOAuth: () => Promise<{
         ok: boolean;
@@ -1018,6 +1019,8 @@ type PoolDefinition = {
   selectionStrategy?:
     | "priority"
     | "quota-desc"
+    | "single-drain"
+    | "expiry-asc"
     | "least-recently-used"
     | "hybrid";
   minRemainingPercentage?: number;
@@ -1036,6 +1039,23 @@ type PoolSettings = {
 type PoolSettingsResponse = {
   ok: boolean;
   data: PoolSettings;
+};
+
+type ServiceTestResponse = {
+  ok: boolean;
+  data: {
+    success: boolean;
+    stage: "local" | "auth" | "upstream";
+    resultText: string;
+    modelAlias: string;
+    providerId: string;
+    statusCode?: number;
+    latencyMs: number;
+    serviceReachable: boolean;
+    upstreamReachable: boolean;
+    errorType?: string;
+    message?: string;
+  };
 };
 
 type PoolMemberCandidateView = {
@@ -11843,7 +11863,7 @@ function applySettingsToForm(): void {
       node.textContent = formatCodexUpstreamModelLabel(modelId);
       codexSelect.appendChild(node);
     }
-    codexSelect.value = normalizeCodexUpstreamModel(codex.upstreamModel) ?? "gpt-5.4";
+    codexSelect.value = normalizeCodexUpstreamModel(codex.upstreamModel) ?? "gpt-5.5";
   }
 
   if (codexExposeContainer) {
@@ -11957,7 +11977,7 @@ function createPoolDraft(index: number): PoolDefinition {
     name: `号池-${index}`,
     enabled: true,
     visibility: "private",
-    selectionStrategy: "hybrid",
+    selectionStrategy: "single-drain",
     minRemainingPercentage: 15,
     cooldownSeconds: 300,
     quotaExhaustedCooldownSeconds: 7200,
@@ -12102,6 +12122,14 @@ function formatPoolEnabledLabel(pool: PoolDefinition): string {
 
 function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
   const poolVisibility = normalizePoolVisibility(pool.visibility);
+  const isSingleDrain = pool.selectionStrategy === "single-drain";
+  const cooldownDisabled = isSingleDrain ? "disabled" : "";
+  const cooldownHint = isSingleDrain
+    ? "单账号耗尽后切换策略不使用常规冷却；账号会保持粘性，直到额度低于阈值、鉴权失效或本次请求临时回退。"
+    : "单位：秒";
+  const quotaCooldownHint = isSingleDrain
+    ? "单账号耗尽后切换策略不靠额度冷却切号；额度耗尽只触发本次请求切到下一个候选。"
+    : "单位：秒";
   const candidates = buildPoolMemberCandidates();
   const unresolvedMembers = getPoolUnresolvedMembers(pool, candidates).join(
     "\n",
@@ -12130,6 +12158,8 @@ function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
               <select class="input-field" data-field="pool-strategy">
                 <option value="hybrid" ${pool.selectionStrategy === "hybrid" || !pool.selectionStrategy ? "selected" : ""}>综合策略</option>
                 <option value="quota-desc" ${pool.selectionStrategy === "quota-desc" ? "selected" : ""}>剩余额度优先</option>
+                <option value="single-drain" ${pool.selectionStrategy === "single-drain" ? "selected" : ""}>单账号耗尽后切换</option>
+                <option value="expiry-asc" ${pool.selectionStrategy === "expiry-asc" ? "selected" : ""}>优先近到期</option>
                 <option value="least-recently-used" ${pool.selectionStrategy === "least-recently-used" ? "selected" : ""}>最近最少使用</option>
                 <option value="priority" ${pool.selectionStrategy === "priority" ? "selected" : ""}>成员顺序</option>
               </select>
@@ -12162,13 +12192,13 @@ function buildPoolConfigModalBodyMarkup(pool: PoolDefinition): string {
           <div class="pool-config-fields-grid">
             <div class="form-field span-4">
               <label>常规冷却</label>
-              <input class="input-field" data-field="pool-cooldown-seconds" type="number" min="10" max="86400" step="10" value="${typeof pool.cooldownSeconds === "number" ? pool.cooldownSeconds : 300}" />
-              <div class="form-hint">单位：秒</div>
+              <input class="input-field" data-field="pool-cooldown-seconds" type="number" min="10" max="86400" step="10" value="${typeof pool.cooldownSeconds === "number" ? pool.cooldownSeconds : 300}" ${cooldownDisabled} />
+              <div class="form-hint" data-pool-cooldown-hint="regular">${escapeHtml(cooldownHint)}</div>
             </div>
             <div class="form-field span-4">
               <label>额度耗尽冷却</label>
-              <input class="input-field" data-field="pool-quota-cooldown-seconds" type="number" min="30" max="86400" step="30" value="${typeof pool.quotaExhaustedCooldownSeconds === "number" ? pool.quotaExhaustedCooldownSeconds : 7200}" />
-              <div class="form-hint">单位：秒</div>
+              <input class="input-field" data-field="pool-quota-cooldown-seconds" type="number" min="30" max="86400" step="30" value="${typeof pool.quotaExhaustedCooldownSeconds === "number" ? pool.quotaExhaustedCooldownSeconds : 7200}" ${cooldownDisabled} />
+              <div class="form-hint" data-pool-cooldown-hint="quota">${escapeHtml(quotaCooldownHint)}</div>
             </div>
             <div class="form-field span-4">
               <label>单次最多尝试账号数</label>
@@ -12269,6 +12299,77 @@ function closePoolConfigModal(): void {
   activePoolModalDraft = undefined;
   state.activePoolConfigModalId = undefined;
   state.activePoolConfigModalMode = undefined;
+}
+
+function renderServiceTestResult(
+  result?: ServiceTestResponse["data"],
+  pending = false,
+): void {
+  const node = document.getElementById("service-test-result");
+  if (!node) {
+    return;
+  }
+  if (pending) {
+    node.innerHTML = `
+      <div class="service-test-result-card tone-info">
+        <strong>正在测试服务</strong>
+        <span>正在通过本地网关发起一次真实推理请求，请稍候。</span>
+      </div>
+    `;
+    return;
+  }
+  if (!result) {
+    node.innerHTML = `
+      <div class="service-test-result-card tone-neutral">
+        <strong>等待测试</strong>
+        <span>点击“开始测试”后，会检测本地服务、鉴权配置和上游模型响应。</span>
+      </div>
+    `;
+    return;
+  }
+  const tone = result.success ? "success" : "danger";
+  const title = result.success ? "服务检测成功" : "服务检测失败";
+  const detail = result.success
+    ? `本地服务、鉴权和上游响应正常（${result.modelAlias}，${formatCompactCount(result.latencyMs)}ms）。`
+    : result.message || "服务测试未通过，请检查本地服务、API Key 或上游账号状态。";
+  node.innerHTML = `
+    <div class="form-field">
+      <label>返回结果</label>
+      <div class="readonly-field">${escapeHtml(result.resultText || "-")}</div>
+    </div>
+    <div class="service-test-result-card tone-${tone}">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(detail)}</span>
+      <small>阶段：${escapeHtml(result.stage)} · HTTP ${escapeHtml(String(result.statusCode ?? "-"))} · Provider ${escapeHtml(result.providerId)}</small>
+    </div>
+  `;
+}
+
+function openServiceTestModal(): void {
+  const modal = document.getElementById("service-test-modal");
+  if (!modal) {
+    return;
+  }
+  renderServiceTestResult();
+  modal.hidden = false;
+  scrollModalToTop("service-test-modal");
+}
+
+function closeServiceTestModal(): void {
+  const modal = document.getElementById("service-test-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+async function testGatewayService(): Promise<void> {
+  const api = getGatewayApi();
+  if (!api.testService) {
+    throw new Error("当前桌面桥接不支持服务测试，请重启桌面端。");
+  }
+  renderServiceTestResult(undefined, true);
+  const response = await api.testService();
+  renderServiceTestResult(response.data);
 }
 
 async function savePoolConfigModalDraft(): Promise<string> {
@@ -12813,6 +12914,12 @@ function formatPoolSelectionStrategyLabel(
   if (strategy === "quota-desc") {
     return "剩余额度";
   }
+  if (strategy === "single-drain") {
+    return "单账号耗尽后切换";
+  }
+  if (strategy === "expiry-asc") {
+    return "优先近到期";
+  }
   if (strategy === "least-recently-used") {
     return "最近最少使用";
   }
@@ -12934,6 +13041,8 @@ function describePoolMemberDecision(input: {
       typeof member.quotaPercentage === "number"
     ) {
       body = `当前号池按剩余额度优先选择了 ${selectedTitle ?? "其他成员"}；该账号当前剩余额度为 ${member.quotaPercentage}% ，仍会在后续请求中参与调度。`;
+    } else if (runtime.selectionStrategy === "single-drain") {
+      body = `当前号池会持续使用 ${selectedTitle ?? "当前首选账号"}，直到该账号额度低于阈值、鉴权失败，或本次请求遇到可回退失败时才切到下一个候选。`;
     } else if (
       runtime.selectionStrategy === "least-recently-used" &&
       member.lastSelectedAt
@@ -13646,6 +13755,41 @@ function syncPoolDraftFromRow(row: HTMLElement): void {
     ...settings,
     pools: nextPools,
   };
+}
+
+function syncPoolStrategyGuardUi(row: HTMLElement): void {
+  const strategy = row.querySelector<HTMLSelectElement>(
+    '[data-field="pool-strategy"]',
+  )?.value;
+  const isSingleDrain = strategy === "single-drain";
+  const regularCooldown = row.querySelector<HTMLInputElement>(
+    '[data-field="pool-cooldown-seconds"]',
+  );
+  const quotaCooldown = row.querySelector<HTMLInputElement>(
+    '[data-field="pool-quota-cooldown-seconds"]',
+  );
+  if (regularCooldown) {
+    regularCooldown.disabled = isSingleDrain;
+  }
+  if (quotaCooldown) {
+    quotaCooldown.disabled = isSingleDrain;
+  }
+  const regularHint = row.querySelector<HTMLElement>(
+    '[data-pool-cooldown-hint="regular"]',
+  );
+  if (regularHint) {
+    regularHint.textContent = isSingleDrain
+      ? "单账号耗尽后切换策略不使用常规冷却；账号会保持粘性，直到额度低于阈值、鉴权失效或本次请求临时回退。"
+      : "单位：秒";
+  }
+  const quotaHint = row.querySelector<HTMLElement>(
+    '[data-pool-cooldown-hint="quota"]',
+  );
+  if (quotaHint) {
+    quotaHint.textContent = isSingleDrain
+      ? "单账号耗尽后切换策略不靠额度冷却切号；额度耗尽只触发本次请求切到下一个候选。"
+      : "单位：秒";
+  }
 }
 
 function getPoolMembersFieldContainer(row: HTMLElement): HTMLElement | null {
@@ -17640,6 +17784,18 @@ function bindActions(): void {
 
     if (
       target instanceof HTMLSelectElement &&
+      target.matches('[data-field="pool-strategy"]')
+    ) {
+      const row = target.closest<HTMLElement>("[data-pool-row]");
+      if (row) {
+        syncPoolStrategyGuardUi(row);
+        syncPoolDraftFromRow(row);
+      }
+      return;
+    }
+
+    if (
+      target instanceof HTMLSelectElement &&
       target.matches('[data-pool-ui="sort-key"]')
     ) {
       const row = target.closest<HTMLElement>("[data-pool-row]");
@@ -17915,6 +18071,44 @@ function bindActions(): void {
     .getElementById("cancel-pool-config-modal")
     ?.addEventListener("click", () => {
       closePoolConfigModal();
+    });
+
+  document
+    .getElementById("close-service-test-modal")
+    ?.addEventListener("click", () => {
+      closeServiceTestModal();
+    });
+
+  document
+    .getElementById("cancel-service-test-modal")
+    ?.addEventListener("click", () => {
+      closeServiceTestModal();
+    });
+
+  document
+    .getElementById("run-service-test-modal")
+    ?.addEventListener("click", async () => {
+      const button = document.getElementById(
+        "run-service-test-modal",
+      ) as HTMLButtonElement | null;
+      try {
+        setButtonLoading(button, true, "测试中");
+        await testGatewayService();
+      } catch (error) {
+        renderServiceTestResult({
+          success: false,
+          stage: "local",
+          resultText: "",
+          modelAlias: "-",
+          providerId: "-",
+          latencyMs: 0,
+          serviceReachable: false,
+          upstreamReachable: false,
+          message: String(error),
+        });
+      } finally {
+        setButtonLoading(button, false);
+      }
     });
 
   document
@@ -18197,6 +18391,29 @@ function bindActions(): void {
 
     if (action === "close-usage-alert-events-modal") {
       closeUsageAlertEventsModal();
+      return;
+    }
+
+    if (action === "test-gateway-service") {
+      openServiceTestModal();
+      try {
+        setButtonLoading(button as HTMLButtonElement, true, "测试中");
+        await testGatewayService();
+      } catch (error) {
+        renderServiceTestResult({
+          success: false,
+          stage: "local",
+          resultText: "",
+          modelAlias: "-",
+          providerId: "-",
+          latencyMs: 0,
+          serviceReachable: false,
+          upstreamReachable: false,
+          message: String(error),
+        });
+      } finally {
+        setButtonLoading(button as HTMLButtonElement, false);
+      }
       return;
     }
 

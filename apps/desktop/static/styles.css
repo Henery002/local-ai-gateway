@@ -4897,6 +4897,61 @@ button, input, select {
   flex-direction: column;
 }
 
+.modal-content.service-test-modal {
+  max-width: 720px;
+  max-height: min(78vh, 920px);
+}
+
+.service-test-result {
+  display: grid;
+  gap: 14px;
+}
+
+.readonly-field {
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.service-test-result-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+}
+
+.service-test-result-card strong {
+  color: var(--text-primary);
+}
+
+.service-test-result-card span,
+.service-test-result-card small {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.service-test-result-card.tone-success {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+
+.service-test-result-card.tone-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.service-test-result-card.tone-info {
+  border-color: var(--accent-soft);
+  background: var(--color-bg-active);
+}
+
 .modal-content.access-create-member-modal {
   max-width: min(1180px, calc(100vw - 40px));
 }

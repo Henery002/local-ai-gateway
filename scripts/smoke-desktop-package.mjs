@@ -152,8 +152,8 @@ ensureAsarContains("/packages/core/package.json", "Core 工作区元数据");
 ensureAsarContains("/apps/gateway/dist/server.js", "安装版主进程托管的 gateway 模块");
 ensureAsarContains("/apps/desktop/assets/icons/generated/app-icon.png", "Dock/窗口图标资源");
 ensureAsarContains("/apps/desktop/assets/icons/generated/tray-idle-light.png", "状态栏空闲图标资源");
-ensureAsarContains("/apps/desktop/assets/icons/generated/tray-active-light.png", "状态栏活跃图标资源");
-ensureAsarContains("/apps/desktop/assets/icons/generated/tray-error.png", "状态栏异常图标资源");
+ensureAsarContains("/apps/desktop/assets/icons/generated/tray-active-light-0.png", "状态栏活跃图标资源");
+ensureAsarContains("/apps/desktop/assets/icons/generated/tray-error-light.png", "状态栏异常图标资源");
 
 const betterSqliteNode = join(
   asarUnpackedPath,

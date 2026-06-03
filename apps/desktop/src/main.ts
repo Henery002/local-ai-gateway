@@ -3652,6 +3652,13 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("gateway:test-service", async () => {
+  await gatewayManager.ensureRunning();
+  return callAdminWithEndpointCompatibility("/admin/service/test", {
+    method: "POST",
+  });
+});
+
 ipcMain.handle("gateway:repair-public-gateway", async () => {
   const result = await repairPublicGatewayConnectivity();
   void refreshTrayStatus();

@@ -884,6 +884,7 @@
                   <p>把多个桌面端 Codex 账号编成动态号池，并与策略路由一起控制共享请求命中哪里。</p>
                 </div>
                 <div class="section-actions">
+                  <button class="btn primary" data-action="test-gateway-service" type="button">测试服务</button>
                   <button id="add-pool" class="btn secondary">新增号池</button>
                 </div>
               </div>
@@ -1756,6 +1757,26 @@
           <span class="modal-save-state" data-tone="neutral">直接保存到网关并影响后续请求；不改写 Cockpit / OpenClaw 原始账号配置。</span>
           <button id="cancel-pool-config-modal" class="btn secondary" type="button">取消</button>
           <button id="save-pool-config-modal" class="btn primary" type="button">保存修改</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="service-test-modal" class="modal-overlay" hidden>
+      <div class="modal-content figma-modal service-test-modal">
+        <div class="modal-header">
+          <div>
+            <h3>测试 API 服务</h3>
+            <p>通过本地网关发起一次真实推理请求，验证服务、鉴权和上游响应。</p>
+          </div>
+          <button id="close-service-test-modal" class="btn ghost mini" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <div id="service-test-result" class="service-test-result"></div>
+        </div>
+        <div class="modal-footer">
+          <span class="modal-save-state" data-tone="neutral">测试会消耗一次极小请求；不展示完整 Key、OAuth token 或 prompt 正文。</span>
+          <button id="cancel-service-test-modal" class="btn secondary" type="button">关闭</button>
+          <button id="run-service-test-modal" class="btn primary" type="button">开始测试</button>
         </div>
       </div>
     </div>
