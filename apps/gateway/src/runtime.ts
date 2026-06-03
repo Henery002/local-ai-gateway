@@ -2135,6 +2135,8 @@ export class GatewayRuntime {
     const rightQuota = right.session.quota?.percentage ?? -1;
     const leftLastSelected = left.runtimeState.lastSelectedAt ?? 0;
     const rightLastSelected = right.runtimeState.lastSelectedAt ?? 0;
+    const leftExpiry = this.resolvePoolCandidateExpiryAt(left);
+    const rightExpiry = this.resolvePoolCandidateExpiryAt(right);
 
     if (strategy === "priority") {
       if (left.priority !== right.priority) {
@@ -2156,12 +2158,42 @@ export class GatewayRuntime {
       return leftLastSelected - rightLastSelected;
     }
 
+    if (strategy === "single-drain") {
+      const leftDrainAnchor = left.runtimeState.lastSuccessAt ?? leftLastSelected;
+      const rightDrainAnchor = right.runtimeState.lastSuccessAt ?? rightLastSelected;
+      const leftWasDrained = leftDrainAnchor > 0 ? 1 : 0;
+      const rightWasDrained = rightDrainAnchor > 0 ? 1 : 0;
+      if (leftWasDrained !== rightWasDrained) {
+        return rightWasDrained - leftWasDrained;
+      }
+      if (leftWasDrained && leftDrainAnchor !== rightDrainAnchor) {
+        return rightDrainAnchor - leftDrainAnchor;
+      }
+      if (rightQuota !== leftQuota) {
+        return rightQuota - leftQuota;
+      }
+      return left.priority - right.priority;
+    }
+
     if (strategy === "least-recently-used") {
       if (leftLastSelected !== rightLastSelected) {
         return leftLastSelected - rightLastSelected;
       }
       if (rightQuota !== leftQuota) {
         return rightQuota - leftQuota;
+      }
+      return left.priority - right.priority;
+    }
+
+    if (strategy === "expiry-asc") {
+      if (leftExpiry !== rightExpiry) {
+        return leftExpiry - rightExpiry;
+      }
+      if (rightQuota !== leftQuota) {
+        return rightQuota - leftQuota;
+      }
+      if (leftLastSelected !== rightLastSelected) {
+        return leftLastSelected - rightLastSelected;
       }
       return left.priority - right.priority;
     }
@@ -2175,6 +2207,18 @@ export class GatewayRuntime {
     return left.priority - right.priority;
   }
 
+  private resolvePoolCandidateExpiryAt(candidate: PoolCandidate): number {
+    const resetAt = candidate.session.quota?.resetAt;
+    if (typeof resetAt === "number" && Number.isFinite(resetAt) && resetAt > 0) {
+      return resetAt;
+    }
+    const expiresAt = candidate.session.expiresAt;
+    if (typeof expiresAt === "number" && Number.isFinite(expiresAt) && expiresAt > 0) {
+      return expiresAt;
+    }
+    return Number.MAX_SAFE_INTEGER;
+  }
+
   private describePoolSelectionReason(
     strategy: GatewaySessionPoolDefinition["selectionStrategy"],
   ): string {
@@ -2184,8 +2228,14 @@ export class GatewayRuntime {
     if (strategy === "quota-desc") {
       return "按剩余额度优先选择";
     }
+    if (strategy === "single-drain") {
+      return "按单账号耗尽后切换选择";
+    }
     if (strategy === "least-recently-used") {
       return "按最近最少使用选择";
+    }
+    if (strategy === "expiry-asc") {
+      return "按最近到期优先选择";
     }
     return "按额度优先并结合最近使用情况综合选择";
   }

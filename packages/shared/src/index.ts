@@ -11,7 +11,7 @@ export const DEFAULT_BASE_URL = `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
 export const DEFAULT_OPENAI_BASE_URL = `${DEFAULT_BASE_URL}/v1`;
 export const DEFAULT_PROVIDER_ID = "openai-codex";
 export const DEFAULT_MODEL_ALIAS = "codex-default";
-export const DEFAULT_PROVIDER_MODEL_ID = "gpt-5.4";
+export const DEFAULT_PROVIDER_MODEL_ID = "gpt-5.5";
 export const SUPPORTED_CODEX_UPSTREAM_MODELS = [
   "gpt-5.5",
   "gpt-5.4",
@@ -128,6 +128,8 @@ export type GatewayRoutingDispatchMode =
 export type GatewayPoolSelectionStrategy =
   | "priority"
   | "quota-desc"
+  | "single-drain"
+  | "expiry-asc"
   | "least-recently-used"
   | "hybrid";
 

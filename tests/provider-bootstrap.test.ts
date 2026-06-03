@@ -86,7 +86,7 @@ describe("provider bootstrap", () => {
     expect(bootstrapped.configurations[0]?.notes).toContain("当前上游模型：gpt-5.4-mini");
   });
 
-  it("ignores unsupported codex upstream models and falls back to gpt-5.4", () => {
+  it("ignores unsupported codex upstream models and falls back to gpt-5.5", () => {
     const bootstrapped = bootstrapProvidersFromEnvironment(
       {},
       {
@@ -96,7 +96,7 @@ describe("provider bootstrap", () => {
       },
     );
 
-    expect(bootstrapped.models[0]?.providerModelId).toBe("gpt-5.4");
+    expect(bootstrapped.models[0]?.providerModelId).toBe("gpt-5.5");
   });
 
   it("supports codex multi-alias subset from saved settings", () => {

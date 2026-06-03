@@ -19,6 +19,7 @@
     "clean": "find apps packages -type d -name dist -prune -exec rm -rf {} +",
     "check:runtime-deps": "node scripts/check-runtime-deps.mjs",
     "dev:gateway": "tsx apps/gateway/src/cli.ts",
+    "dev:account": "LOCAL_AI_GATEWAY_PORT=18787 tsx watch apps/gateway/src/cli.ts",
     "dev:desktop": "npm run build && npm run generate:icons && electron apps/desktop/dist/main.js",
     "generate:icons": "node scripts/generate-icons.mjs",
     "dist:desktop": "npm run build && npm run generate:icons && node scripts/run-electron-builder.mjs",

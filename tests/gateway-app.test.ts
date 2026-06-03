@@ -97,6 +97,7 @@ class FakeSessionSource implements SessionSource {
 class FakeProviderAdapter implements ProviderAdapter {
   readonly id = "fake-provider";
   readonly label = "Fake Provider";
+  lastModel?: GatewayModelDefinition;
   lastContext?: GatewayConversationContext;
   lastOptions?: GatewayChatOptions;
 
@@ -111,6 +112,7 @@ class FakeProviderAdapter implements ProviderAdapter {
     context: GatewayConversationContext,
     options: GatewayChatOptions = {},
   ): Promise<ProviderStreamResult> {
+    this.lastModel = model;
     this.lastContext = context;
     this.lastOptions = options;
 
@@ -349,6 +351,12 @@ class FailableSessionBackedProviderAdapter extends SessionBackedProviderAdapter 
     private readonly failures: Record<string, Array<Error | string>>,
   ) {
     super(sessionSource);
+  }
+
+  enqueueFailure(sessionId: string, failure: Error | string): void {
+    const queue = this.failures[sessionId] ?? [];
+    queue.push(failure);
+    this.failures[sessionId] = queue;
   }
 
   override async createStream(
@@ -817,6 +825,28 @@ describe("gateway app", () => {
         enabled: true,
         hasApiKey: true,
       });
+
+      const serviceTest = await app.inject({
+        method: "POST",
+        url: "/admin/service/test",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(serviceTest.statusCode).toBe(200);
+      expect(serviceTest.json()).toMatchObject({
+        ok: true,
+        data: {
+          success: true,
+          stage: "upstream",
+          resultText: "OK",
+          modelAlias: "fake-default",
+          providerId: "fake-provider",
+          serviceReachable: true,
+          upstreamReachable: true,
+        },
+      });
+      expect(serviceTest.json().data.latencyMs).toEqual(expect.any(Number));
     } finally {
       await app.close();
       database.close();
@@ -906,6 +936,99 @@ describe("gateway app", () => {
       expect(runtime.configStore.getPoolSettings().pools?.[1]?.visibility).toBe(
         "private",
       );
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("uses a known-good Codex model alias for service tests when available", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime({
+      models: [
+        {
+          alias: "codex-default",
+          displayName: "Codex Default",
+          provider: "fake-provider",
+          providerModelId: "gpt-5.4",
+          contextWindow: 1_050_000,
+          maxTokens: 128_000,
+          input: ["text"],
+          reasoning: true,
+        },
+        {
+          alias: "codex-5.5",
+          displayName: "Codex 5.5",
+          provider: "fake-provider",
+          providerModelId: "gpt-5.5",
+          contextWindow: 1_050_000,
+          maxTokens: 128_000,
+          input: ["text"],
+          reasoning: true,
+        },
+      ],
+    });
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/service/test",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          success: true,
+          modelAlias: "codex-5.5",
+          providerId: "fake-provider",
+        },
+      });
+      expect(adapter.lastModel).toMatchObject({
+        alias: "codex-5.5",
+        providerModelId: "gpt-5.5",
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("does not publish service test failures as member access alerts", async () => {
+    const { rootDir, runtime, database, adapter } = createTestRuntime();
+    adapter.createStream = async () => {
+      throw new GatewayError(502, "upstream_error", "service test upstream failed");
+    };
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/service/test",
+        headers: {
+          authorization: `Bearer ${runtime.configStore.getAdminToken()}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          success: false,
+          errorType: "upstream_error",
+          message: "service test upstream failed",
+        },
+      });
+      expect(database.getRecentAccessAlertEvents()).toEqual([]);
+      expect(database.getRecentErrors(1)[0]).toMatchObject({
+        level: "error",
+        message: "request_failed",
+      });
     } finally {
       await app.close();
       database.close();
@@ -1757,6 +1880,277 @@ describe("gateway app", () => {
     }
   });
 
+  it("resolves dynamic pool members by earliest quota reset or auth expiry", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const now = Date.now();
+    const sessionLater = createResolvedSession({
+      id: "main:fake:pool-later",
+      profileId: "fake:pool-later",
+      accountId: "acct_pool_later",
+      quotaPercentage: 92,
+      resetAt: now + 8 * 60 * 60 * 1000,
+    });
+    const sessionSoon = createResolvedSession({
+      id: "main:fake:pool-soon",
+      profileId: "fake:pool-soon",
+      accountId: "acct_pool_soon",
+      quotaPercentage: 68,
+      resetAt: now + 30 * 60 * 1000,
+    });
+    const sessionSource = new PoolSessionSource([sessionLater, sessionSoon]);
+    const adapter = new SessionBackedProviderAdapter(sessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-expiry",
+          name: "近到期优先池",
+          enabled: true,
+          selectionStrategy: "expiry-asc",
+          minRemainingPercentage: 15,
+          members: [
+            { selector: sessionLater.accountId!, priority: 10 },
+            { selector: sessionSoon.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-expiry-pool",
+          name: "expiry-pool-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-expiry",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const preview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: sessionLater.id,
+        },
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({
+        ok: true,
+        data: {
+          resolvedSessionId: sessionSoon.id,
+          selectionReason: "按最近到期优先选择",
+        },
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(adapter.lastOptions?.sessionId).toBe(sessionSoon.id);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("keeps draining one pool member before switching to another account", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionLowerButCurrent = createResolvedSession({
+      id: "main:fake:pool-current",
+      profileId: "fake:pool-current",
+      accountId: "acct_pool_current",
+      quotaPercentage: 72,
+    });
+    const sessionHighest = createResolvedSession({
+      id: "main:fake:pool-highest",
+      profileId: "fake:pool-highest",
+      accountId: "acct_pool_highest",
+      quotaPercentage: 95,
+    });
+    const sessionSource = new PoolSessionSource([
+      sessionLowerButCurrent,
+      sessionHighest,
+    ]);
+    const adapter = new SessionBackedProviderAdapter(sessionSource);
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-single-drain",
+          name: "单账号耗尽池",
+          enabled: true,
+          selectionStrategy: "single-drain",
+          minRemainingPercentage: 15,
+          members: [
+            { selector: sessionLowerButCurrent.accountId!, priority: 10 },
+            { selector: sessionHighest.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-single-drain-pool",
+          name: "single-drain-pool-route",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-single-drain",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const adminToken = runtime.configStore.getAdminToken();
+      const firstPreview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: sessionLowerButCurrent.id,
+        },
+      });
+      expect(firstPreview.statusCode).toBe(200);
+      expect(firstPreview.json()).toMatchObject({
+        ok: true,
+        data: {
+          resolvedSessionId: sessionHighest.id,
+          selectionReason: "按单账号耗尽后切换选择",
+        },
+      });
+
+      runtime.recordPoolSelectionStarted(
+        "pool-single-drain",
+        sessionLowerButCurrent.id,
+      );
+      const stickyPreview = await app.inject({
+        method: "POST",
+        url: "/admin/config/routing/preview",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        payload: {
+          clientTag: "openclaw",
+          requestedModelAlias: "fake-default",
+          currentModelAlias: "fake-default",
+          currentSessionId: sessionHighest.id,
+        },
+      });
+      expect(stickyPreview.statusCode).toBe(200);
+      expect(stickyPreview.json()).toMatchObject({
+        ok: true,
+        data: {
+          resolvedSessionId: sessionLowerButCurrent.id,
+          selectionReason: "按单账号耗尽后切换选择",
+        },
+      });
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
   it("retries the next dynamic pool member when the first selected account is quota exhausted", async () => {
     const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
     cleanupDirs.push(rootDir);
@@ -2440,6 +2834,425 @@ describe("gateway app", () => {
       expect(memberA?.lastFailureClass).toBe("rate_limited");
       expect(typeof memberA?.cooldownUntil).toBe("number");
       expect((memberA?.cooldownUntil as number) - startedAt).toBeGreaterThanOrEqual(170_000);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("keeps draining the successful fallback member after transient single-drain failover", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:single-drain-a",
+      profileId: "fake:single-drain-a",
+      accountId: "acct_single_drain_a",
+      quotaPercentage: 91,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:single-drain-b",
+      profileId: "fake:single-drain-b",
+      accountId: "acct_single_drain_b",
+      quotaPercentage: 82,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("[status:429] temporary upstream rate limit")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-single-drain-transient",
+          name: "单账号耗尽临时失败池",
+          enabled: true,
+          selectionStrategy: "single-drain",
+          maxRetryCandidates: 2,
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-single-drain-transient",
+          name: "single-drain-transient",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-single-drain-transient",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([sessionA.id, sessionB.id]);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const afterTransient = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(afterTransient.statusCode).toBe(200);
+      const pool = afterTransient
+        .json()
+        .poolObservability.find(
+          (item: { poolId: string }) => item.poolId === "pool-single-drain-transient",
+        );
+      expect(pool?.coolingMemberCount).toBe(0);
+      expect(pool?.eligibleMemberCount).toBe(2);
+      const memberA = pool?.members.find(
+        (member: { sessionId?: string }) => member.sessionId === sessionA.id,
+      );
+      expect(memberA?.status).toBe("available");
+      expect(memberA?.cooldownUntil).toBeUndefined();
+
+      adapter.attemptedSessionIds.length = 0;
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping again" }],
+        },
+      });
+
+      expect(second.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([sessionB.id]);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("switches single-drain members on quota exhaustion without cooling the exhausted account", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessionA = createResolvedSession({
+      id: "main:fake:single-drain-quota-a",
+      profileId: "fake:single-drain-quota-a",
+      accountId: "acct_single_drain_quota_a",
+      quotaPercentage: 91,
+    });
+    const sessionB = createResolvedSession({
+      id: "main:fake:single-drain-quota-b",
+      profileId: "fake:single-drain-quota-b",
+      accountId: "acct_single_drain_quota_b",
+      quotaPercentage: 82,
+    });
+    const sessionSource = new PoolSessionSource([sessionA, sessionB]);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {
+      [sessionA.id]: [new Error("usage_limit_reached")],
+    });
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-single-drain-quota",
+          name: "单账号耗尽额度失败池",
+          enabled: true,
+          selectionStrategy: "single-drain",
+          maxRetryCandidates: 2,
+          members: [
+            { selector: sessionA.accountId!, priority: 10 },
+            { selector: sessionB.accountId!, priority: 20 },
+          ],
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-single-drain-quota",
+          name: "single-drain-quota",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-single-drain-quota",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping" }],
+        },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([sessionA.id, sessionB.id]);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const afterQuotaFailover = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(afterQuotaFailover.statusCode).toBe(200);
+      const pool = afterQuotaFailover
+        .json()
+        .poolObservability.find(
+          (item: { poolId: string }) => item.poolId === "pool-single-drain-quota",
+        );
+      expect(pool?.coolingMemberCount).toBe(0);
+      expect(pool?.eligibleMemberCount).toBe(2);
+      expect(pool?.selectedSessionId).toBe(sessionB.id);
+      const memberA = pool?.members.find(
+        (member: { sessionId?: string }) => member.sessionId === sessionA.id,
+      );
+      expect(memberA?.status).toBe("available");
+      expect(memberA?.lastFailureClass).toBeUndefined();
+      expect(memberA?.cooldownUntil).toBeUndefined();
+
+      adapter.attemptedSessionIds.length = 0;
+      const second = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: {
+          "content-type": "application/json",
+          "x-client-tag": "openclaw",
+        },
+        payload: {
+          model: "fake-default",
+          messages: [{ role: "user", content: "ping again" }],
+        },
+      });
+
+      expect(second.statusCode).toBe(200);
+      expect(adapter.attemptedSessionIds).toEqual([sessionB.id]);
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("keeps single-drain pool members selectable after bursty transient failover", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "local-ai-gateway-test-"));
+    cleanupDirs.push(rootDir);
+    const paths = ensureAppPaths(rootDir);
+    const database = new GatewayDatabase(paths);
+    const logger = new AppLogger(paths, database);
+    const configStore = new ConfigStore(paths);
+    const sessions = Array.from({ length: 7 }, (_, index) =>
+      createResolvedSession({
+        id: `main:fake:single-drain-burst-${index + 1}`,
+        profileId: `fake:single-drain-burst-${index + 1}`,
+        accountId: `acct_single_drain_burst_${index + 1}`,
+        quotaPercentage: 90 - index,
+      }),
+    );
+    const sessionSource = new PoolSessionSource(sessions);
+    const adapter = new FailableSessionBackedProviderAdapter(sessionSource, {});
+    const modelRegistry = new ModelRegistry([
+      {
+        alias: "fake-default",
+        displayName: "Fake Default",
+        provider: "fake-provider",
+        providerModelId: "fake-model-1",
+        contextWindow: 100_000,
+        maxTokens: 8_192,
+        input: ["text"],
+        reasoning: true,
+      },
+    ]);
+    const providerRegistry = new ProviderRegistry([adapter]);
+    const runtime = new GatewayRuntime(
+      paths,
+      configStore,
+      database,
+      logger,
+      modelRegistry,
+      sessionSource,
+      providerRegistry,
+    );
+    runtime.configStore.setPoolSettings({
+      enabled: true,
+      pools: [
+        {
+          id: "pool-single-drain-burst",
+          name: "单账号耗尽突发临时失败池",
+          enabled: true,
+          selectionStrategy: "single-drain",
+          maxRetryCandidates: 5,
+          members: sessions.map((session, index) => ({
+            selector: session.accountId!,
+            priority: index + 1,
+          })),
+        },
+      ],
+    });
+    runtime.configStore.setRoutingSettings({
+      enabled: true,
+      rules: [
+        {
+          id: "rule-single-drain-burst",
+          name: "single-drain-burst",
+          enabled: true,
+          priority: 1,
+          when: {
+            clientTag: "openclaw",
+            requestedModelAlias: "fake-default",
+          },
+          target: {
+            dispatchMode: "dynamic-pool",
+            modelAlias: "fake-default",
+            poolId: "pool-single-drain-burst",
+          },
+        },
+      ],
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      for (let index = 0; index < 4; index += 1) {
+        adapter.enqueueFailure(
+          sessions[index]!.id,
+          new Error("[status:429] temporary upstream rate limit"),
+        );
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/chat/completions",
+          headers: {
+            "content-type": "application/json",
+            "x-client-tag": "openclaw",
+          },
+          payload: {
+            model: "fake-default",
+            messages: [{ role: "user", content: `ping ${index + 1}` }],
+          },
+        });
+
+        expect(
+          response.statusCode,
+          `request ${index + 1} failed with ${response.statusCode}: ${response.body}`,
+        ).toBe(200);
+      }
+      expect(adapter.attemptedSessionIds.length).toBeGreaterThan(4);
+
+      const adminToken = runtime.configStore.getAdminToken();
+      const afterTransientBurst = await app.inject({
+        method: "GET",
+        url: "/admin/health",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      expect(afterTransientBurst.statusCode).toBe(200);
+      const pool = afterTransientBurst
+        .json()
+        .poolObservability.find(
+          (item: { poolId: string }) => item.poolId === "pool-single-drain-burst",
+        );
+      expect(pool?.coolingMemberCount).toBe(0);
+      expect(pool?.eligibleMemberCount).toBe(7);
+      for (const member of pool?.members ?? []) {
+        expect(member.status).toBe("available");
+        expect(member.cooldownUntil).toBeUndefined();
+      }
     } finally {
       await app.close();
       database.close();
@@ -4372,6 +5185,471 @@ describe("gateway app", () => {
           period_days: 30,
         });
       }
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("serves the public account portal under the v1 public surface", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/account",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/html");
+      expect(response.body).toContain("RelayGate");
+      expect(response.body).toContain("RelayGate Account Center");
+      expect(response.body).toContain("animated-characters-login-page");
+      expect(response.body).toContain("left-section");
+      expect(response.body).toContain("right-section");
+      expect(response.body).toContain("grid-overlay");
+      expect(response.body).toContain("app-logo-svg");
+      expect(response.body).toContain('<h1 class="form-title">登录 henery.gateway</h1>');
+      expect(response.body).toContain("输入 API Key，查询当前额度与用量。");
+      expect(response.body).toContain('<label for="username" class="form-label">用户名</label>');
+      expect(response.body).toContain('id="username" type="text"');
+      expect(response.body).toContain("可不填，校验通过后自动识别成员名称");
+      expect(response.body.indexOf('id="username" type="text"')).toBeLessThan(
+        response.body.indexOf('id="api-key" type="password"'),
+      );
+      expect(response.body).toContain(".input-field::placeholder");
+      expect(response.body).toContain("font-size: 0.9rem");
+      expect(response.body).toContain("setResolvedUsername(state.profile?.consumer?.name || \"\")");
+      expect(response.body).toContain("setResolvedUsername(\"\");\n        setLoginStatus(error.message");
+      expect(response.body).toContain('const sessionKey = "henery.gateway.account.apiKey"');
+      expect(response.body).toContain("window.sessionStorage?.setItem(sessionKey, value)");
+      expect(response.body).toContain("window.sessionStorage?.removeItem(sessionKey)");
+      expect(response.body).toContain("const restoredApiKey = readStoredApiKey()");
+      expect(response.body).toContain("正在恢复登录状态...");
+      expect(response.body).toContain("loadAccount({ withLoginTransition: false, persistSession: true, clearSessionOnFailure: true })");
+      expect(response.body).toContain("进入查询");
+      expect(response.body).toContain("form-header {");
+      expect(response.body).toContain("text-align: center");
+      expect(response.body).toContain("is-loading");
+      expect(response.body).toContain("正在查询");
+      expect(response.body).toContain("setLoginLoading");
+      expect(response.body).toContain("login-success-holding");
+      expect(response.body).toContain("setTimeout(startDashboardTransition, 1500)");
+      expect(response.body).toContain("setTimeout(finishDashboardTransition, 800)");
+      expect(response.body).toContain('<div id="confetti-container" class="confetti-container" hidden></div>');
+      expect(response.body).not.toContain('<div id="confetti-container" class="confetti-container" hidden></div>\n          <div class="character purple-character"');
+      expect(response.body).not.toContain("查看你的用量状态");
+      expect(response.body).toContain("login-success-transitioning");
+      expect(response.body).toContain("dashboard-entering");
+      expect(response.body).not.toContain("Welcome back!");
+      expect(response.body).not.toContain("Please enter your API key");
+      expect(response.body).not.toContain("Self-service</a>");
+      expect(response.body).not.toContain("No admin surface</a>");
+      expect(response.body).not.toContain("blur-circle");
+      expect(response.body).toContain("purple-character");
+      expect(response.body).toContain("black-character");
+      expect(response.body).toContain("orange-character");
+      expect(response.body).toContain("yellow-character");
+      expect(response.body).toContain("purple-entrance");
+      expect(response.body).toContain("confetti-container");
+      expect(response.body).toContain("requestAnimationFrame");
+      expect(response.body).toContain("const formInputs = [input, usernameInput].filter(Boolean)");
+      expect(response.body).toContain("account-dashboard-shell");
+      expect(response.body).toContain("sidebar");
+      expect(response.body).toContain("nav-item active");
+      expect(response.body).toContain("退出登录");
+      expect(response.body).toContain("cdn.jsdelivr.net/npm/echarts");
+      expect(response.body).toContain("echarts.init");
+      expect(response.body).toContain("existing?.getDom?.() === element");
+      expect(response.body).toContain("element.innerHTML = \"\"");
+      expect(response.body).toContain("buildUsageTrendChartOption");
+      expect(response.body).toContain("usage-operations-dashboard");
+      expect(response.body).toContain("usage-alerts-workbench");
+      expect(response.body).toContain("usage-chart-panel");
+      expect(response.body).toContain("usage-window-chip");
+      expect(response.body).not.toContain("usage-chart-filter-row");
+      expect(response.body).not.toContain("usage-trend-dimension");
+      expect(response.body).not.toContain("usage-filter-context-bar");
+      expect(response.body).not.toContain("当前公网页面只展示单成员自助视角");
+      expect(response.body).toContain('id="usage-period-summary" class="usage-period-summary"');
+      expect(response.body).toContain("usage-period-card");
+      expect(response.body).toContain("月度观察");
+      expect(response.body).toContain("长期沉淀");
+      expect(response.body).toContain("usage-insight-card");
+      expect(response.body).toContain("成员用量");
+      expect(response.body).toContain("失败与限流");
+      expect(response.body).toContain("addEventListener(\"click\", (event)");
+      expect(response.body).toContain("closest?.(\"[data-window]\")");
+      expect(response.body).toContain("window.__relayGatePublicLoginSuccess?.();");
+      expect(response.body).toContain("loadAccount({ withLoginTransition: true, persistSession: true, clearSessionOnFailure: true })");
+      expect(response.body).toContain("loadAccount({ withLoginTransition: false })");
+      expect(response.body).not.toContain("setLoginStatus(\"账户用量已刷新。\", \"ok\");\n        window.__relayGatePublicLoginSuccess?.();");
+      expect(response.body).toContain("sidebar-logo-svg");
+      expect(response.body).toContain('class="sidebar-logo-svg" viewBox="150 120 860 700"');
+      expect(response.body).not.toContain('<rect x="64" y="64" width="896" height="896" rx="202" fill="url(#sidebarIconBg)"');
+      expect(response.body).toContain("自助查询");
+      expect(response.body).toContain("成员中心");
+      expect(response.body).not.toContain("Self-only");
+      expect(response.body).not.toContain("<span>Account Center</span>");
+      expect(response.body).toContain('legend: { top: 0, right: 8');
+      expect(response.body).toContain("dataZoom");
+      expect(response.body).toContain('xAxisIndex: [0]');
+      expect(response.body).toContain('filterMode: "filter"');
+      expect(response.body).toContain("bindUsageTrendWheelZoom");
+      expect(response.body).toContain('dispatchAction({ type: "dataZoom"');
+      expect(response.body).toContain('fmt(peak) + " Token"');
+      expect(response.body).toContain("function emptyUsageCounters()");
+      expect(response.body).toContain("function addUsageCounters(left, right = {})");
+      expect(response.body).toContain("timelineWindow.count");
+      expect(response.body).toContain("(value / 1000).toFixed(abs >= 100000 ? 0 : 1) + \"K\"");
+      expect(response.body).toContain('grid: { left: 48, right: 24, top: 42, bottom: 52 }');
+      expect(response.body).toContain('radius: ["52%", "76%"]');
+      expect(response.body).toContain('center: ["50%", "42%"]');
+      expect(response.body).toContain('grid: { left: 112, right: 28, top: 18, bottom: 28 }');
+      expect(response.body).toContain("成员健康度");
+      expect(response.body).toContain("Token 用量趋势");
+      expect(response.body).toContain("模型排行");
+      expect(response.body).toContain("Token 构成");
+      expect(response.body).toContain("请求结果");
+      expect(response.body).toContain("延迟与稳定性");
+      expect(response.body).toContain("归因覆盖");
+      expect(response.body).toContain("/v1/user/profile");
+      expect(response.body).toContain("/v1/user/usage/summary");
+      expect(response.body).not.toContain("/admin/");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("requires a member access key for public account profile queries", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Public Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [],
+      },
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/user/profile",
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.type).toBe("gateway_api_key_required");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("returns redacted public account profile for the authenticated member key", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+            tags: ["trial"],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-17T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-public",
+            consumerId: "consumer-public",
+            name: "Public Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            expiresAt: "2026-06-16T00:00:00.000Z",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          {
+            consumerId: "consumer-public",
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["public-ready"],
+            quota: {
+              periodDays: 30,
+              periodTokenLimit: 1_000,
+              periodStartedAt: new Date(Date.now() - 60_000).toISOString(),
+            },
+            limits: {
+              requestsPerMinute: 60,
+              maxConcurrentRequests: 2,
+            },
+          },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "public-user",
+      consumerId: "consumer-public",
+      accessKeyId: "key-public",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 90,
+      outputTokens: 60,
+      totalTokens: 150,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/user/profile",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          consumer: {
+            id: "consumer-public",
+            name: "Public User",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "public-user",
+          },
+          accessKey: {
+            id: "key-public",
+            name: "Public Key",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+          },
+          policy: {
+            allowedModelAliases: ["fake-default"],
+            allowedPoolIds: ["public-ready"],
+            limits: {
+              requestsPerMinute: 60,
+              maxConcurrentRequests: 2,
+            },
+          },
+          balance: {
+            unit: "tokens",
+            quotaMode: "period",
+            total: 1_000,
+            used: 150,
+            remaining: 850,
+          },
+        },
+      });
+      expect(JSON.stringify(response.json())).not.toContain("lag_alice_secret_123456");
+      expect(JSON.stringify(response.json())).not.toContain("keyHash");
+      expect(JSON.stringify(response.json())).not.toContain("alice@example.test");
+    } finally {
+      await app.close();
+      database.close();
+    }
+  });
+
+  it("isolates public account usage summary to the authenticated member key", async () => {
+    const { rootDir, runtime, database } = createTestRuntime();
+    cleanupDirs.push(rootDir);
+    runtime.configStore.setInferenceAuthSettings({
+      mode: "api-key",
+      publicAccess: {
+        enabled: true,
+        provider: "cloudflare-tunnel",
+        publicBaseUrl: "https://gateway.example.test/v1",
+      },
+      accessControl: {
+        consumers: [
+          {
+            id: "consumer-alice",
+            name: "Alice",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "alice",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+          {
+            id: "consumer-bob",
+            name: "Bob",
+            type: "public-user",
+            status: "enabled",
+            clientTag: "bob",
+            tags: [],
+            createdAt: "2026-05-16T00:00:00.000Z",
+            updatedAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        keys: [
+          {
+            id: "key-alice",
+            consumerId: "consumer-alice",
+            name: "Alice Key",
+            keyHash: "19096294cec548d83b1658b7cc0c5d897a3d69f5cc1bf9d8455625346f3d52d4",
+            keyPrefix: "lag_alic",
+            keySuffix: "3456",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+          {
+            id: "key-bob",
+            consumerId: "consumer-bob",
+            name: "Bob Key",
+            keyHash: "3b31c594ea35649dc49930ccbd4371f7e9388e8c98969f453a2ef387af8e4ba3",
+            keyPrefix: "lag_bobb",
+            keySuffix: "4321",
+            status: "enabled",
+            createdAt: "2026-05-16T00:00:00.000Z",
+          },
+        ],
+        policies: [
+          { consumerId: "consumer-alice", allowedModelAliases: ["fake-default"] },
+          { consumerId: "consumer-bob", allowedModelAliases: ["fake-routed"] },
+        ],
+      },
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "alice@example.test",
+      clientTag: "alice",
+      consumerId: "consumer-alice",
+      accessKeyId: "key-alice",
+      providerId: "fake-provider",
+      modelAlias: "fake-default",
+      upstreamModelId: "fake-model-1",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 80,
+      outputTokens: 40,
+      totalTokens: 120,
+      cachedTokens: 10,
+      reasoningTokens: 5,
+    });
+    runtime.recordUsageEvent({
+      timestamp: Date.now() - 1_000,
+      sessionId: "main:fake:default",
+      accountId: "acct_fake",
+      email: "bob@example.test",
+      clientTag: "bob",
+      consumerId: "consumer-bob",
+      accessKeyId: "key-bob",
+      providerId: "fake-provider",
+      modelAlias: "fake-routed",
+      upstreamModelId: "fake-model-2",
+      success: true,
+      stream: false,
+      latencyMs: 100,
+      inputTokens: 900,
+      outputTokens: 100,
+      totalTokens: 1_000,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    });
+    const app = createGatewayApp(runtime);
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/user/usage/summary?range=7d",
+        headers: {
+          authorization: "Bearer lag_alice_secret_123456",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        ok: true,
+        data: {
+          range: "7d",
+          granularity: "day",
+          filters: {
+            consumerId: "consumer-alice",
+            accessKeyId: "key-alice",
+          },
+          summary: {
+            totals: {
+              requestCount: 1,
+              totalTokens: 120,
+              cachedTokens: 10,
+              reasoningTokens: 5,
+            },
+          },
+        },
+      });
+      expect(response.json().data.summary.models).toEqual([
+        expect.objectContaining({
+          modelAlias: "fake-default",
+          usage: expect.objectContaining({
+            totalTokens: 120,
+          }),
+        }),
+      ]);
+      expect(JSON.stringify(response.json())).not.toContain("consumer-bob");
+      expect(JSON.stringify(response.json())).not.toContain("bob@example.test");
+      expect(JSON.stringify(response.json())).not.toContain("fake-routed");
     } finally {
       await app.close();
       database.close();
